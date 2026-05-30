@@ -1,0 +1,5 @@
+const GLOBAL:int32 = 34;
+
+function main(): int32 {
+ go("") + 354;
+}
