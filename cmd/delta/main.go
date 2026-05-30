@@ -2,6 +2,7 @@ package main
 
 import (
 	"delta/internal/ast"
+	"delta/internal/diagnostics"
 	"delta/internal/token"
 	"delta/internal/tokenizer"
 	"fmt"
@@ -25,12 +26,15 @@ func main() {
 }
 
 func runBuild(args []string) {
+	errorBag := diagnostics.ErrorBag{}
+
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "missing file path")
 		os.Exit(2)
 	}
 
 	sourcePath := args[0]
+	errorBag.File = sourcePath
 	if filepath.Ext(sourcePath) != ".delta" {
 		fmt.Fprintln(os.Stderr, "invalid extension: must be .delta")
 		os.Exit(2)
@@ -41,19 +45,26 @@ func runBuild(args []string) {
 		fmt.Fprintf(os.Stderr, "failed to read %s: %v\n", sourcePath, err)
 		os.Exit(1)
 	}
+	errorBag.Source = string(contents)
 
-	tokens, err := tokenizer.Tokenize(string(contents))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to tokenize %s: %v\n", sourcePath, err)
+	tokens, err := tokenizer.Tokenize(string(contents), &errorBag)
+	if len(errorBag.Errors) > 0 {
+		for _, error := range errorBag.Errors {
+			fmt.Println(error.GetFormattedMessage())
+		}
+
 		os.Exit(1)
 	}
 
-	parser := ast.Parser{Tokens: tokens, Position: 0}
-	file, err := parser.Parse()
+	parser := ast.Parser{Tokens: tokens, Position: 0, ErrorBag: &errorBag}
+	file := parser.Parse()
 
-	if err != nil {
-		fmt.Println(err.Error())
-		return
+	if len(errorBag.Errors) > 0 {
+		for _, error := range errorBag.Errors {
+			fmt.Println(error.GetFormattedMessage())
+		}
+
+		os.Exit(1)
 	}
 
 	fmt.Println(ast.FormatAST(file))

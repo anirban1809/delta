@@ -1,19 +1,22 @@
 package ast
 
 import (
+	"delta/internal/diagnostics"
 	"delta/internal/token"
-	"errors"
-	"fmt"
-	"strings"
 )
 
 type Parser struct {
 	Tokens   []token.Token
 	Position int
+	ErrorBag *diagnostics.ErrorBag
 }
 
 func (p *Parser) Current() token.Token {
 	return p.Tokens[p.Position]
+}
+
+func (p *Parser) Previous() token.Token {
+	return p.Tokens[p.Position-1]
 }
 
 func (p *Parser) Peek() token.Token {
@@ -35,104 +38,136 @@ func (p *Parser) Check(kind token.Kind) bool {
 	return p.Current().Kind == kind
 }
 
-func (p *Parser) Expect(kind token.Kind, message string) (token.Token, error) {
+func (p *Parser) Expect(kind token.Kind, message string) (token.Token, bool) {
 	if p.Current().Kind == kind {
-		return p.Advance(), nil
+		return p.Advance(), true
 	}
 
-	return token.Token{}, errors.New(message)
+	//special handling for semicolon
+	if kind == token.Symbol_Semicolon {
+		line := p.Current().Line
+		column := p.Current().Column
+		if p.Position > 0 {
+			previous := p.Previous()
+			line = previous.Line
+			column = previous.Column + len([]rune(previous.Lexeme))
+		}
+		p.addError(line, column, message)
+		return token.Token{}, false
+	}
+
+	current := p.Current()
+	p.addError(current.Line, current.Column, message)
+	return token.Token{}, false
 }
 
-func (p *Parser) ParsePrimaryExpression() (Expression, error) {
+func (p *Parser) HasErrors() bool {
+	return p.ErrorBag != nil && len(p.ErrorBag.Errors) > 0
+}
+
+func (p *Parser) addError(line int, column int, message string) {
+	if p.ErrorBag == nil {
+		return
+	}
+
+	p.ErrorBag.AddError(diagnostics.SourceError{
+		Stage:    diagnostics.Parser,
+		Severity: diagnostics.Error,
+		Line:     line,
+		Column:   column,
+		Message:  message,
+	})
+}
+
+func (p *Parser) ParsePrimaryExpression() (Expression, bool) {
 
 	if p.Current().Kind == token.Kind_StringLiteral {
 		return StringLiteral{
 			Value: p.Advance().Lexeme,
-		}, nil
+		}, true
 	}
 
 	if p.Current().Kind == token.Kind_CharacterLiteral {
 		return CharacterLiteral{
 			Value: p.Advance().Lexeme,
-		}, nil
+		}, true
 	}
 
 	if p.Current().Kind == token.Kind_IntegerLiteral {
 		return IntegerLiteral{
 			Value: p.Advance().Lexeme,
-		}, nil
+		}, true
 	}
 
 	if p.Current().Kind == token.Kind_BooleanLiteral {
 		return BooleanLiteral{
 			Value: p.Advance().Lexeme,
-		}, nil
+		}, true
 	}
 
 	if p.Current().Kind == token.Kind_Identifier {
 		return Identifier{
 			Name: p.Advance().Lexeme,
-		}, nil
+		}, true
 	}
 
 	if p.Current().Kind == token.Symbol_LeftParen {
 		p.Advance() //consume left paren
-		inner, err := p.ParseExpression()
-		if err != nil {
-			return nil, err
+		inner, ok := p.ParseExpression()
+		if !ok {
+			return nil, false
 		}
-		_, err = p.Expect(token.Symbol_RightParen, ") symbol expected")
-
-		if err != nil {
-			return nil, err
+		if _, ok := p.Expect(token.Symbol_RightParen, ") symbol expected"); !ok {
+			return nil, false
 		}
 
-		return inner, nil
+		return inner, true
 	}
 
-	return nil, errors.New("invalid expression")
+	current := p.Current()
+	p.addError(current.Line, current.Column, "invalid expression")
+	return nil, false
 }
 
-func (p *Parser) ParseUnaryExpression() (Expression, error) {
+func (p *Parser) ParseUnaryExpression() (Expression, bool) {
 	symbol := p.Current()
 
 	var expr Expression
-	var err error
 
 	if symbol.Kind == token.Symbol_Not || symbol.Kind == token.Symbol_Minus {
 		p.Advance()
-		expr, err := p.ParseUnaryExpression()
-		if err != nil {
-			return nil, err
+		expr, ok := p.ParseUnaryExpression()
+		if !ok {
+			return nil, false
 		}
 
 		return UnaryExpression{
 			expression: expr,
 			operator:   symbol.Lexeme,
-		}, nil
+		}, true
 
 	}
 
-	expr, err = p.ParseFunctionCallExpression()
-	if err != nil {
-		return nil, err
+	expr, ok := p.ParseFunctionCallExpression()
+	if !ok {
+		return nil, false
 	}
 
-	return expr, nil
+	return expr, true
 }
 
-func (p *Parser) ParseMultiplicativeExpression() (Expression, error) {
-	left, err := p.ParseUnaryExpression()
-	if err != nil {
-		return nil, err
+func (p *Parser) ParseMultiplicativeExpression() (Expression, bool) {
+	left, ok := p.ParseUnaryExpression()
+	if !ok {
+		return nil, false
 	}
 
 	for p.Current().Kind == token.Symbol_Asterisk ||
 		p.Current().Kind == token.Symbol_FSlash {
 		operator := p.Advance()
-		right, err := p.ParseUnaryExpression()
-		if err != nil {
-			return nil, err
+		right, ok := p.ParseUnaryExpression()
+		if !ok {
+			return nil, false
 		}
 
 		left = BinaryExpression{
@@ -142,21 +177,21 @@ func (p *Parser) ParseMultiplicativeExpression() (Expression, error) {
 		}
 	}
 
-	return left, nil
+	return left, true
 }
 
-func (p *Parser) ParseAdditiveExpression() (Expression, error) {
-	left, err := p.ParseMultiplicativeExpression()
-	if err != nil {
-		return nil, err
+func (p *Parser) ParseAdditiveExpression() (Expression, bool) {
+	left, ok := p.ParseMultiplicativeExpression()
+	if !ok {
+		return nil, false
 	}
 
 	for p.Current().Kind == token.Symbol_Plus ||
 		p.Current().Kind == token.Symbol_Minus {
 		operator := p.Advance()
-		right, err := p.ParseMultiplicativeExpression()
-		if err != nil {
-			return nil, err
+		right, ok := p.ParseMultiplicativeExpression()
+		if !ok {
+			return nil, false
 		}
 
 		left = BinaryExpression{
@@ -166,13 +201,13 @@ func (p *Parser) ParseAdditiveExpression() (Expression, error) {
 		}
 	}
 
-	return left, nil
+	return left, true
 }
 
-func (p *Parser) ParseComparisionExpression() (Expression, error) {
-	left, err := p.ParseAdditiveExpression()
-	if err != nil {
-		return nil, err
+func (p *Parser) ParseComparisionExpression() (Expression, bool) {
+	left, ok := p.ParseAdditiveExpression()
+	if !ok {
+		return nil, false
 	}
 
 	for p.Current().Kind == token.Symbol_Less ||
@@ -182,9 +217,9 @@ func (p *Parser) ParseComparisionExpression() (Expression, error) {
 		p.Current().Kind == token.Symbol_Equality ||
 		p.Current().Kind == token.Symbol_NotEquals {
 		operator := p.Advance()
-		right, err := p.ParseAdditiveExpression()
-		if err != nil {
-			return nil, err
+		right, ok := p.ParseAdditiveExpression()
+		if !ok {
+			return nil, false
 		}
 
 		left = BinaryExpression{
@@ -194,21 +229,21 @@ func (p *Parser) ParseComparisionExpression() (Expression, error) {
 		}
 	}
 
-	return left, nil
+	return left, true
 
 }
 
-func (p *Parser) ParseLogicalAndExpression() (Expression, error) {
-	left, err := p.ParseComparisionExpression()
-	if err != nil {
-		return nil, err
+func (p *Parser) ParseLogicalAndExpression() (Expression, bool) {
+	left, ok := p.ParseComparisionExpression()
+	if !ok {
+		return nil, false
 	}
 
 	for p.Current().Kind == token.Symbol_LogicalAnd {
 		operator := p.Advance()
-		right, err := p.ParseComparisionExpression()
-		if err != nil {
-			return nil, err
+		right, ok := p.ParseComparisionExpression()
+		if !ok {
+			return nil, false
 		}
 
 		left = BinaryExpression{
@@ -218,20 +253,20 @@ func (p *Parser) ParseLogicalAndExpression() (Expression, error) {
 		}
 	}
 
-	return left, nil
+	return left, true
 }
 
-func (p *Parser) ParseLogicalOrExpression() (Expression, error) {
-	left, err := p.ParseLogicalAndExpression()
-	if err != nil {
-		return nil, err
+func (p *Parser) ParseLogicalOrExpression() (Expression, bool) {
+	left, ok := p.ParseLogicalAndExpression()
+	if !ok {
+		return nil, false
 	}
 
 	for p.Current().Kind == token.Symbol_LogicalOr {
 		operator := p.Advance()
-		right, err := p.ParseLogicalAndExpression()
-		if err != nil {
-			return nil, err
+		right, ok := p.ParseLogicalAndExpression()
+		if !ok {
+			return nil, false
 		}
 
 		left = BinaryExpression{
@@ -241,17 +276,17 @@ func (p *Parser) ParseLogicalOrExpression() (Expression, error) {
 		}
 	}
 
-	return left, nil
+	return left, true
 }
 
-func (p *Parser) ParseLogicalExpression() (Expression, error) {
+func (p *Parser) ParseLogicalExpression() (Expression, bool) {
 	return p.ParseLogicalOrExpression()
 }
 
-func (p *Parser) ParseFunctionCallExpression() (Expression, error) {
-	callee, err := p.ParsePrimaryExpression()
-	if err != nil {
-		return nil, err
+func (p *Parser) ParseFunctionCallExpression() (Expression, bool) {
+	callee, ok := p.ParsePrimaryExpression()
+	if !ok {
+		return nil, false
 	}
 
 	for p.Current().Kind == token.Symbol_LeftParen {
@@ -260,24 +295,22 @@ func (p *Parser) ParseFunctionCallExpression() (Expression, error) {
 		if p.Current().Kind == token.Symbol_RightParen {
 			arguments = []Expression{}
 		} else {
-			expr, err := p.ParseExpression()
-			if err != nil {
-				return nil, err
+			expr, ok := p.ParseExpression()
+			if !ok {
+				return nil, false
 			}
 			arguments = append(arguments, expr)
 			for p.Current().Kind == token.Symbol_Comma {
 				p.Advance() //consume comma
-				expr, err := p.ParseExpression()
-				if err != nil {
-					return nil, err
+				expr, ok := p.ParseExpression()
+				if !ok {
+					return nil, false
 				}
 				arguments = append(arguments, expr)
 			}
 		}
-		_, err := p.Expect(token.Symbol_RightParen, "expected ) symbol")
-
-		if err != nil {
-			return nil, err
+		if _, ok := p.Expect(token.Symbol_RightParen, "expected ) symbol"); !ok {
+			return nil, false
 		}
 		callee = FunctionCallExpression{
 			Callee:    callee,
@@ -285,7 +318,7 @@ func (p *Parser) ParseFunctionCallExpression() (Expression, error) {
 		}
 	}
 
-	return callee, nil
+	return callee, true
 }
 
 // order of parsing
@@ -298,66 +331,68 @@ func (p *Parser) ParseFunctionCallExpression() (Expression, error) {
 // MultiplicitaveExpr
 // UnaryExpr
 // PrimaryExpr
-func (p *Parser) ParseExpression() (Expression, error) {
-	expr, err := p.ParseLogicalExpression()
-	if err != nil {
-		return nil, err
-	}
-	return expr, nil
+func (p *Parser) ParseExpression() (Expression, bool) {
+	return p.ParseLogicalExpression()
 }
 
-func (p *Parser) ParseReturnStatement() (ReturnStatement, error) {
+func (p *Parser) ParseReturnStatement() (ReturnStatement, bool) {
+	values := []Expression{}
 	p.Advance()
-	expr, err := p.ParseExpression()
+	expr, ok := p.ParseExpression()
+	if !ok {
+		return ReturnStatement{}, false
+	}
+	values = append(values, expr)
 
-	if err != nil {
-		return ReturnStatement{}, err
+	for p.Current().Kind == token.Symbol_Comma {
+		p.Advance() //consume comma
+		expr, ok := p.ParseExpression()
+		if !ok {
+			return ReturnStatement{}, false
+		}
+		values = append(values, expr)
 	}
 
-	_, err = p.Expect(token.Symbol_Semicolon, "; expected")
-	if err != nil {
-		return ReturnStatement{}, err
+	if _, ok := p.Expect(token.Symbol_Semicolon, "; expected"); !ok {
+		return ReturnStatement{}, false
 	}
-	return ReturnStatement{Value: expr}, nil
+	return ReturnStatement{Values: values}, true
 }
 
-func (p *Parser) ParseVarDeclStatement() (VariableDeclarationStatement, error) {
+func (p *Parser) ParseVarDeclStatement() (VariableDeclarationStatement, bool) {
 	modifier := p.Advance() //consume const/let  keyword
 
-	ident, err := p.Expect(token.Kind_Identifier, "identifier expected")
-
-	if err != nil {
-		return VariableDeclarationStatement{}, err
+	ident, ok := p.Expect(token.Kind_Identifier, "identifier expected")
+	if !ok {
+		return VariableDeclarationStatement{}, false
 	}
 
 	typeReference := TypeReference{Name: Identifier{}}
 	if p.Current().Kind == token.Symbol_Colon {
 		p.Advance() // consume colon
-		typeIdentifier, err := p.Expect(
+		typeIdentifier, ok := p.Expect(
 			token.Kind_Identifier,
 			"type identifier expected",
 		)
-		if err != nil {
-			return VariableDeclarationStatement{}, err
+		if !ok {
+			return VariableDeclarationStatement{}, false
 		}
 		typeReference = TypeReference{
 			Name: Identifier{Name: typeIdentifier.Lexeme},
 		}
 	}
 
-	_, err = p.Expect(token.Symbol_Equals, "symbol = expected")
-	if err != nil {
-		return VariableDeclarationStatement{}, err
+	if _, ok := p.Expect(token.Symbol_Equals, "symbol = expected"); !ok {
+		return VariableDeclarationStatement{}, false
 	}
 
-	value, err := p.ParseExpression()
-	if err != nil {
-		return VariableDeclarationStatement{}, err
+	value, ok := p.ParseExpression()
+	if !ok {
+		return VariableDeclarationStatement{}, false
 	}
 
-	_, err = p.Expect(token.Symbol_Semicolon, "; expected")
-	if err != nil {
-		return VariableDeclarationStatement{}, err
+	if _, ok := p.Expect(token.Symbol_Semicolon, "; expected"); !ok {
+		return VariableDeclarationStatement{}, false
 	}
 
 	return VariableDeclarationStatement{
@@ -365,90 +400,80 @@ func (p *Parser) ParseVarDeclStatement() (VariableDeclarationStatement, error) {
 		Name:    ident.Lexeme,
 		Type:    typeReference,
 		Value:   value,
-	}, nil
+	}, true
 
 }
 
-func (p *Parser) ParseExpressionStatement() (ExpressionStatement, error) {
-	expr, err := p.ParseExpression()
-
-	if err != nil {
-		return ExpressionStatement{}, err
+func (p *Parser) ParseExpressionStatement() (ExpressionStatement, bool) {
+	expr, ok := p.ParseExpression()
+	if !ok {
+		return ExpressionStatement{}, false
 	}
 
-	_, err = p.Expect(token.Symbol_Semicolon, "; expected")
-
-	if err != nil {
-		return ExpressionStatement{}, err
+	if _, ok := p.Expect(token.Symbol_Semicolon, "; expected"); !ok {
+		return ExpressionStatement{}, false
 	}
 
 	return ExpressionStatement{
 		Value: expr,
-	}, nil
+	}, true
 }
 
-func (p *Parser) ParseAssignmentStatement() (AssignmentStatement, error) {
+func (p *Parser) ParseAssignmentStatement() (AssignmentStatement, bool) {
 	target := p.Advance() // consume identifier
 
-	_, err := p.Expect(token.Symbol_Equals, "symbol '=' expected")
-	if err != nil {
-		return AssignmentStatement{}, err
+	if _, ok := p.Expect(token.Symbol_Equals, "symbol '=' expected"); !ok {
+		return AssignmentStatement{}, false
 	}
 
-	value, err := p.ParseExpression()
-
-	if err != nil {
-		return AssignmentStatement{}, err
+	value, ok := p.ParseExpression()
+	if !ok {
+		return AssignmentStatement{}, false
 	}
 
-	_, err = p.Expect(token.Symbol_Semicolon, "symbol ';' expected")
-	if err != nil {
-		return AssignmentStatement{}, err
+	if _, ok := p.Expect(token.Symbol_Semicolon, "symbol ';' expected"); !ok {
+		return AssignmentStatement{}, false
 	}
 
 	return AssignmentStatement{
 		Target: Identifier{Name: target.Lexeme},
 		Value:  value,
-	}, nil
+	}, true
 }
 
-func (p *Parser) ParseIfElseBlock() (Statement, error) {
+func (p *Parser) ParseIfElseBlock() (Statement, bool) {
 	p.Advance() //consume if
-	_, err := p.Expect(token.Symbol_LeftParen, "symbol ( expected")
-	if err != nil {
-		return nil, err
+	if _, ok := p.Expect(token.Symbol_LeftParen, "symbol ( expected"); !ok {
+		return nil, false
 	}
 
-	condition, err := p.ParseExpression()
-	if err != nil {
-		return nil, err
+	condition, ok := p.ParseExpression()
+	if !ok {
+		return nil, false
 	}
-	_, err = p.Expect(token.Symbol_RightParen, "symbol ) expected")
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = p.Expect(token.Symbol_LeftBrace, "symbol { expected")
-	if err != nil {
-		return nil, err
+	if _, ok := p.Expect(token.Symbol_RightParen, "symbol ) expected"); !ok {
+		return nil, false
 	}
 
-	thenBlock, err := p.ParseBlockStatement()
-	if err != nil {
-		return nil, err
+	if _, ok := p.Expect(token.Symbol_LeftBrace, "symbol { expected"); !ok {
+		return nil, false
+	}
+
+	thenBlock, ok := p.ParseBlockStatement()
+	if !ok {
+		return nil, false
 	}
 
 	var elseBlock BlockStatement
 
 	if p.Current().Kind == token.Keyword_Else {
 		p.Advance() //consume else
-		_, err = p.Expect(token.Symbol_LeftBrace, "symbol { expected")
-		if err != nil {
-			return nil, err
+		if _, ok := p.Expect(token.Symbol_LeftBrace, "symbol { expected"); !ok {
+			return nil, false
 		}
-		elseBlock, err = p.ParseBlockStatement()
-		if err != nil {
-			return nil, err
+		elseBlock, ok = p.ParseBlockStatement()
+		if !ok {
+			return nil, false
 		}
 	}
 
@@ -456,56 +481,59 @@ func (p *Parser) ParseIfElseBlock() (Statement, error) {
 		ThenBlock: thenBlock,
 		ElseBlock: elseBlock,
 		Condition: condition,
-	}, nil
+	}, true
 
 }
 
-func (p *Parser) ParseWhileBlock() (WhileStatement, error) {
+func (p *Parser) ParseWhileBlock() (WhileStatement, bool) {
 	p.Advance() //consume while
-	_, err := p.Expect(token.Symbol_LeftParen, "symbol ( expected")
-	if err != nil {
-		return WhileStatement{}, err
+	if _, ok := p.Expect(token.Symbol_LeftParen, "symbol ( expected"); !ok {
+		return WhileStatement{}, false
 	}
 
-	condition, err := p.ParseExpression()
-	if err != nil {
-		return WhileStatement{}, err
+	condition, ok := p.ParseExpression()
+	if !ok {
+		return WhileStatement{}, false
 	}
-	_, err = p.Expect(token.Symbol_RightParen, "symbol ) expected")
-	if err != nil {
-		return WhileStatement{}, err
-	}
-
-	_, err = p.Expect(token.Symbol_LeftBrace, "symbol { expected")
-	if err != nil {
-		return WhileStatement{}, err
+	if _, ok := p.Expect(token.Symbol_RightParen, "symbol ) expected"); !ok {
+		return WhileStatement{}, false
 	}
 
-	block, err := p.ParseBlockStatement()
-	if err != nil {
-		return WhileStatement{}, err
+	if _, ok := p.Expect(token.Symbol_LeftBrace, "symbol { expected"); !ok {
+		return WhileStatement{}, false
+	}
+
+	block, ok := p.ParseBlockStatement()
+	if !ok {
+		return WhileStatement{}, false
 	}
 	return WhileStatement{
 		Condition: condition,
 		Body:      block,
-	}, nil
+	}, true
 
 }
 
-func (p *Parser) ParseBlockStatement() (BlockStatement, error) {
+func (p *Parser) ParseBlockStatement() (BlockStatement, bool) {
 	statements := []Statement{}
 
 	for p.Current().Kind != token.Symbol_RightBrace {
 		if p.Current().Kind == token.Kind_EOF {
-			return BlockStatement{}, errors.New(
+			current := p.Current()
+			p.addError(
+				current.Line,
+				current.Column,
 				"reached the end of file while parsing",
 			)
+			return BlockStatement{}, false
 		}
 
+		start := p.Position
 		if p.Current().Kind == token.Keyword_Return {
-			returnStatement, err := p.ParseReturnStatement()
-			if err != nil {
-				return BlockStatement{}, err
+			returnStatement, ok := p.ParseReturnStatement()
+			if !ok {
+				p.synchronizeStatement(start)
+				continue
 			}
 			statements = append(statements, returnStatement)
 			continue
@@ -513,9 +541,10 @@ func (p *Parser) ParseBlockStatement() (BlockStatement, error) {
 
 		if p.Current().Kind == token.Keyword_Const ||
 			p.Current().Kind == token.Keyword_Let {
-			constStatement, err := p.ParseVarDeclStatement()
-			if err != nil {
-				return BlockStatement{}, err
+			constStatement, ok := p.ParseVarDeclStatement()
+			if !ok {
+				p.synchronizeStatement(start)
+				continue
 			}
 			statements = append(statements, constStatement)
 			continue
@@ -523,379 +552,294 @@ func (p *Parser) ParseBlockStatement() (BlockStatement, error) {
 
 		if p.Current().Kind == token.Kind_Identifier &&
 			p.Peek().Kind == token.Symbol_Equals {
-			constStatement, err := p.ParseAssignmentStatement()
-			if err != nil {
-				return BlockStatement{}, err
+			constStatement, ok := p.ParseAssignmentStatement()
+			if !ok {
+				p.synchronizeStatement(start)
+				continue
 			}
 			statements = append(statements, constStatement)
 			continue
 		}
 
 		if p.Current().Kind == token.Keyword_If {
-			constStatement, err := p.ParseIfElseBlock()
-			if err != nil {
-				return BlockStatement{}, err
+			constStatement, ok := p.ParseIfElseBlock()
+			if !ok {
+				p.synchronizeStatement(start)
+				continue
 			}
 			statements = append(statements, constStatement)
 			continue
 		}
 
 		if p.Current().Kind == token.Keyword_While {
-			constStatement, err := p.ParseWhileBlock()
-			if err != nil {
-				return BlockStatement{}, err
+			constStatement, ok := p.ParseWhileBlock()
+			if !ok {
+				p.synchronizeStatement(start)
+				continue
 			}
 			statements = append(statements, constStatement)
 			continue
 		}
 
-		expr, err := p.ParseExpressionStatement()
-
-		if err != nil {
-			return BlockStatement{}, err
+		expr, ok := p.ParseExpressionStatement()
+		if !ok {
+			p.synchronizeStatement(start)
+			continue
 		}
 
 		statements = append(statements, expr)
 
 	}
 	p.Advance() //consume right brace
-	return BlockStatement{Statements: statements}, nil
+	return BlockStatement{Statements: statements}, true
 }
 
-func (p *Parser) ParseFunctionParameter() (FunctionParameter, error) {
-	paramName, err := p.Expect(token.Kind_Identifier, "identifier expected")
-	if err != nil {
-		return FunctionParameter{}, err
+func (p *Parser) ParseFunctionParameter() (FunctionParameter, bool) {
+	paramName, ok := p.Expect(token.Kind_Identifier, "identifier expected")
+	if !ok {
+		return FunctionParameter{}, false
 	}
-	_, err = p.Expect(token.Symbol_Colon, "Symbol : expected")
-	if err != nil {
-		return FunctionParameter{}, err
+	if _, ok := p.Expect(token.Symbol_Colon, "Symbol : expected"); !ok {
+		return FunctionParameter{}, false
 	}
-	paramType, err := p.Expect(token.Kind_Identifier, "identifier expected")
-	if err != nil {
-		return FunctionParameter{}, err
+	paramType, ok := p.Expect(token.Kind_Identifier, "identifier expected")
+	if !ok {
+		return FunctionParameter{}, false
 	}
 
 	return FunctionParameter{
 		Name: Identifier{Name: paramName.Lexeme},
 		Type: TypeReference{Name: Identifier{Name: paramType.Lexeme}},
-	}, nil
+	}, true
 }
 
-func (p *Parser) ParseFunctionParameters() ([]FunctionParameter, error) {
+func (p *Parser) ParseFunctionParameters() ([]FunctionParameter, bool) {
 	var parameters = []FunctionParameter{}
 
 	if p.Current().Kind == token.Symbol_RightParen {
 		p.Advance() //consume right paren
-		return parameters, nil
+		return parameters, true
 	}
 
-	first, err := p.ParseFunctionParameter()
-	if err != nil {
-		return nil, err
+	first, ok := p.ParseFunctionParameter()
+	if !ok {
+		return nil, false
 	}
 	parameters = append(parameters, first)
 
 	for p.Current().Kind != token.Symbol_RightParen {
-		_, err = p.Expect(token.Symbol_Comma, "symbol , expected")
-		if err != nil {
-			return nil, err
+		if _, ok := p.Expect(token.Symbol_Comma, "symbol , expected"); !ok {
+			return nil, false
 		}
-		param, err := p.ParseFunctionParameter()
-		if err != nil {
-			return nil, err
+		param, ok := p.ParseFunctionParameter()
+		if !ok {
+			return nil, false
 		}
 		parameters = append(parameters, param)
 	}
-	_, err = p.Expect(token.Symbol_RightParen, "symbol ) expected")
-	if err != nil {
-		return nil, err
+	if _, ok := p.Expect(token.Symbol_RightParen, "symbol ) expected"); !ok {
+		return nil, false
 	}
 
-	return parameters, nil
+	return parameters, true
 }
 
-func (p *Parser) ParseFunctionDeclaration() (FunctionDeclaration, error) {
-	functionName, err := p.Expect(token.Kind_Identifier, "identifier expected")
-
-	if err != nil {
-		return FunctionDeclaration{}, err
-	}
-	_, err = p.Expect(token.Symbol_LeftParen, "expected '(' symbol")
-
-	if err != nil {
-		return FunctionDeclaration{}, err
+func (p *Parser) ParseFunctionDeclaration() (FunctionDeclaration, bool) {
+	functionName, ok := p.Expect(token.Kind_Identifier, "identifier expected")
+	if !ok {
+		return FunctionDeclaration{}, false
 	}
 
-	parameters, err := p.ParseFunctionParameters()
-	if err != nil {
-		return FunctionDeclaration{}, err
+	if _, ok := p.Expect(token.Symbol_LeftParen, "expected '(' symbol"); !ok {
+		return FunctionDeclaration{}, false
 	}
 
-	_, err = p.Expect(token.Symbol_Colon, "expected ':' symbol")
-
-	if err != nil {
-		return FunctionDeclaration{}, err
+	parameters, ok := p.ParseFunctionParameters()
+	if !ok {
+		return FunctionDeclaration{}, false
 	}
 
-	returnType, err := p.Expect(token.Kind_Identifier, "identifier expected")
-	if err != nil {
-		return FunctionDeclaration{}, err
+	returns := []TypeReference{}
+	errors := []TypeReference{}
+
+	if p.Current().Kind == token.Symbol_Colon {
+		p.Advance() //consume colon
+		returnTypeToken, ok := p.Expect(
+			token.Kind_Identifier,
+			"identifier expected",
+		)
+		if !ok {
+			return FunctionDeclaration{}, false
+		}
+		returns = append(
+			returns,
+			TypeReference{Name: Identifier{Name: returnTypeToken.Lexeme}},
+		)
+
+		for p.Current().Kind == token.Symbol_Comma {
+			p.Advance() // consume comma
+			returnTypeToken, ok := p.Expect(
+				token.Kind_Identifier,
+				"identifier expected",
+			)
+			if !ok {
+				return FunctionDeclaration{}, false
+			}
+			returns = append(
+				returns,
+				TypeReference{Name: Identifier{Name: returnTypeToken.Lexeme}},
+			)
+		}
+
+		if p.Current().Kind == token.Symbol_Pipe {
+			p.Advance() //consume | symbol
+			errorType, ok := p.Expect(
+				token.Kind_Identifier,
+				"identifier expected",
+			)
+			if !ok {
+				return FunctionDeclaration{}, false
+			}
+
+			errors = append(
+				errors,
+				TypeReference{Name: Identifier{Name: errorType.Lexeme}},
+			)
+
+			for p.Current().Kind == token.Symbol_Comma {
+				p.Advance() // consume comma
+				errorType, ok := p.Expect(
+					token.Kind_Identifier,
+					"identifier expected",
+				)
+				if !ok {
+					return FunctionDeclaration{}, false
+				}
+				errors = append(
+					errors,
+					TypeReference{Name: Identifier{Name: errorType.Lexeme}},
+				)
+			}
+		}
+
 	}
 
-	_, err = p.Expect(token.Symbol_LeftBrace, "expected { symbol")
-	if err != nil {
-		return FunctionDeclaration{}, err
+	if _, ok := p.Expect(token.Symbol_LeftBrace, "expected { symbol"); !ok {
+		return FunctionDeclaration{}, false
 	}
 
-	body, err := p.ParseBlockStatement()
-
-	if err != nil {
-		return FunctionDeclaration{}, err
+	body, ok := p.ParseBlockStatement()
+	if !ok {
+		return FunctionDeclaration{}, false
 	}
 
 	return FunctionDeclaration{
-		Name:       functionName.Lexeme,
-		Parameters: parameters,
-		ReturnType: TypeReference{Name: Identifier{Name: returnType.Lexeme}},
-		Body:       &body,
-	}, nil
+		Name:        functionName.Lexeme,
+		Parameters:  parameters,
+		ReturnTypes: returns,
+		ErrorTypes:  errors,
+		Body:        &body,
+	}, true
 }
 
-func (p *Parser) ParseConstDeclaration() (ConstDeclaration, error) {
-	decl, err := p.ParseVarDeclStatement()
-	if err != nil {
-		return ConstDeclaration{}, err
+func (p *Parser) ParseConstDeclaration() (ConstDeclaration, bool) {
+	decl, ok := p.ParseVarDeclStatement()
+	if !ok {
+		return ConstDeclaration{}, false
 	}
 
 	return ConstDeclaration{
 		Name:  Identifier{Name: decl.Name},
 		Type:  decl.Type,
 		Value: decl.Value,
-	}, nil
+	}, true
 }
 
-func (p *Parser) ParseDeclaration() (Declaration, error) {
+func (p *Parser) ParseDeclaration() (Declaration, bool) {
 	if p.Current().Kind == token.Keyword_Function {
 		p.Advance()
-		declaration, err := p.ParseFunctionDeclaration()
-
-		if err != nil {
-			return nil, err
+		declaration, ok := p.ParseFunctionDeclaration()
+		if !ok {
+			return nil, false
 		}
 
-		return declaration, nil
+		return declaration, true
 	}
 
 	if p.Current().Kind == token.Keyword_Const ||
 		p.Current().Kind == token.Keyword_Let {
 		if p.Current().Kind == token.Keyword_Let {
-			return nil, errors.New("let is not allowed at file scope")
+			current := p.Current()
+			p.addError(
+				current.Line,
+				current.Column,
+				"let is not allowed at file scope",
+			)
+			return nil, false
 		}
 
-		declaration, err := p.ParseConstDeclaration()
-		if err != nil {
-			return nil, err
+		declaration, ok := p.ParseConstDeclaration()
+		if !ok {
+			return nil, false
 		}
 
-		return declaration, nil
+		return declaration, true
 	}
 
-	return nil, errors.New("failed to parse declaration")
+	current := p.Current()
+	p.addError(current.Line, current.Column, "failed to parse declaration")
+	return nil, false
 }
 
-func (p *Parser) Parse() (File, error) {
+func (p *Parser) synchronizeDeclaration(start int) {
+	if p.Position == start && p.Current().Kind != token.Kind_EOF {
+		p.Advance()
+	}
+
+	for p.Current().Kind != token.Kind_EOF {
+		switch p.Current().Kind {
+		case token.Keyword_Function, token.Keyword_Const:
+			return
+		default:
+			p.Advance()
+		}
+	}
+}
+
+func (p *Parser) synchronizeStatement(start int) {
+	if p.Position == start && p.Current().Kind != token.Kind_EOF {
+		p.Advance()
+	}
+
+	for p.Current().Kind != token.Kind_EOF {
+		if p.Position > 0 && p.Previous().Kind == token.Symbol_Semicolon {
+			return
+		}
+
+		switch p.Current().Kind {
+		case token.Keyword_Return,
+			token.Keyword_Const,
+			token.Keyword_Let,
+			token.Keyword_If,
+			token.Keyword_While,
+			token.Symbol_RightBrace:
+			return
+		default:
+			p.Advance()
+		}
+	}
+}
+
+func (p *Parser) Parse() File {
 	file := File{}
 	for p.Current().Kind != token.Kind_EOF {
-		declaration, err := p.ParseDeclaration()
-		if err != nil {
-			return File{}, err
+		start := p.Position
+		declaration, ok := p.ParseDeclaration()
+		if !ok {
+			p.synchronizeDeclaration(start)
+			continue
 		}
 		file.Declarations = append(file.Declarations, declaration)
 	}
-	return file, nil
-}
-
-func FormatAST(file File) string {
-	var out strings.Builder
-	out.WriteString("File\n")
-
-	for _, declaration := range file.Declarations {
-		formatDeclaration(&out, declaration, 1)
-	}
-
-	return out.String()
-}
-
-func formatDeclaration(
-	out *strings.Builder,
-	declaration Declaration,
-	depth int,
-) {
-	switch declaration := declaration.(type) {
-	case FunctionDeclaration:
-		formatFunctionDeclaration(out, declaration, depth)
-	case *FunctionDeclaration:
-		formatFunctionDeclaration(out, *declaration, depth)
-	case ConstDeclaration:
-		formatConstDeclaration(out, declaration, depth)
-	case *ConstDeclaration:
-		formatConstDeclaration(out, *declaration, depth)
-	default:
-		writeLine(out, depth, "UnknownDeclaration")
-	}
-}
-
-func formatConstDeclaration(
-	out *strings.Builder,
-	declaration ConstDeclaration,
-	depth int,
-) {
-	writeLine(out, depth, "ConstDeclaration")
-	writeLine(out, depth+1, "Name")
-	formatExpression(out, declaration.Name, depth+2)
-	if declaration.Type.Name.Name != "" {
-		writeLine(out, depth+1, "Type")
-		formatExpression(out, declaration.Type.Name, depth+2)
-	}
-	writeLine(out, depth+1, "Value")
-	formatExpression(out, declaration.Value, depth+2)
-}
-
-func formatFunctionDeclaration(
-	out *strings.Builder,
-	declaration FunctionDeclaration,
-	depth int,
-) {
-	writeLine(
-		out,
-		depth,
-		"FunctionDeclaration name=%q",
-		declaration.Name,
-	)
-	writeLine(out, depth+1, "Parameters")
-	for index, parameter := range declaration.Parameters {
-		writeLine(out, depth+2, "Parameter %d", index)
-		writeLine(out, depth+3, "Name")
-		formatExpression(out, parameter.Name, depth+4)
-		writeLine(out, depth+3, "Type")
-		formatExpression(out, parameter.Type.Name, depth+4)
-	}
-	writeLine(out, depth+1, "ReturnType")
-	formatExpression(out, declaration.ReturnType.Name, depth+2)
-
-	if declaration.Body == nil {
-		writeLine(out, depth+1, "Body <nil>")
-		return
-	}
-
-	formatBlockStatement(out, declaration.Body, depth+1)
-}
-
-func formatBlockStatement(
-	out *strings.Builder,
-	block *BlockStatement,
-	depth int,
-) {
-	writeLine(out, depth, "BlockStatement")
-
-	for _, statement := range block.Statements {
-		formatStatement(out, statement, depth+1)
-	}
-}
-
-func formatStatement(out *strings.Builder, statement Statement, depth int) {
-	switch statement := statement.(type) {
-	case ReturnStatement:
-		writeLine(out, depth, "ReturnStatement")
-		formatExpression(out, statement.Value, depth+1)
-	case VariableDeclarationStatement:
-		kind := "const"
-		if statement.Mutable {
-			kind = "let"
-		}
-
-		writeLine(
-			out,
-			depth,
-			"VariableDeclarationStatement kind=%q name=%q",
-			kind,
-			statement.Name,
-		)
-		if statement.Type.Name.Name != "" {
-			writeLine(out, depth+1, "Type")
-			formatExpression(out, statement.Type.Name, depth+2)
-		}
-		writeLine(out, depth+1, "Value")
-		formatExpression(out, statement.Value, depth+2)
-	case ExpressionStatement:
-		writeLine(out, depth, "ExpressionStatement")
-		formatExpression(out, statement.Value, depth+1)
-	case AssignmentStatement:
-		writeLine(out, depth, "AssignmentStatement")
-		writeLine(out, depth+1, "Target")
-		formatExpression(out, statement.Target, depth+2)
-		writeLine(out, depth+1, "Value")
-		formatExpression(out, statement.Value, depth+2)
-	case IfStatement:
-		writeLine(out, depth, "IfStatement")
-		writeLine(out, depth+1, "Condition")
-		formatExpression(out, statement.Condition, depth+2)
-		writeLine(out, depth+1, "Then")
-		formatBlockStatement(out, &statement.ThenBlock, depth+2)
-		if len(statement.ElseBlock.Statements) > 0 {
-			writeLine(out, depth+1, "Else")
-			formatBlockStatement(out, &statement.ElseBlock, depth+2)
-		}
-	case WhileStatement:
-		writeLine(out, depth, "WhileStatement")
-		writeLine(out, depth+1, "Condition")
-		formatExpression(out, statement.Condition, depth+2)
-		writeLine(out, depth+1, "Body")
-		formatBlockStatement(out, &statement.Body, depth+2)
-	default:
-		writeLine(out, depth, "UnknownStatement")
-	}
-}
-
-func formatExpression(out *strings.Builder, expression Expression, depth int) {
-	switch expression := expression.(type) {
-	case UnaryExpression:
-		writeLine(out, depth, "UnaryExpression operator=%q", expression.operator)
-		writeLine(out, depth+1, "Expression")
-		formatExpression(out, expression.expression, depth+2)
-	case BinaryExpression:
-		writeLine(out, depth, "BinaryExpression operator=%q", expression.operator)
-		writeLine(out, depth+1, "Left")
-		formatExpression(out, expression.left, depth+2)
-		writeLine(out, depth+1, "Right")
-		formatExpression(out, expression.right, depth+2)
-	case FunctionCallExpression:
-		writeLine(out, depth, "FunctionCallExpression")
-		writeLine(out, depth+1, "Callee")
-		formatExpression(out, expression.Callee, depth+2)
-		writeLine(out, depth+1, "Arguments")
-		for index, argument := range expression.Arguments {
-			writeLine(out, depth+2, "Argument %d", index)
-			formatExpression(out, argument, depth+3)
-		}
-	case IntegerLiteral:
-		writeLine(out, depth, "IntegerLiteral value=%q", expression.Value)
-	case BooleanLiteral:
-		writeLine(out, depth, "BooleanLiteral value=%q", expression.Value)
-	case StringLiteral:
-		writeLine(out, depth, "StringLiteral value=%q", expression.Value)
-	case CharacterLiteral:
-		writeLine(out, depth, "CharacterLiteral value=%q", expression.Value)
-	case Identifier:
-		writeLine(out, depth, "Identifier name=%q", expression.Name)
-	default:
-		writeLine(out, depth, "UnknownExpression")
-	}
-}
-
-func writeLine(out *strings.Builder, depth int, format string, args ...any) {
-	out.WriteString(strings.Repeat("  ", depth))
-	fmt.Fprintf(out, format, args...)
-	out.WriteByte('\n')
+	return file
 }

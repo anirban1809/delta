@@ -1,5 +1,6 @@
-const GLOBAL:int32 = 34;
-
-function main(): int32 {
- go("") + 354;
+function main2(a:A, b:B): void | IOError, NetError{
+    if (a > apple(34)){
+        return 10;
+    }
+  return b(a+b), b+23;
 }

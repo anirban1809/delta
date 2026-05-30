@@ -14,10 +14,11 @@ type FunctionParameter struct {
 }
 
 type FunctionDeclaration struct {
-	Name       string
-	ReturnType TypeReference
-	Parameters []FunctionParameter
-	Body       *BlockStatement
+	Name        string
+	ReturnTypes []TypeReference
+	ErrorTypes  []TypeReference
+	Parameters  []FunctionParameter
+	Body        *BlockStatement
 }
 
 func (FunctionDeclaration) declarationNode() {}
@@ -35,7 +36,7 @@ type Statement interface {
 }
 
 type ReturnStatement struct {
-	Value Expression
+	Values []Expression
 }
 
 func (ReturnStatement) statementNode() {}

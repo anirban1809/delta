@@ -1,6 +1,6 @@
 # Delta Compiler Status
 
-Date: 2026-05-30
+Date: 2026-05-31
 
 This document describes the current implementation status of the Delta compiler
 against the design in `docs/main-spec.md` and `docs/spec-sections/`. It is a
@@ -11,7 +11,9 @@ language specification.
 
 The compiler currently has a small front end that can read a single `.delta`
 source file, tokenize it, parse it into an untyped AST, and print that AST in a
-formatted tree form.
+formatted tree form. Tokenizer and parser failures are reported through a shared
+diagnostic bag and printed with file, line, column, source line, and caret
+location.
 
 Implemented command path:
 
@@ -19,7 +21,9 @@ Implemented command path:
 2. The CLI checks that the input file has a `.delta` extension.
 3. The tokenizer converts source text into tokens.
 4. The parser builds an untyped AST.
-5. The AST formatter prints the parsed tree.
+5. If tokenization or parsing reports diagnostics, the CLI prints them and stops
+   before the next stage.
+6. The AST formatter prints the parsed tree when no diagnostics are present.
 
 This means the project currently covers the first two stages of the planned
 pipeline from Section 2:
@@ -67,6 +71,7 @@ Implemented token categories:
 - Comparison operators: `<`, `<=`, `>`, `>=`, `==`, `!=`.
 - Assignment operator: `=`.
 - Logical operators: `!`, `&&`, `||`.
+- Error type separator: `|`.
 
 Not implemented yet:
 
@@ -92,6 +97,12 @@ Implemented:
   }
   ```
 
+- Function declarations with multiple return types and declared error types:
+
+  ```delta
+  function x(): int32, int32 | IOError, NetError {}
+  ```
+
 - File-scope `const` declarations:
 
   ```delta
@@ -107,6 +118,9 @@ Partially aligned with the design:
 - The parser currently treats primitive type names like `int32` as identifiers
   in type positions, which matches the current AST shape but is not a complete
   type system yet.
+- Multiple return types and error types are currently parsed and formatted as
+  type references only. The compiler does not yet validate return arity, error
+  type shape, or fallible control flow.
 
 Not implemented yet:
 
@@ -143,6 +157,8 @@ Not implemented yet:
 - `switch`.
 - `check` blocks.
 - `panic`, `process.exit`, and `unreachable` intrinsics.
+- Multi-expression `return` statements for functions that declare multiple
+  return values.
 - Multi-return destructuring.
 - Definite-assignment analysis.
 - Scope validation and same-scope shadowing checks.
@@ -196,11 +212,15 @@ The AST currently separates declarations, statements, and expressions:
 
 - `File`
 - `FunctionDeclaration`
+  - `Parameters []FunctionParameter`
+  - `ReturnTypes []TypeReference`
+  - `ErrorTypes []TypeReference`
 - `ConstDeclaration`
 - `FunctionParameter`
 - `TypeReference`
 - `BlockStatement`
 - `ReturnStatement`
+  - currently stores one `Value Expression`
 - `VariableDeclarationStatement`
 - `ExpressionStatement`
 - `AssignmentStatement`
@@ -235,27 +255,49 @@ These parser gaps from the first checkpoint have now been fixed:
 - `Parser.Peek` now returns the next token.
 - Function declaration parsing now checks return-type and `{` errors instead of
   ignoring those failures.
+- Function declarations now parse multiple return types after `:` and multiple
+  error types after `|`.
+- Function declaration formatting now prints `ReturnTypes` and `ErrorTypes`.
+- Parser failures are now recorded as structured diagnostics instead of returned
+  as plain Go errors.
 
-The parser also now has focused tests for these cases.
+The parser should keep focused tests for these cases as the syntax surface
+continues to evolve.
 
-## Remaining Parser Work
+## Diagnostics Status
 
-This is the most important parser-adjacent work to address before building
-larger semantic analysis on top of the parser.
+The compiler now has a shared diagnostics package used by the tokenizer and
+parser.
 
-### Diagnostics
+Implemented:
 
-Parser errors are currently plain strings. The tokenizer already tracks line and
-column, but parser errors do not consistently report source locations.
+- `SourceError` values include stage, severity, file, line, column, source line,
+  message, optional expected text, and optional help text.
+- `ErrorBag` collects diagnostics for a compilation run.
+- The tokenizer records lexer errors in the shared error bag instead of stopping
+  immediately with returned Go errors.
+- The parser records parser errors in the shared error bag instead of returning
+  plain strings.
+- The CLI stops after tokenizer diagnostics before parsing.
+- The CLI stops after parser diagnostics before formatting the AST.
+- Diagnostic output includes the file path, line and column, stage, severity,
+  message, source line, and a caret under the diagnostic column:
 
-Before the compiler becomes larger, diagnostics should become structured values
-with:
+  ```text
+  example.delta:2:10: tokenizer error: unexpected character '@'
+    |
+  2 |   return @;
+    |          ^
+  ```
 
-- stage name
-- line and column
-- message
-- optional expected token or construct
-- optional help text
+Remaining diagnostics work:
+
+- Populate `Expected` and `Help` consistently from tokenizer and parser call
+  sites.
+- Add diagnostic tests for tokenizer and parser failures.
+- Add span support for multi-character highlights.
+- Add parser recovery later if the compiler should report multiple syntax errors
+  in one parse pass.
 
 ## Current Alignment With The Design
 
@@ -273,8 +315,12 @@ The current implementation is aligned with the design in these ways:
 - Braced `if`, `else`, and `while` blocks are supported.
 - String and character literals are tokenized, parsed into AST nodes, and shown
   by the AST formatter.
+- Function signatures can represent multiple return types and declared error
+  types in the untyped AST.
 - Expression parsing now preserves the intended precedence between arithmetic,
   comparison, logical AND, and logical OR expressions.
+- Tokenizer and parser diagnostics are structured and include source locations
+  in CLI output.
 - `int32` and other type names can already appear as identifier-shaped type
   references, which keeps the parser independent from semantic validation.
 
@@ -350,7 +396,8 @@ Pending:
 
 Pending:
 
-- Fallible function signatures.
+- Full fallible function signature semantics.
+- Semantic validation for parsed function error signatures.
 - `as result`.
 - `check` blocks.
 - `return error as`.
@@ -373,7 +420,7 @@ Tasks:
 3. Done: replace same-precedence recursive binary parsing with loops.
 4. Done: split logical OR and logical AND into separate precedence levels.
 5. Done: change function call callees from `Identifier` to `Expression`.
-6. Done: add parser tests for:
+6. Pending: keep parser tests for:
    - empty and non-empty parameter lists
    - expression statements beginning with identifiers
    - assignment statements
@@ -381,6 +428,10 @@ Tasks:
    - logical precedence
    - nested calls and parenthesized calls
 7. Pending: continue adding parser tests as new syntax is introduced.
+8. Done: parse and format multiple return types and declared error types in
+   function signatures.
+9. Pending: parse multi-expression return statements, probably by changing
+   `ReturnStatement.Value Expression` to `ReturnStatement.Values []Expression`.
 
 ### Phase 2: Finish The MVP Token Surface
 
@@ -395,19 +446,24 @@ Tasks:
 4. Add floating-point literals if needed for the next examples.
 5. Add missing primitive type names as ordinary identifiers or as dedicated type
    tokens, then choose one consistent approach.
-6. Improve illegal-character errors and EOF handling.
+6. Partially done: illegal-character and parser EOF errors now use structured
+   diagnostics.
 7. Pending: decide when to implement template and raw string forms.
 
 ### Phase 3: Add Structured Diagnostics
+
+Status: mostly complete for tokenizer and parser errors.
 
 Goal: make errors useful before the compiler grows more passes.
 
 Tasks:
 
-1. Introduce a diagnostics package.
-2. Return diagnostics with line and column from tokenizer and parser.
-3. Include expected token information in parser errors.
-4. Make CLI output consistent across stages.
+1. Done: introduce a diagnostics package.
+2. Done: record diagnostics with file, line, column, stage, severity, and
+   message from tokenizer and parser.
+3. Done: print source lines and caret locations in CLI diagnostics.
+4. Pending: populate expected token information and help text consistently.
+5. Pending: add focused tests for formatted tokenizer and parser diagnostics.
 
 ### Phase 4: Add Semantic Analysis V0
 
@@ -424,10 +480,12 @@ Tasks:
 7. Validate assignment targets.
 8. Reject assignment to local `const`.
 9. Validate that function calls refer to callable declarations.
+10. Record function return type lists and error type lists in function symbols.
 
 ### Phase 5: Add Type Checking V0
 
-Goal: support a small typed language with `int32`, `bool`, and `void`.
+Goal: support a small typed language with `int32`, `bool`, `void`, and
+multi-return function signatures.
 
 Tasks:
 
@@ -439,7 +497,8 @@ Tasks:
 6. Validate function call arguments and return types.
 7. Validate variable declaration initializers.
 8. Validate assignment values.
-9. Validate return statements against function return types.
+9. Validate return statements against function return type lists.
+10. Reject return arity mismatches.
 
 ### Phase 6: Add Definite Assignment And Control Flow Checks
 
@@ -500,8 +559,9 @@ After the basic compiler can build small programs, expand in this order:
 The best next milestone is:
 
 > Parse and type-check a single-file program with functions, parameters,
-> `const`, `let`, assignment, `if`, `while`, function calls, `int32`, `bool`,
-> and `void`, then generate C and compile it.
+> `const`, `let`, assignment, `if`, `while`, function calls, multiple return
+> types, declared error types, `int32`, `bool`, and `void`, then generate C and
+> compile it.
 
 That milestone is small enough to finish without resolving the entire language,
 but it exercises the compiler architecture in the same order as the full design:

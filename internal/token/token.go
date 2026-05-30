@@ -43,6 +43,7 @@ const (
 	Symbol_Not
 	Symbol_LogicalAnd
 	Symbol_LogicalOr
+	Symbol_Pipe
 )
 
 type Token struct {
@@ -126,6 +127,8 @@ func (k Kind) String() string {
 		return "&&"
 	case Symbol_LogicalOr:
 		return "||"
+	case Symbol_Pipe:
+		return "|"
 	default:
 		return "unknown"
 	}

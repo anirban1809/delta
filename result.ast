@@ -1,0 +1,58 @@
+File
+  FunctionDeclaration name="main2"
+    Parameters
+      Parameter 0
+        Name
+          Identifier name="a"
+        Type
+          Identifier name="A"
+      Parameter 1
+        Name
+          Identifier name="b"
+        Type
+          Identifier name="B"
+    ReturnTypes
+      Type 0
+        Identifier name="void"
+    ErrorTypes
+      Type 0
+        Identifier name="IOError"
+      Type 1
+        Identifier name="NetError"
+    BlockStatement
+      IfStatement
+        Condition
+          BinaryExpression operator=">"
+            Left
+              Identifier name="a"
+            Right
+              FunctionCallExpression
+                Callee
+                  Identifier name="apple"
+                Arguments
+                  Argument 0
+                    IntegerLiteral value="34"
+        Then
+          BlockStatement
+            ReturnStatement
+              Value 0
+                IntegerLiteral value="10"
+      ReturnStatement
+        Value 0
+          FunctionCallExpression
+            Callee
+              Identifier name="b"
+            Arguments
+              Argument 0
+                BinaryExpression operator="+"
+                  Left
+                    Identifier name="a"
+                  Right
+                    Identifier name="b"
+        Value 1
+          BinaryExpression operator="+"
+            Left
+              Identifier name="b"
+            Right
+              IntegerLiteral value="23"
+

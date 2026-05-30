@@ -1,33 +1,34 @@
 package tokenizer
 
 import (
-	"fmt"
 	"unicode"
 
+	"delta/internal/diagnostics"
 	"delta/internal/token"
 )
 
 type Tokenizer struct {
-	source []rune
-	index  int
-	line   int
-	column int
+	source   []rune
+	index    int
+	line     int
+	column   int
+	errorBag *diagnostics.ErrorBag
 }
 
-func Tokenize(source string) ([]token.Token, error) {
+func Tokenize(
+	source string,
+	errorBag *diagnostics.ErrorBag,
+) ([]token.Token, error) {
 	t := &Tokenizer{
-		source: []rune(source),
-		line:   1,
-		column: 1,
+		source:   []rune(source),
+		line:     1,
+		column:   1,
+		errorBag: errorBag,
 	}
 
 	var tokens []token.Token
 	for {
-		next, err := t.nextToken()
-		if err != nil {
-			return nil, err
-		}
-
+		next := t.nextToken()
 		tokens = append(tokens, next)
 		if next.Kind == token.Kind_EOF {
 			return tokens, nil
@@ -35,7 +36,7 @@ func Tokenize(source string) ([]token.Token, error) {
 	}
 }
 
-func (t *Tokenizer) nextToken() (token.Token, error) {
+func (t *Tokenizer) nextToken() token.Token {
 	t.skipWhitespace()
 
 	line := t.line
@@ -46,17 +47,17 @@ func (t *Tokenizer) nextToken() (token.Token, error) {
 			Kind:   token.Kind_EOF,
 			Line:   line,
 			Column: column,
-		}, nil
+		}
 	}
 
 	current := t.peek()
 
 	if isIdentifierStart(current) {
-		return t.identifier(), nil
+		return t.identifier()
 	}
 
 	if unicode.IsDigit(current) {
-		return t.integerLiteral(), nil
+		return t.integerLiteral()
 	}
 
 	if current == '"' {
@@ -75,77 +76,77 @@ func (t *Tokenizer) nextToken() (token.Token, error) {
 			Lexeme: "(",
 			Line:   line,
 			Column: column,
-		}, nil
+		}
 	case ')':
 		return token.Token{
 			Kind:   token.Symbol_RightParen,
 			Lexeme: ")",
 			Line:   line,
 			Column: column,
-		}, nil
+		}
 	case '{':
 		return token.Token{
 			Kind:   token.Symbol_LeftBrace,
 			Lexeme: "{",
 			Line:   line,
 			Column: column,
-		}, nil
+		}
 	case '}':
 		return token.Token{
 			Kind:   token.Symbol_RightBrace,
 			Lexeme: "}",
 			Line:   line,
 			Column: column,
-		}, nil
+		}
 	case ':':
 		return token.Token{
 			Kind:   token.Symbol_Colon,
 			Lexeme: ":",
 			Line:   line,
 			Column: column,
-		}, nil
+		}
 	case ';':
 		return token.Token{
 			Kind:   token.Symbol_Semicolon,
 			Lexeme: ";",
 			Line:   line,
 			Column: column,
-		}, nil
+		}
 	case ',':
 		return token.Token{
 			Kind:   token.Symbol_Comma,
 			Lexeme: ",",
 			Line:   line,
 			Column: column,
-		}, nil
+		}
 	case '+':
 		return token.Token{
 			Kind:   token.Symbol_Plus,
 			Lexeme: "+",
 			Line:   line,
 			Column: column,
-		}, nil
+		}
 	case '-':
 		return token.Token{
 			Kind:   token.Symbol_Minus,
 			Lexeme: "-",
 			Line:   line,
 			Column: column,
-		}, nil
+		}
 	case '*':
 		return token.Token{
 			Kind:   token.Symbol_Asterisk,
 			Lexeme: "*",
 			Line:   line,
 			Column: column,
-		}, nil
+		}
 	case '/':
 		return token.Token{
 			Kind:   token.Symbol_FSlash,
 			Lexeme: "/",
 			Line:   line,
 			Column: column,
-		}, nil
+		}
 
 	case '>':
 		if t.peek() == '=' {
@@ -155,7 +156,7 @@ func (t *Tokenizer) nextToken() (token.Token, error) {
 				Lexeme: ">=",
 				Line:   line,
 				Column: column,
-			}, nil
+			}
 		}
 
 		return token.Token{
@@ -163,7 +164,7 @@ func (t *Tokenizer) nextToken() (token.Token, error) {
 			Lexeme: ">",
 			Line:   line,
 			Column: column,
-		}, nil
+		}
 	case '<':
 		if t.peek() == '=' {
 			t.advance()
@@ -172,7 +173,7 @@ func (t *Tokenizer) nextToken() (token.Token, error) {
 				Lexeme: "<=",
 				Line:   line,
 				Column: column,
-			}, nil
+			}
 		}
 
 		return token.Token{
@@ -180,7 +181,7 @@ func (t *Tokenizer) nextToken() (token.Token, error) {
 			Lexeme: "<",
 			Line:   line,
 			Column: column,
-		}, nil
+		}
 
 	case '!':
 		if t.peek() == '=' {
@@ -190,7 +191,7 @@ func (t *Tokenizer) nextToken() (token.Token, error) {
 				Lexeme: "!=",
 				Line:   line,
 				Column: column,
-			}, nil
+			}
 		}
 
 		return token.Token{
@@ -198,7 +199,7 @@ func (t *Tokenizer) nextToken() (token.Token, error) {
 			Lexeme: "!",
 			Line:   line,
 			Column: column,
-		}, nil
+		}
 	case '=':
 		if t.peek() == '=' {
 			t.advance()
@@ -207,7 +208,7 @@ func (t *Tokenizer) nextToken() (token.Token, error) {
 				Lexeme: "==",
 				Line:   line,
 				Column: column,
-			}, nil
+			}
 		}
 
 		return token.Token{
@@ -215,7 +216,7 @@ func (t *Tokenizer) nextToken() (token.Token, error) {
 			Lexeme: "=",
 			Line:   line,
 			Column: column,
-		}, nil
+		}
 	case '&':
 		if t.peek() == '&' {
 			t.advance()
@@ -224,14 +225,15 @@ func (t *Tokenizer) nextToken() (token.Token, error) {
 				Lexeme: "&&",
 				Line:   line,
 				Column: column,
-			}, nil
+			}
 		}
 
-		return token.Token{}, fmt.Errorf(
-			"%d:%d: unexpected character '&'; did you mean '&&'?",
+		t.addError(
 			line,
 			column,
+			"unexpected character '&'; did you mean '&&'?",
 		)
+		return illegalToken("&", line, column)
 	case '|':
 		if t.peek() == '|' {
 			t.advance()
@@ -240,22 +242,23 @@ func (t *Tokenizer) nextToken() (token.Token, error) {
 				Lexeme: "||",
 				Line:   line,
 				Column: column,
-			}, nil
+			}
 		}
 
-		return token.Token{}, fmt.Errorf(
-			"%d:%d: unexpected character '|'; did you mean '||'?",
-			line,
-			column,
-		)
+		return token.Token{
+			Kind:   token.Symbol_Pipe,
+			Lexeme: "|",
+			Line:   line,
+			Column: column,
+		}
 
 	default:
-		return token.Token{}, fmt.Errorf(
-			"%d:%d: unexpected character %q",
+		t.addError(
 			line,
 			column,
-			current,
+			"unexpected character '"+string(current)+"'",
 		)
+		return illegalToken(string(current), line, column)
 	}
 }
 
@@ -294,32 +297,33 @@ func (t *Tokenizer) integerLiteral() token.Token {
 	}
 }
 
-func (t *Tokenizer) stringLiteral() (token.Token, error) {
+func (t *Tokenizer) stringLiteral() token.Token {
 	return t.quotedLiteral(token.Kind_StringLiteral, '"', "string")
 }
 
-func (t *Tokenizer) characterLiteral() (token.Token, error) {
-	tok, err := t.quotedLiteral(token.Kind_CharacterLiteral, '\'', "character")
-	if err != nil {
-		return token.Token{}, err
+func (t *Tokenizer) characterLiteral() token.Token {
+	tok := t.quotedLiteral(token.Kind_CharacterLiteral, '\'', "character")
+	if tok.Kind == token.Kind_Illegal {
+		return tok
 	}
 
 	if literalValueCount(tok.Lexeme) != 1 {
-		return token.Token{}, fmt.Errorf(
-			"%d:%d: character literal must contain exactly one character",
+		t.addError(
 			tok.Line,
 			tok.Column,
+			"character literal must contain exactly one character",
 		)
+		return illegalToken(tok.Lexeme, tok.Line, tok.Column)
 	}
 
-	return tok, nil
+	return tok
 }
 
 func (t *Tokenizer) quotedLiteral(
 	kind token.Kind,
 	delimiter rune,
 	name string,
-) (token.Token, error) {
+) token.Token {
 	line := t.line
 	column := t.column
 
@@ -336,70 +340,69 @@ func (t *Tokenizer) quotedLiteral(
 				Lexeme: lexeme,
 				Line:   line,
 				Column: column,
-			}, nil
+			}
 		}
 
 		if current == '\n' || current == '\r' {
-			return token.Token{}, fmt.Errorf(
-				"%d:%d: unterminated %s literal",
+			t.addError(
 				line,
 				column,
-				name,
+				"unterminated "+name+" literal",
 			)
+			return illegalToken(string(t.source[start:t.index]), line, column)
 		}
 
 		if current == '\\' {
-			if err := t.consumeEscape(name); err != nil {
-				return token.Token{}, err
-			}
+			t.consumeEscape(name)
 			continue
 		}
 
 		t.advance()
 	}
 
-	return token.Token{}, fmt.Errorf(
-		"%d:%d: unterminated %s literal",
+	t.addError(
 		line,
 		column,
-		name,
+		"unterminated "+name+" literal",
 	)
+	return illegalToken(string(t.source[start:t.index]), line, column)
 }
 
-func (t *Tokenizer) consumeEscape(name string) error {
+func (t *Tokenizer) consumeEscape(name string) {
 	line := t.line
 	column := t.column
 
 	t.advance() // consume backslash
 	if t.isAtEnd() {
-		return fmt.Errorf("%d:%d: unterminated escape sequence", line, column)
+		t.addError(line, column, "unterminated escape sequence")
+		return
 	}
 
 	escaped := t.advance()
 	switch escaped {
 	case 'n', 't', 'r', '\\', '\'', '"', '0':
-		return nil
+		return
 	case 'x':
 		for i := 0; i < 2; i++ {
 			if t.isAtEnd() || !isHexDigit(t.peek()) {
-				return fmt.Errorf(
-					"%d:%d: expected two hexadecimal digits in %s literal escape",
+				t.addError(
 					line,
 					column,
-					name,
+					"expected two hexadecimal digits in "+name+" literal escape",
 				)
+				return
 			}
 			t.advance()
 		}
-		return nil
+		return
 	case 'u':
 		if t.isAtEnd() || t.peek() != '{' {
-			return fmt.Errorf(
-				"%d:%d: expected '{' after unicode escape in %s literal",
+			t.addError(
 				line,
 				column,
-				name,
+				"expected '{' after unicode escape in "+name+" literal",
 			)
+			return
 		}
 		t.advance() // consume {
 
@@ -407,63 +410,81 @@ func (t *Tokenizer) consumeEscape(name string) error {
 		value := 0
 		for !t.isAtEnd() && t.peek() != '}' {
 			if !isHexDigit(t.peek()) {
-				return fmt.Errorf(
-					"%d:%d: invalid unicode escape in %s literal",
+				t.addError(
 					line,
 					column,
-					name,
+					"invalid unicode escape in "+name+" literal",
 				)
+				return
 			}
 			value = value*16 + hexValue(t.peek())
 			digits++
 			if digits > 6 {
-				return fmt.Errorf(
-					"%d:%d: unicode escape in %s literal must be at most 6 digits",
+				t.addError(
 					line,
 					column,
-					name,
+					"unicode escape in "+name+" literal must be at most 6 digits",
 				)
+				return
 			}
 			t.advance()
 		}
 
 		if digits == 0 {
-			return fmt.Errorf(
-				"%d:%d: unicode escape in %s literal requires at least one digit",
+			t.addError(
 				line,
 				column,
-				name,
+				"unicode escape in "+name+" literal requires at least one digit",
 			)
+			return
 		}
 
 		if !isUnicodeScalarValue(value) {
-			return fmt.Errorf(
-				"%d:%d: unicode escape in %s literal is not a valid scalar value",
+			t.addError(
 				line,
 				column,
-				name,
+				"unicode escape in "+name+" literal is not a valid scalar value",
 			)
+			return
 		}
 
 		if t.isAtEnd() {
-			return fmt.Errorf(
-				"%d:%d: unterminated unicode escape in %s literal",
+			t.addError(
 				line,
 				column,
-				name,
+				"unterminated unicode escape in "+name+" literal",
 			)
+			return
 		}
 
 		t.advance() // consume }
-		return nil
+		return
 	default:
-		return fmt.Errorf(
-			"%d:%d: unknown escape sequence \\%c in %s literal",
+		t.addError(
 			line,
 			column,
-			escaped,
-			name,
+			"unknown escape sequence \\"+string(escaped)+" in "+name+" literal",
 		)
+		return
+	}
+}
+
+func (t *Tokenizer) addError(line int, column int, message string) {
+	t.errorBag.AddError(diagnostics.SourceError{
+		Stage:    diagnostics.Tokenizer,
+		Severity: diagnostics.Error,
+		Line:     line,
+		Column:   column,
+		Message:  message,
+	})
+}
+
+func illegalToken(lexeme string, line int, column int) token.Token {
+	return token.Token{
+		Kind:   token.Kind_Illegal,
+		Lexeme: lexeme,
+		Line:   line,
+		Column: column,
 	}
 }
 
