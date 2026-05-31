@@ -1,0 +1,8 @@
+function f(): int32 {
+    const x: int32 = 1;
+    if (true) {
+        const x: int32 = 2;
+        return x;
+    }
+    return x;
+}

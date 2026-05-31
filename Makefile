@@ -3,7 +3,7 @@ CMD := ./cmd/delta
 BIN_DIR := bin
 BIN := $(BIN_DIR)/$(BINARY)
 
-.PHONY: all build run test fmt clean
+.PHONY: all build run test gotest fmt clean
 
 all: build
 
@@ -14,7 +14,10 @@ build:
 run:
 	go run $(CMD)
 
-test:
+test: build
+	$(BIN) test test-source/tests/tests.json
+
+gotest:
 	go test ./...
 
 fmt:

@@ -1,0 +1,97 @@
+[
+  {
+    "file": "shadow_inner_err.delta",
+    "expect": "fail",
+    "contains": "duplicate identifier",
+    "note": "spec §3.4 (updated) — inner-scope shadowing is no longer permitted"
+  },
+  {
+    "file": "shadow_same_scope_err.delta",
+    "expect": "fail",
+    "contains": "duplicate identifier",
+    "note": "spec §3.4 — same-scope shadowing is rejected"
+  },
+  {
+    "file": "shadow_param_err.delta",
+    "expect": "fail",
+    "contains": "duplicate identifier",
+    "note": "spec §3.4 — a body local cannot shadow a parameter (same scope)"
+  },
+  {
+    "file": "dup_fn_then_const_err.delta",
+    "expect": "fail",
+    "contains": "duplicate identifier",
+    "note": "function then const with the same name must error"
+  },
+  {
+    "file": "dup_const_then_fn_err.delta",
+    "expect": "fail",
+    "contains": "duplicate identifier",
+    "note": "const then function with the same name must error"
+  },
+  {
+    "file": "if_no_else_ok.delta",
+    "expect": "pass",
+    "note": "if with no else branch must not panic and must not flag spurious errors"
+  },
+  {
+    "file": "assign_local_const_err.delta",
+    "expect": "fail",
+    "contains": "const",
+    "note": "spec §3.3, §11.1 — assignment to local const is rejected"
+  },
+  {
+    "file": "assign_file_const_err.delta",
+    "expect": "fail",
+    "contains": "const",
+    "note": "spec §11.1 — assignment to file-scope const is rejected"
+  },
+  {
+    "file": "assign_param_err.delta",
+    "expect": "fail",
+    "contains": "const",
+    "note": "spec §11.1 — parameters are const bindings"
+  },
+  {
+    "file": "assign_param_wording_err.delta",
+    "expect": "fail",
+    "contains": "parameter",
+    "note": "wording bug — message should say 'parameter', not 'const'"
+  },
+  {
+    "file": "assign_function_err.delta",
+    "expect": "fail",
+    "contains": "assign",
+    "note": "function names are not lvalues"
+  },
+  {
+    "file": "assign_function_wording_err.delta",
+    "expect": "fail",
+    "contains": "function",
+    "note": "wording bug — message should say 'function', not 'const'"
+  },
+  {
+    "file": "assign_unknown_err.delta",
+    "expect": "fail",
+    "contains": "unknown identifier",
+    "not_contains": "cannot assign to const",
+    "error_count": 1,
+    "note": "double-error bug — assigning to an unknown name must emit one error, not also a spurious const-assignment error"
+  },
+  {
+    "file": "assign_let_ok.delta",
+    "expect": "pass",
+    "note": "control case — let bindings are reassignable"
+  },
+  {
+    "file": "call_non_callable_err.delta",
+    "expect": "fail",
+    "contains": "callable",
+    "note": "calling a non-function symbol must be rejected"
+  },
+  {
+    "file": "chained_call_err.delta",
+    "expect": "fail",
+    "note": "panic bug + invalid program — adder() returns int32 (not callable), so this must error; today it panics on the unchecked Callee.(ast.Identifier) assertion. A valid chained call needs function-typed values (spec §3.6), which aren't implemented yet."
+  }
+]

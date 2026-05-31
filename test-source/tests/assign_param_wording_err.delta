@@ -1,0 +1,4 @@
+function f(x: int32): int32 {
+    x = 2;
+    return x;
+}

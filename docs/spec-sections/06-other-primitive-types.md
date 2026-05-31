@@ -566,7 +566,7 @@ The following words are **not** reserved and are available as ordinary identifie
 Keyword rules:
 
 - A keyword cannot be used as an identifier in any position: no `class bool { ... }`, no `interface char { ... }`, no `const void = ...`, no `let int32 = 0;`, no `function true(): bool { ... }`.
-- Keywords cannot be shadowed in any scope, inner or outer. [§3.4](#34-scoping-rules)'s "inner-scope shadowing is permitted" applies to identifiers, not keywords.
+- Keywords cannot be shadowed in any scope, inner or outer. This is a stronger statement than [§3.4](#34-scoping-rules)'s ban on identifier shadowing only in that it also forbids using the keyword as a declared name at all (whereas §3.4 forbids reusing an already-declared identifier name).
 - Keywords cannot be imported, exported, or re-exported.
 - Errors involving keywords are reported at the lexer or parser layer with a specific diagnostic ("`int32` is a reserved keyword"), not as a downstream type error.
 

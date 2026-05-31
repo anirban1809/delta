@@ -124,31 +124,36 @@ const firstName, lastName = splitName("Ada Lovelace") as result;   // OK (§24)
 
 ### 3.4 Scoping Rules
 
-**Proposal.** A new lexical scope is created **exclusively** by the body of: a `function` declaration, a lambda / arrow expression, a class method, `if` / `else`, `while`, `for` and `for...of` (the init clause's bindings are scoped to the loop), `switch` (each `case` is its own scope), and `check`. **Bare `{ ... }` blocks are not a scope-creating construct** — `{ ... }` may only appear as the body of one of the listed constructs. **Inner-scope shadowing is permitted**; **same-scope shadowing is a compile error.**
+**Proposal.** A new lexical scope is created **exclusively** by the body of: a `function` declaration, a lambda / arrow expression, a class method, `if` / `else`, `while`, `for` and `for...of` (the init clause's bindings are scoped to the loop), `switch` (each `case` is its own scope), and `check`. **Bare `{ ... }` blocks are not a scope-creating construct** — `{ ... }` may only appear as the body of one of the listed constructs. **Shadowing is forbidden in every form**: a binding may not reuse the name of any binding visible in an enclosing scope (function parameters included), and a name already declared in the current scope may not be re-declared. Both cases are compile errors.
 
 **Reason.** A finite, enumerated list of scope-introducing constructs is what makes shadowing rules and definite-assignment analysis tractable. The individual choices:
 
 - **No bare blocks.** Allowing `{ ... }` for "I just want a local scope" is a C-ism Delta does not need — every scope worth introducing is naturally tied to control flow, and bare blocks would be the only construct in the language whose presence has no semantic justification beyond "I want shadowing here."
 - **Per-case `switch` scoping** is a strict improvement over TS/C's shared-case scope. It prevents the `case "a": const x = 1; case "b": const x = 2;` name collision footgun without forcing the author to write a nested block.
-- **Inner-scope shadowing** is unsurprising and useful — most commonly when narrowing a value across a conditional.
+- **No inner-scope shadowing.** Reusing an outer name in an inner scope reads as the same variable at a glance, but binds something different — a known footgun, especially around function parameters. Forbidding it forces the author to pick a distinct name that documents the distinction. Narrowing across a conditional is better served by typed flow-narrowing of the original binding than by a fresh declaration that hides it.
 - **No same-scope shadowing.** The Rust pattern `let x = ...; let x = transform(x);` reads as a re-declaration bug to non-Rust eyes; forbidding it is consistent with §3.3's "one binding per statement" and removes the temptation to chain rebindings instead of picking a clearer name.
 
 **Examples.**
 ```ts
-// scope introduced by control-flow body
-function f(x: i32): void {
+// inner-scope shadowing forbidden
+function f(x: int32): int32 {
+  const x: int32 = 1;        // ERROR — `x` shadows the parameter `x`
+  return x;
+}
+
+function f2(x: i32): void {
   const a = 10;
   if (x > 0) {
-    const a = 20;          // OK — inner-scope shadow
-    console.writeLine(a);  // 20
+    const a = 20;            // ERROR — `a` shadows the outer `a`
+    console.writeLine(a);
   }
-  console.writeLine(a);    // 10
+  console.writeLine(a);
 }
 
 // bare blocks are not allowed
 function g(): void {
   const a = 10;
-  {                        // ERROR — bare block cannot introduce a scope
+  {                          // ERROR — bare block cannot introduce a scope
     const b = a + 1;
   }
 }
@@ -156,7 +161,7 @@ function g(): void {
 // per-case switch scoping
 switch (k) {
   case "a": { const x = 1; doSomething(x); break; }
-  case "b": { const x = 2; doSomething(x); break; }  // OK — distinct scope
+  case "b": { const x = 2; doSomething(x); break; }  // OK — distinct scope, neither shadows an outer `x`
 }
 
 // same-scope shadowing forbidden
@@ -167,7 +172,7 @@ function h(): void {
 }
 ```
 
-**Conclusion.** Scope sources are the listed constructs only. No bare blocks. Inner-scope shadow yes, same-scope shadow no.
+**Conclusion.** Scope sources are the listed constructs only. No bare blocks. No shadowing — neither across nested scopes nor within a single scope.
 
 ---
 

@@ -79,36 +79,36 @@ func (p *Parser) addError(line int, column int, message string) {
 	})
 }
 
+// posOf is a tiny shorthand for "the Position of this token".
+func posOf(t token.Token) Position {
+	return Position{Line: t.Line, Column: t.Column}
+}
+
 func (p *Parser) ParsePrimaryExpression() (Expression, bool) {
 
 	if p.Current().Kind == token.Kind_StringLiteral {
-		return StringLiteral{
-			Value: p.Advance().Lexeme,
-		}, true
+		tok := p.Advance()
+		return StringLiteral{Position: posOf(tok), Value: tok.Lexeme}, true
 	}
 
 	if p.Current().Kind == token.Kind_CharacterLiteral {
-		return CharacterLiteral{
-			Value: p.Advance().Lexeme,
-		}, true
+		tok := p.Advance()
+		return CharacterLiteral{Position: posOf(tok), Value: tok.Lexeme}, true
 	}
 
 	if p.Current().Kind == token.Kind_IntegerLiteral {
-		return IntegerLiteral{
-			Value: p.Advance().Lexeme,
-		}, true
+		tok := p.Advance()
+		return IntegerLiteral{Position: posOf(tok), Value: tok.Lexeme}, true
 	}
 
 	if p.Current().Kind == token.Kind_BooleanLiteral {
-		return BooleanLiteral{
-			Value: p.Advance().Lexeme,
-		}, true
+		tok := p.Advance()
+		return BooleanLiteral{Position: posOf(tok), Value: tok.Lexeme}, true
 	}
 
 	if p.Current().Kind == token.Kind_Identifier {
-		return Identifier{
-			Name: p.Advance().Lexeme,
-		}, true
+		tok := p.Advance()
+		return Identifier{Position: posOf(tok), Name: tok.Lexeme}, true
 	}
 
 	if p.Current().Kind == token.Symbol_LeftParen {
@@ -142,8 +142,9 @@ func (p *Parser) ParseUnaryExpression() (Expression, bool) {
 		}
 
 		return UnaryExpression{
-			expression: expr,
-			operator:   symbol.Lexeme,
+			Position:   posOf(symbol),
+			Expression: expr,
+			Operator:   symbol.Lexeme,
 		}, true
 
 	}
@@ -171,9 +172,10 @@ func (p *Parser) ParseMultiplicativeExpression() (Expression, bool) {
 		}
 
 		left = BinaryExpression{
-			left:     left,
-			operator: operator.Lexeme,
-			right:    right,
+			Position: left.Pos(),
+			Left:     left,
+			Operator: operator.Lexeme,
+			Right:    right,
 		}
 	}
 
@@ -195,9 +197,10 @@ func (p *Parser) ParseAdditiveExpression() (Expression, bool) {
 		}
 
 		left = BinaryExpression{
-			left:     left,
-			operator: operator.Lexeme,
-			right:    right,
+			Position: left.Pos(),
+			Left:     left,
+			Operator: operator.Lexeme,
+			Right:    right,
 		}
 	}
 
@@ -223,9 +226,10 @@ func (p *Parser) ParseComparisionExpression() (Expression, bool) {
 		}
 
 		left = BinaryExpression{
-			left:     left,
-			operator: operator.Lexeme,
-			right:    right,
+			Position: left.Pos(),
+			Left:     left,
+			Operator: operator.Lexeme,
+			Right:    right,
 		}
 	}
 
@@ -247,9 +251,10 @@ func (p *Parser) ParseLogicalAndExpression() (Expression, bool) {
 		}
 
 		left = BinaryExpression{
-			left:     left,
-			operator: operator.Lexeme,
-			right:    right,
+			Position: left.Pos(),
+			Left:     left,
+			Operator: operator.Lexeme,
+			Right:    right,
 		}
 	}
 
@@ -270,9 +275,10 @@ func (p *Parser) ParseLogicalOrExpression() (Expression, bool) {
 		}
 
 		left = BinaryExpression{
-			left:     left,
-			operator: operator.Lexeme,
-			right:    right,
+			Position: left.Pos(),
+			Left:     left,
+			Operator: operator.Lexeme,
+			Right:    right,
 		}
 	}
 
@@ -313,6 +319,7 @@ func (p *Parser) ParseFunctionCallExpression() (Expression, bool) {
 			return nil, false
 		}
 		callee = FunctionCallExpression{
+			Position:  callee.Pos(),
 			Callee:    callee,
 			Arguments: arguments,
 		}
@@ -336,8 +343,8 @@ func (p *Parser) ParseExpression() (Expression, bool) {
 }
 
 func (p *Parser) ParseReturnStatement() (ReturnStatement, bool) {
+	keyword := p.Advance() // consume `return`
 	values := []Expression{}
-	p.Advance()
 	expr, ok := p.ParseExpression()
 	if !ok {
 		return ReturnStatement{}, false
@@ -356,7 +363,7 @@ func (p *Parser) ParseReturnStatement() (ReturnStatement, bool) {
 	if _, ok := p.Expect(token.Symbol_Semicolon, "; expected"); !ok {
 		return ReturnStatement{}, false
 	}
-	return ReturnStatement{Values: values}, true
+	return ReturnStatement{Position: posOf(keyword), Values: values}, true
 }
 
 func (p *Parser) ParseVarDeclStatement() (VariableDeclarationStatement, bool) {
@@ -396,10 +403,11 @@ func (p *Parser) ParseVarDeclStatement() (VariableDeclarationStatement, bool) {
 	}
 
 	return VariableDeclarationStatement{
-		Mutable: modifier.Kind == token.Keyword_Let,
-		Name:    ident.Lexeme,
-		Type:    typeReference,
-		Value:   value,
+		Position: posOf(modifier),
+		Mutable:  modifier.Kind == token.Keyword_Let,
+		Name:     ident.Lexeme,
+		Type:     typeReference,
+		Value:    value,
 	}, true
 
 }
@@ -415,7 +423,8 @@ func (p *Parser) ParseExpressionStatement() (ExpressionStatement, bool) {
 	}
 
 	return ExpressionStatement{
-		Value: expr,
+		Position: expr.Pos(),
+		Value:    expr,
 	}, true
 }
 
@@ -436,13 +445,14 @@ func (p *Parser) ParseAssignmentStatement() (AssignmentStatement, bool) {
 	}
 
 	return AssignmentStatement{
-		Target: Identifier{Name: target.Lexeme},
-		Value:  value,
+		Position: posOf(target),
+		Target:   Identifier{Position: posOf(target), Name: target.Lexeme},
+		Value:    value,
 	}, true
 }
 
 func (p *Parser) ParseIfElseBlock() (Statement, bool) {
-	p.Advance() //consume if
+	keyword := p.Advance() //consume if
 	if _, ok := p.Expect(token.Symbol_LeftParen, "symbol ( expected"); !ok {
 		return nil, false
 	}
@@ -478,6 +488,7 @@ func (p *Parser) ParseIfElseBlock() (Statement, bool) {
 	}
 
 	return IfStatement{
+		Position:  posOf(keyword),
 		ThenBlock: thenBlock,
 		ElseBlock: elseBlock,
 		Condition: condition,
@@ -486,7 +497,7 @@ func (p *Parser) ParseIfElseBlock() (Statement, bool) {
 }
 
 func (p *Parser) ParseWhileBlock() (WhileStatement, bool) {
-	p.Advance() //consume while
+	keyword := p.Advance() //consume while
 	if _, ok := p.Expect(token.Symbol_LeftParen, "symbol ( expected"); !ok {
 		return WhileStatement{}, false
 	}
@@ -508,6 +519,7 @@ func (p *Parser) ParseWhileBlock() (WhileStatement, bool) {
 		return WhileStatement{}, false
 	}
 	return WhileStatement{
+		Position:  posOf(keyword),
 		Condition: condition,
 		Body:      block,
 	}, true
@@ -515,6 +527,12 @@ func (p *Parser) ParseWhileBlock() (WhileStatement, bool) {
 }
 
 func (p *Parser) ParseBlockStatement() (BlockStatement, bool) {
+	// Position of a block is the `{` that opened it; the caller has already
+	// consumed it, so we look back via Previous().
+	openBrace := Position{}
+	if p.Position > 0 {
+		openBrace = posOf(p.Previous())
+	}
 	statements := []Statement{}
 
 	for p.Current().Kind != token.Symbol_RightBrace {
@@ -591,7 +609,7 @@ func (p *Parser) ParseBlockStatement() (BlockStatement, bool) {
 
 	}
 	p.Advance() //consume right brace
-	return BlockStatement{Statements: statements}, true
+	return BlockStatement{Position: openBrace, Statements: statements}, true
 }
 
 func (p *Parser) ParseFunctionParameter() (FunctionParameter, bool) {
@@ -608,8 +626,9 @@ func (p *Parser) ParseFunctionParameter() (FunctionParameter, bool) {
 	}
 
 	return FunctionParameter{
-		Name: Identifier{Name: paramName.Lexeme},
-		Type: TypeReference{Name: Identifier{Name: paramType.Lexeme}},
+		Position: posOf(paramName),
+		Name:     Identifier{Position: posOf(paramName), Name: paramName.Lexeme},
+		Type:     TypeReference{Name: Identifier{Position: posOf(paramType), Name: paramType.Lexeme}},
 	}, true
 }
 
@@ -645,6 +664,12 @@ func (p *Parser) ParseFunctionParameters() ([]FunctionParameter, bool) {
 }
 
 func (p *Parser) ParseFunctionDeclaration() (FunctionDeclaration, bool) {
+	// The `function` keyword has already been consumed by ParseDeclaration;
+	// use its position as the declaration's position.
+	keywordPos := Position{}
+	if p.Position > 0 {
+		keywordPos = posOf(p.Previous())
+	}
 	functionName, ok := p.Expect(token.Kind_Identifier, "identifier expected")
 	if !ok {
 		return FunctionDeclaration{}, false
@@ -734,6 +759,7 @@ func (p *Parser) ParseFunctionDeclaration() (FunctionDeclaration, bool) {
 	}
 
 	return FunctionDeclaration{
+		Position:    keywordPos,
 		Name:        functionName.Lexeme,
 		Parameters:  parameters,
 		ReturnTypes: returns,
@@ -749,9 +775,10 @@ func (p *Parser) ParseConstDeclaration() (ConstDeclaration, bool) {
 	}
 
 	return ConstDeclaration{
-		Name:  Identifier{Name: decl.Name},
-		Type:  decl.Type,
-		Value: decl.Value,
+		Position: decl.Position,
+		Name:     Identifier{Position: decl.Position, Name: decl.Name},
+		Type:     decl.Type,
+		Value:    decl.Value,
 	}, true
 }
 

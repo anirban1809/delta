@@ -22,44 +22,45 @@
 12. [Safe Borrows (`borrowed`, `mod borrowed`)](#12-safe-borrows-borrowed-mod-borrowed)
 13. [Memory Safety Model](#13-memory-safety-model)
 14. [Ownership & Move Semantics](#14-ownership--move-semantics)
-15. [Fixed Arrays](#15-fixed-arrays)
-16. [Dynamic Arrays (`Array<T>`)](#16-dynamic-arrays-arrayt)
-17. [Slices (`Slice<T>`)](#17-slices-slicet)
-18. [Null Safety & Nullable Types](#18-null-safety--nullable-types)
-19. [Fallible Function Signatures](#19-fallible-function-signatures)
-20. [Error Type Shape](#20-error-type-shape)
-21. [Returning Errors (`return error as`)](#21-returning-errors-return-error-as)
-22. [Consuming Fallible Calls (`as result`)](#22-consuming-fallible-calls-as-result)
-23. [The `check` Block](#23-the-check-block)
-24. [Multiple Return Values](#24-multiple-return-values)
-25. [`void | ErrorType` Returns](#25-void--errortype-returns)
-26. [Explicit Error Ignoring (`ignore`)](#26-explicit-error-ignoring-ignore)
-27. [Error Wrapping & Helpers](#27-error-wrapping--helpers)
-28. [Enums](#28-enums)
-29. [Tagged Unions & Exhaustiveness](#29-tagged-unions--exhaustiveness)
-30. [Variant Dispatch (`switch type`)](#30-variant-dispatch-switch-type)
-31. [Generics & Constraints](#31-generics--constraints)
-32. [Compile-Time Constants & Const Generics](#32-compile-time-constants--const-generics)
-33. [Automatic Disposal](#33-automatic-disposal)
-34. [Disposal Order & Arbitrary Cleanup](#34-disposal-order--arbitrary-cleanup)
-35. [Allocation Model](#35-allocation-model)
-36. [`heap T` & Arena Allocation](#36-heap-t--arena-allocation)
-37. [Standard Collections](#37-standard-collections)
-38. [Bounds Checking](#38-bounds-checking)
-39. [Runtime C Boundary](#39-runtime-c-boundary)
-40. [C Interoperability](#40-c-interoperability)
-41. [FFI-Safe Types](#41-ffi-safe-types)
-42. [Concurrency & Atomics](#42-concurrency--atomics)
-43. [Modules & Visibility](#43-modules--visibility)
-44. [Function Types & Lambdas](#44-function-types--lambdas)
-45. [Control Flow](#45-control-flow)
-46. [Decorators](#46-decorators)
-47. [Layout Rules (`@repr("c")`, `@packed`)](#47-layout-rules-reprc-packed)
-48. [C Code Generation Strategy](#48-c-code-generation-strategy)
-49. [Optimization & Build Modes](#49-optimization--build-modes)
-50. [Standard Library Surface](#50-standard-library-surface)
-51. [Package Configuration (`delta.json`)](#51-package-configuration-deltajson)
-52. [MVP Compiler Scope](#52-mvp-compiler-scope)
+15. [Lifetimes](#15-lifetimes)
+16. [Fixed Arrays](#16-fixed-arrays)
+17. [Dynamic Arrays (`Array<T>`)](#17-dynamic-arrays-arrayt)
+18. [Slices (`Slice<T>`)](#18-slices-slicet)
+19. [Null Safety & Nullable Types](#19-null-safety--nullable-types)
+20. [Fallible Function Signatures](#20-fallible-function-signatures)
+21. [Error Type Shape](#21-error-type-shape)
+22. [Returning Errors (`return error as`)](#22-returning-errors-return-error-as)
+23. [Consuming Fallible Calls (`as result`)](#23-consuming-fallible-calls-as-result)
+24. [The `check` Block](#24-the-check-block)
+25. [Multiple Return Values](#25-multiple-return-values)
+26. [`void | ErrorType` Returns](#26-void--errortype-returns)
+27. [Explicit Error Ignoring (`ignore`)](#27-explicit-error-ignoring-ignore)
+28. [Error Wrapping & Helpers](#28-error-wrapping--helpers)
+29. [Enums](#29-enums)
+30. [Tagged Unions & Exhaustiveness](#30-tagged-unions--exhaustiveness)
+31. [Variant Dispatch (`switch type`)](#31-variant-dispatch-switch-type)
+32. [Generics & Constraints](#32-generics--constraints)
+33. [Compile-Time Constants & Const Generics](#33-compile-time-constants--const-generics)
+34. [Automatic Disposal](#34-automatic-disposal)
+35. [Disposal Order & Arbitrary Cleanup](#35-disposal-order--arbitrary-cleanup)
+36. [Allocation Model](#36-allocation-model)
+37. [`heap T` & Arena Allocation](#37-heap-t--arena-allocation)
+38. [Standard Collections](#38-standard-collections)
+39. [Bounds Checking](#39-bounds-checking)
+40. [Runtime C Boundary](#40-runtime-c-boundary)
+41. [C Interoperability](#41-c-interoperability)
+42. [FFI-Safe Types](#42-ffi-safe-types)
+43. [Concurrency & Atomics](#43-concurrency--atomics)
+44. [Modules & Visibility](#44-modules--visibility)
+45. [Function Types & Lambdas](#45-function-types--lambdas)
+46. [Control Flow](#46-control-flow)
+47. [Decorators](#47-decorators)
+48. [Layout Rules (`@repr("c")`, `@packed`)](#48-layout-rules-reprc-packed)
+49. [C Code Generation Strategy](#49-c-code-generation-strategy)
+50. [Optimization & Build Modes](#50-optimization--build-modes)
+51. [Standard Library Surface](#51-standard-library-surface)
+52. [Package Configuration (`delta.json`)](#52-package-configuration-deltajson)
+53. [MVP Compiler Scope](#53-mvp-compiler-scope)
 
 ---
 
@@ -123,7 +124,7 @@
 
 **Proposal.** Two related but distinct constructs sit between [§9 Classes](#9-classes) and the mutability model:
 
-- **Interfaces** describe *shape* — a structural contract of fields and/or methods a type must provide. Already relied on as the minimum-shape requirement for error types ([§20](#20-error-type-shape)), as generic constraints ([§31](#31-generics--constraints)), and as FFI struct layouts ([§41](#41-ffi-safe-types), [§47](#47-layout-rules-reprc-packed)). Satisfaction is **structural**: any type with the required members conforms, with no explicit `implements` clause.
+- **Interfaces** describe *shape* — a structural contract of fields and/or methods a type must provide. Already relied on as the minimum-shape requirement for error types ([§21](#21-error-type-shape)), as generic constraints ([§32](#32-generics--constraints)), and as FFI struct layouts ([§42](#42-ffi-safe-types), [§48](#48-layout-rules-reprc-packed)). Satisfaction is **structural**: any type with the required members conforms, with no explicit `implements` clause.
 - **Traits** describe *capability* — compiler-recognized behavioral markers attached with `uses` ([§9](#9-classes)). The MVP trait set is **closed**: `Copyable`, `Disposable`, and `View of S`. Traits govern ownership, disposal, and borrow-aliasing, not member shape, and conformance is an explicit `uses` declaration the compiler trusts.
 
 **Reason.** Separating "what members a type has" (interface, structural) from "what the compiler may assume about a type's resource and aliasing behavior" (trait, nominal `uses` marker) keeps the two checks independent: interface satisfaction is a structural test, trait conformance is an explicit opt-in. Folding them into one construct would force either nominal interfaces (losing the TS feel) or structural traits (losing the explicit ownership opt-in that the borrow and disposal models depend on).
@@ -141,7 +142,7 @@ class Buffer uses Disposable {
 }
 ```
 
-**Conclusion.** Stub — to be polished separately. Open questions for that pass: whether interfaces may carry default method bodies; whether the trait set stays closed or admits user-defined markers post-MVP; and the precise relationship between an interface used as a generic constraint and a trait used as one ([§31](#31-generics--constraints)).
+**Conclusion.** Stub — to be polished separately. Open questions for that pass: whether interfaces may carry default method bodies; whether the trait set stays closed or admits user-defined markers post-MVP; and the precise relationship between an interface used as a generic constraint and a trait used as one ([§32](#32-generics--constraints)).
 
 ---
 
@@ -169,7 +170,68 @@ class Buffer uses Disposable {
 
 ---
 
-## 15. Fixed Arrays
+## 15. Lifetimes
+
+> ⚠️ **Stub — post-MVP design pass.** MVP has no lifetime syntax. This section names the boundary between what the language guarantees today and what the eventual lifetime design must close.
+
+**Proposal.** Delta lifetimes are the future answer to "for how long is this borrow, slice, or view value valid?" — the question MVP deliberately defers ([§12.11](#12-safe-borrows-borrowed-mod-borrowed), [§13.11](#13-memory-safety-model)). The intended shape:
+
+- **No lifetime syntax in the source surface.** The TypeScript-flavored grammar commitment is load-bearing; the lifetime design must do its work through inference, not Rust-style `'a` annotations. If inference proves too weak, syntax must be opt-in and confined to signatures that genuinely need it (Appendix risk #2).
+- **Two distinct concerns to close.** *Borrow escape*: the [§12.11](#12-safe-borrows-borrowed-mod-borrowed) prohibitions on borrowed return values, borrowed fields, local borrow bindings, and closure capture of borrows are what hold the MVP together; the lifetime design replaces those prohibitions with checked-escape rules. *View provenance*: the [§13.6](#13-memory-safety-model) "fresh-derived view cannot escape the current function" rule is local and conservative; the lifetime design extends it to a cross-function provenance system that can validate stored and returned views.
+- **Single-owner remains the foundation.** Lifetimes describe how long a non-owning capability (borrow or view) may observe an owned value; they never split ownership ([§14](#14-ownership--move-semantics)). A lifetime is a *constraint*, not a refcount.
+- **Field-disjoint exclusivity.** Replacing [§12.4](#12-safe-borrows-borrowed-mod-borrowed)'s root-level "many readers or one writer" with place-level analysis is part of the same work package, because both rely on the same provenance machinery.
+
+**Reason.** Lifetimes are the single largest open question in the language (Appendix risk #2). Done well, they close the named holes in [§13.1](#13-memory-safety-model) without disturbing the surface syntax. Done badly, they turn Delta into a Rust dialect with a TypeScript skin — the worst of both. The reason this section exists as a stub rather than a full proposal is exactly that risk: committing to lifetime syntax now would lock in the wrong choice; refusing to mention lifetimes at all would let readers assume the MVP guarantees are the final story.
+
+The post-MVP lifetime work has four concrete consumers, each named elsewhere in the spec:
+
+1. **Borrowed returns** ([§12.11](#12-safe-borrows-borrowed-mod-borrowed)) — `function first<T>(xs: borrowed Slice<T>): borrowed T` is unwriteable today.
+2. **Borrow fields and stored borrows** ([§12.11](#12-safe-borrows-borrowed-mod-borrowed)) — a struct holding a `borrowed T` requires a lifetime on the enclosing value.
+3. **Field-disjoint mutable borrows** ([§12.4](#12-safe-borrows-borrowed-mod-borrowed), [§12.7](#12-safe-borrows-borrowed-mod-borrowed)) — `normalizePair(line.start, line.end)` is rejected today by the root-level rule.
+4. **Stored / returned views with cross-function provenance** ([§13.1](#13-memory-safety-model), [§13.6](#13-memory-safety-model)) — pass-through view values may escape today without lifetime tracking; the caller is trusted to keep the backing storage alive.
+
+**Examples.**
+
+Rejected today (MVP):
+```ts
+function first<T>(xs: borrowed Slice<T>): borrowed T {
+  return xs[0];                                  // ERROR — borrowed returns are post-MVP (§12.11)
+}
+
+function normalizeLine(line: mod borrowed Line): void {
+  normalizePair(line.start, line.end);           // ERROR — root-level exclusivity (§12.4)
+}
+
+type Cache = { text: stringview; };
+function cache(doc: borrowed Document): Cache {
+  return { text: doc.viewText() };               // ERROR — fresh-derived view escapes (§13.6)
+}
+```
+
+What the post-MVP design must allow, ideally without lifetime annotations in the source:
+```ts
+// borrowed return — lifetime inferred from the borrow source
+function first<T>(xs: borrowed Slice<T>): borrowed T;
+
+// field-disjoint mutable borrows — exclusivity per place, not per root
+function normalizeLine(line: mod borrowed Line): void {
+  normalizePair(line.start, line.end);           // OK once place analysis lands
+}
+
+// stored view with checked provenance — Cache valid for as long as `doc` is
+function cache(doc: borrowed Document): Cache;
+```
+
+**Conclusion.** Stub — to be expanded into a standalone document alongside the post-MVP work. Until that design lands, the MVP guarantee is the one [§13.1](#13-memory-safety-model) states verbatim, including its named holes; the call-scope borrow model ([§12](#12-safe-borrows-borrowed-mod-borrowed)) and the local fresh-derived-view check ([§13.6](#13-memory-safety-model)) carry the load. The lifetime design must:
+
+- preserve the no-annotations surface where it can, and confine any opt-in syntax to signatures that genuinely need it,
+- generalize [§13.6](#13-memory-safety-model)'s local view-escape check to cross-function provenance,
+- lift the [§12.11](#12-safe-borrows-borrowed-mod-borrowed) prohibitions on borrowed returns, borrow fields, local borrow bindings, and closure capture, and
+- replace [§12.4](#12-safe-borrows-borrowed-mod-borrowed)'s root-level exclusivity with field-disjoint place analysis.
+
+---
+
+## 16. Fixed Arrays
 
 **Proposal.** `T[N]` syntax declares an inline, statically-sized array. Indexing is bounds-checked by default; checks may be elided when the compiler can prove safety.
 
@@ -187,7 +249,7 @@ let buffer: uint8[8192];                  // stack-allocated 8 KiB
 
 ---
 
-## 16. Dynamic Arrays (`Array<T>`)
+## 17. Dynamic Arrays (`Array<T>`)
 
 **Proposal.** A standard, growable, heap-backed array type with safe indexing and built-in bounds checks.
 
@@ -206,7 +268,7 @@ const bad = numbers[100];              // runtime bounds panic unless bound with
 
 ---
 
-## 17. Slices (`Slice<T>`)
+## 18. Slices (`Slice<T>`)
 
 **Proposal.** A non-owning view into contiguous memory, internally `{ptr, length}`. `Slice<T>` is a view value type marked `uses View of Array<T>` ([§9.1](#9-classes), [§12.4](#12-safe-borrows-borrowed-mod-borrowed)), so the borrow checker treats it as aliasing array storage. There is **no `mut Slice<T>` type**: element-write capability follows the binding/borrow rules ([§11](#11-mutability-model-const-vs-let)) — writes are allowed through a `let` slice or a `mod borrowed Slice<T>` parameter and rejected through a `const` slice or `borrowed Slice<T>`. Indexing is bounds-checked. User code cannot extract the underlying pointer.
 
@@ -229,7 +291,7 @@ function fill(values: mod borrowed Slice<int32>, value: int32): void {
 
 ---
 
-## 18. Null Safety & Nullable Types
+## 19. Null Safety & Nullable Types
 
 **Proposal.** All types are non-nullable by default. `T?` denotes a nullable version. Access through a `T?` requires a null check first; the compiler narrows the type inside the guarded block.
 
@@ -254,7 +316,7 @@ if (user !== null) {
 
 ---
 
-## 19. Fallible Function Signatures
+## 20. Fallible Function Signatures
 
 **Proposal.** Fallible functions return `Success | ErrorType` or `A, B, ... | ErrorType` (multi-value success). The `| ErrorType` suffix applies to the entire success list. `void | ErrorType` is allowed.
 
@@ -275,7 +337,7 @@ function readFile(path: stringview): (stringview, string) | IOError;
 
 ---
 
-## 20. Error Type Shape
+## 21. Error Type Shape
 
 **Proposal.** Any type used as an error must satisfy a minimum shape: `code: stringview; message: stringview;`. The standard `Error` interface defines exactly that. Custom errors may add fields.
 
@@ -306,7 +368,7 @@ interface ParseError {
 
 ---
 
-## 21. Returning Errors (`return error as`)
+## 22. Returning Errors (`return error as`)
 
 **Proposal.** Errors are constructed and returned through the error channel via `return error as ErrorType { ... };`. Success values return normally via `return val1, val2, ...;`.
 
@@ -332,7 +394,7 @@ function readFile(fileName: stringview): stringview, string | IOError {
 
 ---
 
-## 22. Consuming Fallible Calls (`as result`)
+## 23. Consuming Fallible Calls (`as result`)
 
 **Proposal.** Every fallible call must be bound with `as resultName`. The success values are accessible but marked *pending* by the compiler until a `check` block has handled the error path.
 
@@ -354,7 +416,7 @@ console.writeLine(fileContent);        // ok
 
 ---
 
-## 23. The `check` Block
+## 24. The `check` Block
 
 **Proposal.** `check resultName { ... }` runs when the result is in the error state. Inside the block, `resultName.error` is accessible. Every control-flow path inside the block must exit via `return`, `panic`, `break`, `continue`, `process.exit`, or `unreachable`. There is no `else` branch.
 
@@ -388,7 +450,7 @@ check result {
 
 ---
 
-## 24. Multiple Return Values
+## 25. Multiple Return Values
 
 **Proposal.** Functions may declare multiple comma-separated return types, destructured at the call site with comma-separated bindings.
 
@@ -411,7 +473,7 @@ const firstName, lastName = splitName("Ada Lovelace") as result;
 
 ---
 
-## 25. `void | ErrorType` Returns
+## 26. `void | ErrorType` Returns
 
 **Proposal.** A function with no useful success value may declare `void | ErrorType` and use a bare `return;` for success. Callers still bind with `as result` and use `check`.
 
@@ -437,7 +499,7 @@ check result {
 
 ---
 
-## 26. Explicit Error Ignoring (`ignore`)
+## 27. Explicit Error Ignoring (`ignore`)
 
 **Proposal.** A fallible call whose error is intentionally discarded must be prefixed with `ignore`. A bare fallible call (no `as result`, no `ignore`) is a compile error.
 
@@ -453,7 +515,7 @@ ignore logger.flush();                 // ok, but auditable
 
 ---
 
-## 27. Error Wrapping & Helpers
+## 28. Error Wrapping & Helpers
 
 **Proposal.** Wrapping is done manually — read the inner error inside `check`, construct a new outer error in the `return error as ...` form. Standard helpers (`Error.new`, `Error.wrap`, `Error.is`) are available for ad-hoc cases.
 
@@ -482,11 +544,11 @@ Error.is(err, "io.not_found");
 
 ---
 
-## 28. Enums
+## 29. Enums
 
 **Proposal.** C-style enums: ordered list of named variants, no associated data, lowered to integer constants.
 
-**Reason.** Distinct from tagged unions ([§29](#29-tagged-unions--exhaustiveness)). Plain enums map directly to a `typedef enum` and have predictable memory layout for FFI. Mixing data-carrying variants into the same construct (as Rust does) would conflate two different use cases.
+**Reason.** Distinct from tagged unions ([§30](#30-tagged-unions--exhaustiveness)). Plain enums map directly to a `typedef enum` and have predictable memory layout for FFI. Mixing data-carrying variants into the same construct (as Rust does) would conflate two different use cases.
 
 **Examples.**
 ```ts
@@ -498,9 +560,9 @@ const color = Color.Red;
 
 ---
 
-## 29. Tagged Unions & Exhaustiveness
+## 30. Tagged Unions & Exhaustiveness
 
-**Proposal.** Tagged unions are declared as unions of **pre-declared named `type`s** ([§8.13](#8-type-declarations)): `type Token = Identifier | Number | Plus | Minus | Eof;`. The discriminant tag is **compiler-synthesized and not user-visible** — there are no user-written `kind` fields. Variant dispatch is done with the `switch type` statement ([§30](#30-variant-dispatch-switch-type)), which is **exhaustiveness-checked**: every variant must have a `case` (or a `default`), and a missing variant is a compile error. The union is the type-safe stand-in for null/optional — you cannot read a variant's fields without first establishing, through `switch type`, which variant you hold.
+**Proposal.** Tagged unions are declared as unions of **pre-declared named `type`s** ([§8.13](#8-type-declarations)): `type Token = Identifier | Number | Plus | Minus | Eof;`. The discriminant tag is **compiler-synthesized and not user-visible** — there are no user-written `kind` fields. Variant dispatch is done with the `switch type` statement ([§31](#31-variant-dispatch-switch-type)), which is **exhaustiveness-checked**: every variant must have a `case` (or a `default`), and a missing variant is a compile error. The union is the type-safe stand-in for null/optional — you cannot read a variant's fields without first establishing, through `switch type`, which variant you hold.
 
 **Reason.** This is the natural representation for AST nodes, tokens, protocol messages, finite state machines, and the optional/recursive shapes (`List = Cons | Nil`, `Tree = Leaf | Branch`) that recursive data structures need. Nominal named variants keep the model structural-free (per §8.3/§8.13) and let the compiler synthesize the narrowest tag. Exhaustiveness checking catches missing cases when the union is extended — adding a variant turns every non-`default` `switch type` into a compile error until it is handled.
 
@@ -524,11 +586,11 @@ function printToken(token: borrowed Token): void {
 }
 ```
 
-**Conclusion.** Adopt. Variants are pre-declared named types with a compiler-synthesized tag; dispatch and exhaustiveness are provided by `switch type` ([§30](#30-variant-dispatch-switch-type)). C lowering uses a tag enum plus a union of payloads; field access through the wrong variant is a compile error.
+**Conclusion.** Adopt. Variants are pre-declared named types with a compiler-synthesized tag; dispatch and exhaustiveness are provided by `switch type` ([§31](#31-variant-dispatch-switch-type)). C lowering uses a tag enum plus a union of payloads; field access through the wrong variant is a compile error.
 
 ---
 
-## 30. Variant Dispatch (`switch type`)
+## 31. Variant Dispatch (`switch type`)
 
 **Proposal.** `switch type (scrutinee) { case Variant: { ... } }` dispatches over the variants of a tagged union. There is **no `match` keyword** — the previously reserved word is released. Rules:
 
@@ -555,11 +617,11 @@ function sum(node: borrowed Tree): int32 {
 }
 ```
 
-**Conclusion.** `switch type` is the single variant-dispatch construct: narrowing, no fall-through, exhaustiveness-checked. No `match` keyword. MVP scheduling for `switch type` (and tagged unions generally) is still to be finalized — see [§52](#52-mvp-compiler-scope).
+**Conclusion.** `switch type` is the single variant-dispatch construct: narrowing, no fall-through, exhaustiveness-checked. No `match` keyword. MVP scheduling for `switch type` (and tagged unions generally) is still to be finalized — see [§53](#53-mvp-compiler-scope).
 
 ---
 
-## 31. Generics & Constraints
+## 32. Generics & Constraints
 
 **Proposal.** TypeScript-style generic functions, interfaces, and classes (`function identity<T>(x: T): T`). Constraints via `extends`: `function max<T extends Comparable<T>>(...)`. Generics are monomorphized at C codegen.
 
@@ -584,7 +646,7 @@ function max<T extends Comparable<T>>(a: T, b: T): T {
 
 ---
 
-## 32. Compile-Time Constants & Const Generics
+## 33. Compile-Time Constants & Const Generics
 
 **Proposal.** `const X: T = ...;` at file scope is a compile-time constant. Const generic parameters (`class FixedBuffer<const N: uintsize>`) enable size-parameterized types whose sizes are known at compile time.
 
@@ -605,7 +667,7 @@ class FixedBuffer<const N: uintsize> {
 
 ---
 
-## 33. Automatic Disposal
+## 34. Automatic Disposal
 
 **Proposal.** Disposal is automatic and implicit. Every owned value is disposed when its ownership ends — most commonly at scope exit — with no keyword to opt in. There is **no `using` keyword**. A type that needs custom cleanup declares `uses Disposable` and supplies a compiler-recognized `dispose(): void` hook ([§9.7](#9-classes)); `dispose()` is never called directly by user code. Files, sockets, locks, and arenas are all cleaned up this way: acquire the value into a binding and the cleanup is guaranteed on every exit path.
 
@@ -640,7 +702,7 @@ class TempFile uses Disposable {
 
 ---
 
-## 34. Disposal Order & Arbitrary Cleanup
+## 35. Disposal Order & Arbitrary Cleanup
 
 **Proposal.** Within a scope, owned values are disposed in **reverse declaration order (LIFO)**, matching the reverse-field-order disposal of a single value's fields ([§9.7](#9-classes)). There is **no `defer` keyword**. Cleanup that is not naturally a value's `dispose()` — restoring a global flag, decrementing a counter, unwinding any other side effect — is expressed by wrapping it in a small `Disposable` guard value whose `dispose()` performs the action.
 
@@ -671,7 +733,7 @@ function process(): void | ProcessError {
 
 ---
 
-## 35. Allocation Model
+## 36. Allocation Model
 
 **Proposal.** Allocators are first-class. The standard provides `Allocator.system()`, `Allocator.arena()`, `Allocator.pool()`. Containers accept an allocator parameter. Applications never see raw allocation pointers.
 
@@ -687,7 +749,7 @@ const users = new Array<User>({ allocator: arena.allocator() });
 
 ---
 
-## 36. `heap T` & Arena Allocation
+## 37. `heap T` & Arena Allocation
 
 **Proposal.** `heap T` is a single owned heap-stored value with move semantics. `Arena` is a region allocator with scope-bounded lifetime; references into an arena cannot escape its scope.
 
@@ -712,7 +774,7 @@ function parseScoped(source: stringview): AstNodeRef | ParseError {
 
 ---
 
-## 37. Standard Collections
+## 38. Standard Collections
 
 **Proposal.** Ship `Array<T>`, `FixedArray<T, N>`, `Map<K, V>`, `Set<T>`, `Queue<T>`, `Deque<T>`, `string`, `StringBuilder`, `Buffer`, `Slice<T>`, `Arena`, `Pool<T>`, with owning heap indirection provided by the built-in `heap T` type form.
 
@@ -731,7 +793,7 @@ console.writeLine(value);
 
 ---
 
-## 38. Bounds Checking
+## 39. Bounds Checking
 
 **Proposal.** Array, slice, and string indexing are bounds-checked by default. Failed checks panic with diagnostic information when used normally, and are recoverable through `as result` when the indexing or slicing expression is bound as a fallible result. The optimizer may elide checks when validity is proven (constant indices, loop bounds verified against length).
 
@@ -757,7 +819,7 @@ for (let i: uintsize = 0; i < values.length; i++) {
 
 ---
 
-## 39. Runtime C Boundary
+## 40. Runtime C Boundary
 
 **Proposal.** MVP has no `@trusted` Delta modules and no raw-pointer privileges in Delta source, including standard-library Delta source. Pointer-bearing implementation detail lives below the Delta language boundary in compiler-generated C and handwritten runtime C. Public Delta APIs expose only safe abstractions.
 
@@ -775,7 +837,7 @@ type Raw = { ptr: pointer<uint8>; };    // ERROR - no raw pointer type in Delta
 
 ---
 
-## 40. C Interoperability
+## 41. C Interoperability
 
 **Proposal.** `extern "c" { ... }` declares C function bindings. `extern type T;` declares opaque external types. C functions are called like Delta functions. For unsafe C APIs, binding authors are expected to write safe Delta wrappers.
 
@@ -804,7 +866,7 @@ class CFile {
 
 ---
 
-## 41. FFI-Safe Types
+## 42. FFI-Safe Types
 
 **Proposal.** A specified set of types are FFI-safe (cross the C boundary by definition): all primitive integers and floats, `bool`, `CString`, `OpaqueHandle<T>`, and `@repr("c")` interfaces. Anything else needs an explicit conversion.
 
@@ -823,9 +885,9 @@ interface PluginInfo {
 
 ---
 
-## 42. Concurrency & Atomics
+## 43. Concurrency & Atomics
 
-**Proposal.** Standard library provides `Thread`, `Mutex<T>`, and `Atomic<T>`. `Mutex<T>.lock()` returns a lock guard that releases automatically when the guard's binding goes out of scope ([§33](#33-automatic-disposal)). `Atomic<T>` supports the standard operations with explicit `MemoryOrder`.
+**Proposal.** Standard library provides `Thread`, `Mutex<T>`, and `Atomic<T>`. `Mutex<T>.lock()` returns a lock guard that releases automatically when the guard's binding goes out of scope ([§34](#34-automatic-disposal)). `Atomic<T>` supports the standard operations with explicit `MemoryOrder`.
 
 **Reason.** No language survives without a concurrency story. Wrapping the protected data inside the mutex (`Mutex<T>` not `Mutex + T`) is a borrow from Rust — it makes "I forgot to lock" impossible to express. Explicit memory ordering avoids hidden sequential-consistency costs.
 
@@ -846,7 +908,7 @@ atom.fetchAdd(1, MemoryOrder.Relaxed);
 
 ---
 
-## 43. Modules & Visibility
+## 44. Modules & Visibility
 
 **Proposal.** ES-module-style `import`/`export` with file-based modules. Visibility is two-tier with **no `internal` keyword**:
 
@@ -880,7 +942,7 @@ export class Parser {
 
 ---
 
-## 44. Function Types & Lambdas
+## 45. Function Types & Lambdas
 
 **Proposal.** Function types declared with `type X = function(args): ret`. Lambdas use arrow syntax (`(a, b) => a + b`). Closures may capture references; ownership rules apply to captures.
 
@@ -905,7 +967,7 @@ function filter<T>(items: Slice<T>, predicate: Predicate<T>): Array<T> {
 
 ---
 
-## 45. Control Flow
+## 46. Control Flow
 
 **Proposal.** `if`/`else`, `while`, `for (init; cond; step)`, `for (... of ...)`, `switch`, `break`, `continue`, `return`. No `do-while`, no labels (initially), no `goto`.
 
@@ -926,9 +988,9 @@ for (const value of values) console.writeLine(value);
 
 ---
 
-## 46. Decorators
+## 47. Decorators
 
-**Proposal.** Compile-time metadata via `@name` decorators. Initial set: `@inline`, `@extern("c")`, `@repr("c")`, `@packed`. Decorators do not produce runtime values. There is no `@trusted` decorator in MVP; see [§39](#39-runtime-c-boundary) and [§13](#13-memory-safety-model).
+**Proposal.** Compile-time metadata via `@name` decorators. Initial set: `@inline`, `@extern("c")`, `@repr("c")`, `@packed`. Decorators do not produce runtime values. There is no `@trusted` decorator in MVP; see [§40](#40-runtime-c-boundary) and [§13](#13-memory-safety-model).
 
 **Reason.** A small fixed set of decorators covers the cross-cutting concerns (ABI, layout, inlining) without inventing pragma soup. Limiting decorators to compiler-recognized names (no user-defined decorators initially) keeps the language predictable.
 
@@ -955,7 +1017,7 @@ interface EthernetHeader {
 
 ---
 
-## 47. Layout Rules (`@repr("c")`, `@packed`)
+## 48. Layout Rules (`@repr("c")`, `@packed`)
 
 **Proposal.** By default, the compiler controls struct layout (free to reorder for alignment/size). `@repr("c")` enforces C-compatible field order and padding. `@packed` removes padding entirely; packed-struct field access may use compiler-generated unaligned reads.
 
@@ -978,7 +1040,7 @@ interface PacketHeader {
 
 ---
 
-## 48. C Code Generation Strategy
+## 49. C Code Generation Strategy
 
 **Proposal.** Generated C should be readable, idiomatic C11/C17 — plain structs and functions, `typedef struct {...} T;`, monomorphized generics named via mangling (`Array_int32`, `Array_User`), fallible returns as anonymous structs with `is_error` + `union { ok; error; }`.
 
@@ -1003,7 +1065,7 @@ typedef struct {
 
 ---
 
-## 49. Optimization & Build Modes
+## 50. Optimization & Build Modes
 
 **Proposal.** Three modes: `--debug` (all checks on, low opt), `--release-safe` (bounds checks on, integer overflow checks on, high opt), `--release` (selected runtime checks, integer overflow checks on, high opt, LTO). Codegen favors patterns Clang/GCC optimize well: plain structs, monomorphized generics, `restrict` when alias analysis allows, simple loops.
 
@@ -1027,7 +1089,7 @@ delta build --release
 
 ---
 
-## 50. Standard Library Surface
+## 51. Standard Library Surface
 
 **Proposal.** Initial std modules: `std/core`, `std/error`, `std/array`, `std/string`, `std/buffer`, `std/io`, `std/fs`, `std/path`, `std/time`, `std/math`, `std/thread`, `std/sync`, `std/net`, `std/json`, `std/c`.
 
@@ -1039,7 +1101,7 @@ delta build --release
 
 ---
 
-## 51. Package Configuration (`delta.json`)
+## 52. Package Configuration (`delta.json`)
 
 **Proposal.** Per-project manifest declares package identity (`name`, `version`, `schemaVersion`), entry point, target (backend, C standard, compiler), and per-mode build options. File format is JSONC (see [§1.2](#12-manifest-file-deltajson-and-delta-init) for the dialect rules and creation flow). Schema is versioned via `schemaVersion` to permit forward evolution.
 
@@ -1073,7 +1135,7 @@ delta build --release
 
 ---
 
-## 52. MVP Compiler Scope
+## 53. MVP Compiler Scope
 
 **Proposal.** The first compiler ships with: lexer/parser, primitives, `const`/`let`, functions, interfaces, basic classes, control flow, fixed arrays, slices, no-nullability absence handling through fallible signatures, error-shape checking, multi-return signatures, `return error as`, mandatory `as result`, `check` with exit analysis, modules, C codegen, a minimal std, and bundled Clang invocation. Post-MVP: advanced ownership, full lifetime-tracked views, arena lifetimes, user-defined generics, tagged unions, variant dispatch (`switch type`), concurrency, C FFI, package manager, formatter, language server, doc generator, recovery-oriented error syntax.
 

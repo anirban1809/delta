@@ -11,7 +11,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${fileDirname}",
-            "args": ["build", "/Users/anirban/Documents/Code/delta/test-source/hello.delta"]
+            "args": ["build", "/Users/anirban/Documents/Code/delta/test-source/tests/chained_call_err.delta"]
         }
     ]
 }

@@ -1,0 +1,4 @@
+function f(x: int32): int32 {
+    const x: int32 = 1;
+    return x;
+}

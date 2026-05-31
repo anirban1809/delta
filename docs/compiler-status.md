@@ -161,7 +161,7 @@ Not implemented yet:
   return values.
 - Multi-return destructuring.
 - Definite-assignment analysis.
-- Scope validation and same-scope shadowing checks.
+- Scope validation and shadowing checks (both inner-scope and same-scope shadowing are rejected per §3.4).
 - Enforcement that `const` always has an initializer and `let` without an
   initializer must have a type. The current parser only supports initialized
   variable declarations.
@@ -369,7 +369,7 @@ Pending:
 - Symbol tables.
 - Scope creation and name resolution.
 - Duplicate declaration detection.
-- Same-scope shadowing rejection.
+- Shadowing rejection (inner-scope and same-scope, per §3.4).
 - Type checking.
 - One-level bidirectional type inference.
 - Literal defaulting.

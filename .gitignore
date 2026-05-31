@@ -1,3 +1,4 @@
 .claude
 .vscode
 bin
+test-source/tests/test-results

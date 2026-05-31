@@ -1,0 +1,6 @@
+function g(): int32 { return 0; }
+
+function f(): int32 {
+    g = 1;
+    return 0;
+}

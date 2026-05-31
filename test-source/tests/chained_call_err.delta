@@ -1,0 +1,5 @@
+function adder(): int32 { return 0; }
+
+function f(): int32 {
+    return adder()(3);
+}

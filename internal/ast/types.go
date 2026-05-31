@@ -1,19 +1,35 @@
 package ast
 
+// Position is the source location of an AST node. Line and Column are
+// 1-based; the zero value means "unknown".
+type Position struct {
+	Line   int
+	Column int
+}
+
+// Pos returns the position itself. Embedding Position in a node type
+// automatically promotes this method, so every concrete node satisfies
+// the Pos() method required by the Expression / Statement / Declaration
+// interfaces below.
+func (p Position) Pos() Position { return p }
+
 type File struct {
 	Declarations []Declaration
 }
 
 type Declaration interface {
 	declarationNode()
+	Pos() Position
 }
 
 type FunctionParameter struct {
+	Position
 	Name Identifier
 	Type TypeReference
 }
 
 type FunctionDeclaration struct {
+	Position
 	Name        string
 	ReturnTypes []TypeReference
 	ErrorTypes  []TypeReference
@@ -28,14 +44,17 @@ type TypeReference struct {
 }
 
 type BlockStatement struct {
+	Position
 	Statements []Statement
 }
 
 type Statement interface {
 	statementNode()
+	Pos() Position
 }
 
 type ReturnStatement struct {
+	Position
 	Values []Expression
 }
 
@@ -43,23 +62,28 @@ func (ReturnStatement) statementNode() {}
 
 type Expression interface {
 	expressionNode()
+	Pos() Position
 }
 
 type IntegerLiteral struct {
+	Position
 	Value string
 }
 
 type BooleanLiteral struct {
+	Position
 	Value string
 }
 
 type StringLiteral struct {
+	Position
 	Value string
 }
 
 func (StringLiteral) expressionNode() {}
 
 type CharacterLiteral struct {
+	Position
 	Value string
 }
 
@@ -69,27 +93,31 @@ func (IntegerLiteral) expressionNode() {}
 func (BooleanLiteral) expressionNode() {}
 
 type Identifier struct {
+	Position
 	Name string
 }
 
 func (Identifier) expressionNode() {}
 
 type UnaryExpression struct {
-	operator   string
-	expression Expression
+	Position
+	Operator   string
+	Expression Expression
 }
 
 func (UnaryExpression) expressionNode() {}
 
 type BinaryExpression struct {
-	left     Expression
-	operator string
-	right    Expression
+	Position
+	Left     Expression
+	Operator string
+	Right    Expression
 }
 
 func (BinaryExpression) expressionNode() {}
 
 type FunctionCallExpression struct {
+	Position
 	Callee    Expression
 	Arguments []Expression
 }
@@ -97,6 +125,7 @@ type FunctionCallExpression struct {
 func (FunctionCallExpression) expressionNode() {}
 
 type VariableDeclarationStatement struct {
+	Position
 	Mutable bool
 	Name    string
 	Type    TypeReference
@@ -106,12 +135,14 @@ type VariableDeclarationStatement struct {
 func (VariableDeclarationStatement) statementNode() {}
 
 type ExpressionStatement struct {
+	Position
 	Value Expression
 }
 
 func (ExpressionStatement) statementNode() {}
 
 type AssignmentStatement struct {
+	Position
 	Target Identifier
 	Value  Expression
 }
@@ -119,6 +150,7 @@ type AssignmentStatement struct {
 func (AssignmentStatement) statementNode() {}
 
 type IfStatement struct {
+	Position
 	Condition Expression
 	ThenBlock BlockStatement
 	ElseBlock BlockStatement
@@ -127,6 +159,7 @@ type IfStatement struct {
 func (IfStatement) statementNode() {}
 
 type WhileStatement struct {
+	Position
 	Condition Expression
 	Body      BlockStatement
 }
@@ -134,6 +167,7 @@ type WhileStatement struct {
 func (WhileStatement) statementNode() {}
 
 type ConstDeclaration struct {
+	Position
 	Name  Identifier
 	Type  TypeReference
 	Value Expression

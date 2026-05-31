@@ -170,15 +170,15 @@ func formatStatement(out *strings.Builder, statement Statement, depth int) {
 func formatExpression(out *strings.Builder, expression Expression, depth int) {
 	switch expression := expression.(type) {
 	case UnaryExpression:
-		writeLine(out, depth, "UnaryExpression operator=%q", expression.operator)
+		writeLine(out, depth, "UnaryExpression operator=%q", expression.Operator)
 		writeLine(out, depth+1, "Expression")
-		formatExpression(out, expression.expression, depth+2)
+		formatExpression(out, expression.Expression, depth+2)
 	case BinaryExpression:
-		writeLine(out, depth, "BinaryExpression operator=%q", expression.operator)
+		writeLine(out, depth, "BinaryExpression operator=%q", expression.Operator)
 		writeLine(out, depth+1, "Left")
-		formatExpression(out, expression.left, depth+2)
+		formatExpression(out, expression.Left, depth+2)
 		writeLine(out, depth+1, "Right")
-		formatExpression(out, expression.right, depth+2)
+		formatExpression(out, expression.Right, depth+2)
 	case FunctionCallExpression:
 		writeLine(out, depth, "FunctionCallExpression")
 		writeLine(out, depth+1, "Callee")

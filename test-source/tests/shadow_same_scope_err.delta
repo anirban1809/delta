@@ -1,4 +1,5 @@
 function f(): int32 {
     const x: int32 = 1;
-    return x();
+    const x: int32 = 2;
+    return x;
 }
