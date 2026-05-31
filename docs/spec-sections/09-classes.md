@@ -496,7 +496,9 @@ check result { return 1; } // clone allocates → fallible
 
 ### 9.7 Disposal and `Disposable`
 
-**Proposal.** Disposal is automatic and implicit for **every** owned value, whether or not its class uses `Disposable`. There is no opt-in keyword (`using` and `defer` do not exist — see [§33](#33-automatic-disposal)/[§34](#34-disposal-order--arbitrary-cleanup)) and no way to call cleanup manually. A class whose own body needs custom cleanup declares `uses Disposable` and defines a `dispose(): void` hook; a class that does not still has its fields disposed automatically.
+**Proposal.** Two rules, and the distinction between them is the whole section: **(1) every owned value is disposed** automatically when its ownership ends, whether or not its class uses `Disposable`; **(2) `uses Disposable` does not opt a class into being cleaned up — it opts the class into running *custom* cleanup code first.** A class without the marker is still disposed; its fields are simply released without a custom step. `Disposable` is therefore not a "this type can be cleaned up" capability (all owned types can); it marks "this type supplies a teardown hook the field-by-field walk could not infer on its own" — releasing an OS handle, unlocking a mutex, deleting a temp file, rolling back a transaction.
+
+Disposal is automatic and implicit for **every** owned value, whether or not its class uses `Disposable`. There is no opt-in keyword (`using` and `defer` do not exist — see [§33](#33-automatic-disposal)/[§34](#34-disposal-order--arbitrary-cleanup)) and no way to call cleanup manually. A class whose own body needs custom cleanup declares `uses Disposable` and defines a `dispose(): void` hook; a class that does not still has its fields disposed automatically.
 
 `dispose()` is compiler-recognized cleanup, not an ordinary callable method:
 
