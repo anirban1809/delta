@@ -3,6 +3,8 @@ package main
 import (
 	"delta/internal/ast"
 	"delta/internal/diagnostics"
+	"delta/internal/lsp"
+	"delta/internal/pipeline"
 	"delta/internal/semantics"
 	"delta/internal/token"
 	"delta/internal/tokenizer"
@@ -24,6 +26,11 @@ func main() {
 		runBuild(os.Args[2:])
 	case "test":
 		runTest(os.Args[2:])
+	case "lsp":
+		if err := lsp.Run(os.Stdin, os.Stdout, os.Stderr); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		os.Exit(2)
@@ -80,11 +87,13 @@ func runBuild(args []string) {
 		os.Exit(2)
 	}
 
-	result, err := compile(sourcePath)
+	contents, err := os.ReadFile(sourcePath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
+
+	result := pipeline.Compile(sourcePath, contents)
 
 	if len(result.ErrorBag.Errors) > 0 {
 		for _, e := range result.ErrorBag.Errors {
@@ -113,13 +122,23 @@ func runTest(args []string) {
 
 	raw, err := os.ReadFile(manifestPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to read manifest %s: %v\n", manifestPath, err)
+		fmt.Fprintf(
+			os.Stderr,
+			"failed to read manifest %s: %v\n",
+			manifestPath,
+			err,
+		)
 		os.Exit(2)
 	}
 
 	var cases []testCase
 	if err := json.Unmarshal(raw, &cases); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to parse manifest %s: %v\n", manifestPath, err)
+		fmt.Fprintf(
+			os.Stderr,
+			"failed to parse manifest %s: %v\n",
+			manifestPath,
+			err,
+		)
 		os.Exit(2)
 	}
 
@@ -235,7 +254,11 @@ func runOneTest(sourcePath string, tc testCase) (ok bool, reason string) {
 				}
 			}
 			if !matched {
-				return false, fmt.Sprintf("no error mentions %q; got: %s", tc.Contains, strings.Join(msgs, "; "))
+				return false, fmt.Sprintf(
+					"no error mentions %q; got: %s",
+					tc.Contains,
+					strings.Join(msgs, "; "),
+				)
 			}
 		}
 
@@ -244,14 +267,23 @@ func runOneTest(sourcePath string, tc testCase) (ok bool, reason string) {
 	}
 
 	if tc.ErrorCount > 0 && len(msgs) != tc.ErrorCount {
-		return false, fmt.Sprintf("expected %d error(s), got %d: %s", tc.ErrorCount, len(msgs), strings.Join(msgs, "; "))
+		return false, fmt.Sprintf(
+			"expected %d error(s), got %d: %s",
+			tc.ErrorCount,
+			len(msgs),
+			strings.Join(msgs, "; "),
+		)
 	}
 
 	if tc.NotContains != "" {
 		needle := strings.ToLower(tc.NotContains)
 		for _, m := range msgs {
 			if strings.Contains(strings.ToLower(m), needle) {
-				return false, fmt.Sprintf("error unexpectedly mentions %q: %s", tc.NotContains, m)
+				return false, fmt.Sprintf(
+					"error unexpectedly mentions %q: %s",
+					tc.NotContains,
+					m,
+				)
 			}
 		}
 	}

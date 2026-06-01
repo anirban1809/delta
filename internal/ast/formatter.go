@@ -22,6 +22,10 @@ func formatDeclaration(
 	depth int,
 ) {
 	switch declaration := declaration.(type) {
+	case Comment:
+		formatComment(out, declaration, depth)
+	case *Comment:
+		formatComment(out, *declaration, depth)
 	case FunctionDeclaration:
 		formatFunctionDeclaration(out, declaration, depth)
 	case *FunctionDeclaration:
@@ -33,6 +37,15 @@ func formatDeclaration(
 	default:
 		writeLine(out, depth, "UnknownDeclaration")
 	}
+}
+
+func formatComment(out *strings.Builder, comment Comment, depth int) {
+	kind := "LineComment"
+	if comment.Multiline {
+		kind = "BlockComment"
+	}
+
+	writeLine(out, depth, "%s text=%q", kind, comment.Text)
 }
 
 func formatConstDeclaration(
@@ -112,6 +125,10 @@ func formatBlockStatement(
 
 func formatStatement(out *strings.Builder, statement Statement, depth int) {
 	switch statement := statement.(type) {
+	case Comment:
+		formatComment(out, statement, depth)
+	case *Comment:
+		formatComment(out, *statement, depth)
 	case ReturnStatement:
 		writeLine(out, depth, "ReturnStatement")
 		for index, value := range statement.Values {

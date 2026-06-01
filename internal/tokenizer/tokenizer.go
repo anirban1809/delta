@@ -68,6 +68,14 @@ func (t *Tokenizer) nextToken() token.Token {
 		return t.characterLiteral()
 	}
 
+	if current == '/' && t.peekAhead(1) == '/' {
+		return t.lineComment()
+	}
+
+	if current == '/' && t.peekAhead(1) == '*' {
+		return t.blockComment()
+	}
+
 	t.advance()
 	switch current {
 	case '(':
@@ -319,6 +327,53 @@ func (t *Tokenizer) characterLiteral() token.Token {
 	return tok
 }
 
+func (t *Tokenizer) lineComment() token.Token {
+	start := t.index
+	line := t.line
+	column := t.column
+
+	t.advance() // consume /
+	t.advance() // consume /
+
+	for !t.isAtEnd() && t.peek() != '\n' && t.peek() != '\r' {
+		t.advance()
+	}
+
+	return token.Token{
+		Kind:   token.Kind_LineComment,
+		Lexeme: string(t.source[start:t.index]),
+		Line:   line,
+		Column: column,
+	}
+}
+
+func (t *Tokenizer) blockComment() token.Token {
+	start := t.index
+	line := t.line
+	column := t.column
+
+	t.advance() // consume /
+	t.advance() // consume *
+
+	for !t.isAtEnd() {
+		if t.peek() == '*' && t.peekAhead(1) == '/' {
+			t.advance() // consume *
+			t.advance() // consume /
+			return token.Token{
+				Kind:   token.Kind_BlockComment,
+				Lexeme: string(t.source[start:t.index]),
+				Line:   line,
+				Column: column,
+			}
+		}
+
+		t.advance()
+	}
+
+	t.addError(line, column, "unterminated block comment")
+	return illegalToken(string(t.source[start:t.index]), line, column)
+}
+
 func (t *Tokenizer) quotedLiteral(
 	kind token.Kind,
 	delimiter rune,
@@ -522,12 +577,14 @@ func literalValueCount(lexeme string) int {
 
 func (t *Tokenizer) skipWhitespace() {
 	for !t.isAtEnd() {
-		switch t.peek() {
+		current := t.peek()
+		switch current {
 		case ' ', '\t', '\r', '\n':
 			t.advance()
-		default:
-			return
+			continue
 		}
+
+		return
 	}
 }
 
@@ -541,6 +598,15 @@ func (t *Tokenizer) peek() rune {
 	}
 
 	return t.source[t.index]
+}
+
+func (t *Tokenizer) peekAhead(offset int) rune {
+	index := t.index + offset
+	if index >= len(t.source) {
+		return 0
+	}
+
+	return t.source[index]
 }
 
 func (t *Tokenizer) peekNext() rune {

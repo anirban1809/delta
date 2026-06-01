@@ -1,4 +1,4 @@
 function f(): int32 {
     const x: int32 = 1;
-    return x();
+    return 23;
 }

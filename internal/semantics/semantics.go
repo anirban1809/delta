@@ -126,6 +126,9 @@ func (a *Analyzer) AnalyzeScope(block ast.BlockStatement, parent *Scope) {
 	}
 	for _, statement := range statements {
 		switch statement := statement.(type) {
+		case ast.Comment:
+			continue
+
 		case ast.VariableDeclarationStatement:
 			a.AnalyzeExpression(statement.Value, &scope)
 			kind := SymbolLocalConst
@@ -220,6 +223,9 @@ func (a *Analyzer) Analyze() {
 	declarations := a.AST.Declarations
 	for _, declaration := range declarations {
 		switch declaration := declaration.(type) {
+		case ast.Comment:
+			continue
+
 		case ast.FunctionDeclaration:
 			if a.FindSymbol(a.GlobalScope, declaration.Name) {
 				a.errorAt(
@@ -243,6 +249,9 @@ func (a *Analyzer) Analyze() {
 
 	for _, declaration := range declarations {
 		switch declaration := declaration.(type) {
+		case ast.Comment:
+			continue
+
 		case ast.FunctionDeclaration:
 			a.AnalyzeFunctionDeclaration(declaration)
 		case ast.ConstDeclaration:

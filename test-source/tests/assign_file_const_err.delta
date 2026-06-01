@@ -4,3 +4,4 @@ function f(): int32 {
     PI = 4;
     return PI;
 }
+

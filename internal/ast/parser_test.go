@@ -1,6 +1,8 @@
 package ast
 
 import (
+	"delta/internal/diagnostics"
+	"delta/internal/tokenizer"
 	"strings"
 	"testing"
 )
@@ -64,6 +66,42 @@ func TestFormatReturnStatementMultipleValues(t *testing.T) {
 		"ReturnStatement",
 		"Value 0\n          IntegerLiteral value=\"1\"",
 		"Value 1\n          Identifier name=\"result\"",
+	}
+
+	for _, item := range expected {
+		if !strings.Contains(formatted, item) {
+			t.Fatalf("expected formatted AST to contain %q:\n%s", item, formatted)
+		}
+	}
+}
+
+func TestParserEmitsCommentsInAST(t *testing.T) {
+	source := `// file comment
+const answer: int32 = 42;
+
+function main(): int32 {
+    /* block
+       comment */
+    return answer;
+}
+`
+	errorBag := &diagnostics.ErrorBag{Source: source}
+	tokens, _ := tokenizer.Tokenize(source, errorBag)
+	if len(errorBag.Errors) != 0 {
+		t.Fatalf("expected no tokenizer errors, got %#v", errorBag.Errors)
+	}
+
+	parser := Parser{Tokens: tokens, ErrorBag: errorBag}
+	file := parser.Parse()
+	if len(errorBag.Errors) != 0 {
+		t.Fatalf("expected no parser errors, got %#v", errorBag.Errors)
+	}
+
+	formatted := FormatAST(file)
+	expected := []string{
+		`LineComment text="// file comment"`,
+		`BlockComment text="/* block\n       comment */"`,
+		"ReturnStatement",
 	}
 
 	for _, item := range expected {

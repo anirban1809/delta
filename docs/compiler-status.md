@@ -1,6 +1,6 @@
 # Delta Compiler Status
 
-Date: 2026-05-31
+Date: 2026-06-01
 
 This document describes the current implementation status of the Delta compiler
 against the design in `docs/main-spec.md` and `docs/spec-sections/`. It is a
@@ -10,30 +10,36 @@ language specification.
 ## Current Implementation
 
 The compiler currently has a small front end that can read a single `.delta`
-source file, tokenize it, parse it into an untyped AST, and print that AST in a
-formatted tree form. Tokenizer and parser failures are reported through a shared
-diagnostic bag and printed with file, line, column, source line, and caret
-location.
+source file, tokenize it, parse it into an untyped AST, run a first pass of
+semantic analysis (name resolution and scope rules), and print the AST when
+analysis is clean. Tokenizer, parser, and semantic failures are reported
+through a shared diagnostic bag and printed with file, line, column, source
+line, and caret location. The same pipeline is also exposed as a Language
+Server (`delta lsp`) consumed by the bundled VS Code extension.
 
 Implemented command path:
 
-1. `cmd/delta/main.go` accepts `delta build <file.delta>`.
+1. `cmd/delta/main.go` accepts `delta build <file.delta>`, `delta test`, and
+   `delta lsp`.
 2. The CLI checks that the input file has a `.delta` extension.
-3. The tokenizer converts source text into tokens.
-4. The parser builds an untyped AST.
-5. If tokenization or parsing reports diagnostics, the CLI prints them and stops
-   before the next stage.
-6. The AST formatter prints the parsed tree when no diagnostics are present.
+3. `internal/pipeline.Compile(name, contents)` runs tokenize → parse →
+   semantic analyze in memory, returning the AST and the diagnostic bag. Both
+   the CLI and the LSP server share this entry point.
+4. If any stage reports diagnostics, downstream stages are skipped and the
+   CLI prints them.
+5. The AST formatter prints the parsed tree when no diagnostics are present.
 
-This means the project currently covers the first two stages of the planned
+This means the project currently covers the first three stages of the planned
 pipeline from Section 2:
 
 1. lex
 2. parse
+3. semantic analysis (name resolution and scope rules; type checking still
+   pending)
 
 The remaining planned stages are not implemented yet:
 
-1. typed AST and semantic analysis
+1. typed AST and type checking
 2. ownership and lifetime analysis
 3. checked error-state analysis
 4. C code generation
@@ -72,12 +78,12 @@ Implemented token categories:
 - Assignment operator: `=`.
 - Logical operators: `!`, `&&`, `||`.
 - Error type separator: `|`.
+- Line comments (`//`) and block comments (`/* ... */`).
 
 Not implemented yet:
 
 - Floating-point literals.
 - Numeric literal prefixes and separators.
-- Comments.
 - Template string literals.
 - Raw string literals.
 - Import/export/decorator/extern tokens.
@@ -157,14 +163,19 @@ Not implemented yet:
 - `switch`.
 - `check` blocks.
 - `panic`, `process.exit`, and `unreachable` intrinsics.
-- Multi-expression `return` statements for functions that declare multiple
-  return values.
 - Multi-return destructuring.
 - Definite-assignment analysis.
-- Scope validation and shadowing checks (both inner-scope and same-scope shadowing are rejected per §3.4).
+- Shadowing across nested scopes (currently only same-scope duplicates are
+  rejected; nested shadowing per §3.4 is not yet enforced).
 - Enforcement that `const` always has an initializer and `let` without an
   initializer must have a type. The current parser only supports initialized
   variable declarations.
+
+Partially aligned with the design:
+
+- `ReturnStatement.Values []Expression` now stores multiple return
+  expressions, so the parser accepts multi-expression `return`. Semantic
+  validation against the function's declared return arity is not yet done.
 
 ### Expressions
 
@@ -220,7 +231,8 @@ The AST currently separates declarations, statements, and expressions:
 - `TypeReference`
 - `BlockStatement`
 - `ReturnStatement`
-  - currently stores one `Value Expression`
+  - stores `Values []Expression` (supports multi-expression returns)
+- `Comment` (preserved at file and block scope; skipped by the analyzer)
 - `VariableDeclarationStatement`
 - `ExpressionStatement`
 - `AssignmentStatement`
@@ -295,9 +307,98 @@ Remaining diagnostics work:
 - Populate `Expected` and `Help` consistently from tokenizer and parser call
   sites.
 - Add diagnostic tests for tokenizer and parser failures.
-- Add span support for multi-character highlights.
+- Add span support for multi-character highlights. Today `SourceError` carries
+  a single `Line`/`Column`; the LSP adapter renders these as point ranges that
+  editors widen to the token under the cursor.
 - Add parser recovery later if the compiler should report multiple syntax errors
   in one parse pass.
+
+## Semantic Analysis Status
+
+A first-pass semantic analyzer lives in `internal/semantics/`. It runs after
+parsing and reports source-located errors through the same `ErrorBag`. The
+analyzer is purely a name/scope checker today — it does not yet assign types
+or validate operator/argument compatibility.
+
+Implemented:
+
+- A two-pass walk of the file: pass 1 declares all top-level functions and
+  file-scope `const`s; pass 2 analyzes their bodies. This lets functions refer
+  to peers declared later in the file.
+- Scopes for the global file, each function (parameters), and each
+  `BlockStatement`. Scopes form a parent chain; `FindSymbol` walks up it.
+- Symbol kinds: `SymbolFunction`, `SymbolFileConst`, `SymbolParameter`,
+  `SymbolLocalConst`, `SymbolLocalLet`.
+- Same-scope duplicate-identifier rejection for functions, file consts,
+  parameters, and locals.
+- Unknown-identifier detection inside expressions and as assignment targets.
+- Assignment rules:
+  - `const` (file or local) cannot be reassigned ("cannot assign to const: x").
+  - Function names cannot be reassigned.
+  - Parameters cannot be reassigned ("cannot assign to const parameter: x").
+  - Only `SymbolLocalLet` is a legal assignment target.
+- Function calls: the callee identifier must resolve to a `SymbolFunction`;
+  invoking a non-callable symbol is rejected.
+- Function-typed values are not yet supported; expression-shaped callees
+  (e.g. `makeAdder()(3)`) parse but are rejected by the analyzer.
+- `if`, `else`, and `while` bodies recurse into nested scopes, condition
+  expressions are analyzed against the enclosing scope.
+
+Not implemented yet (semantics):
+
+- Type checking of any form (literal defaulting, operator typing, call
+  argument types, assignment compatibility, return value types).
+- Function call arity checks.
+- Return arity validation against declared return-type lists.
+- Definite-assignment analysis.
+- Cross-scope shadowing rejection (§3.4 — both inner-scope and same-scope
+  shadowing should be rejected; only same-scope duplicates are caught today).
+- Validation of declared error types on function signatures.
+- Tracking and validating callable expressions (function values, member
+  callees).
+
+## Editor Integration
+
+`delta` now ships a Language Server subcommand and a bundled VS Code
+extension that surface live diagnostics in the editor.
+
+Implemented:
+
+- `delta lsp` subcommand: a single-threaded JSON-RPC over stdio server that
+  speaks the LSP subset needed for diagnostics-only operation.
+  - Handles `initialize`, `initialized`, `shutdown`, `exit`,
+    `textDocument/didOpen`, `textDocument/didChange`, `textDocument/didClose`.
+  - Advertises `textDocumentSync: { openClose: true, change: 1 }` (full
+    document sync).
+  - On each open/change, runs `pipeline.Compile` over the document text and
+    publishes `textDocument/publishDiagnostics`. On close, clears them.
+  - Unknown requests respond with `MethodNotFound`; unknown notifications are
+    ignored. Pipeline panics are caught so a malformed buffer cannot crash the
+    server.
+- `internal/lsp/diagnostics.go` adapts `SourceError` to LSP `Diagnostic`:
+  1-based positions become 0-based, severities map to LSP 1/2, `source` is
+  `"delta"`, optional `Expected`/`Help` are appended to the message body.
+- VS Code extension at `editors/vscode/`:
+  - TextMate grammar covering keywords, literals, comments, strings, type
+    annotations, and function-name highlights.
+  - `language-configuration.json` for comment toggling and bracket
+    autoclosing.
+  - `src/extension.ts` spawns `delta lsp` over stdio via
+    `vscode-languageclient` and surfaces server stderr in a "Delta Language
+    Server" output channel.
+  - Settings: `delta.server.path` (absolute path override; empty means PATH)
+    and `delta.trace.server` (LSP trace level).
+
+Not implemented yet (LSP):
+
+- Hover, go-to-definition, document symbols, completion, signature help,
+  rename, code actions, formatting — all blocked on the analyzer exposing
+  position→symbol queries and a typed AST.
+- Incremental document sync.
+- Multi-file analysis / project graph.
+- Cancellation, progress reporting, persistent caches.
+- A bundled or auto-downloaded server binary (the extension relies on a
+  user-built `delta` on PATH or in `delta.server.path`).
 
 ## Current Alignment With The Design
 
@@ -324,10 +425,13 @@ The current implementation is aligned with the design in these ways:
 - `int32` and other type names can already appear as identifier-shaped type
   references, which keeps the parser independent from semantic validation.
 
-The current implementation intentionally does not yet enforce most semantic
-rules. For example, it does not know whether `x + y` is type-correct, whether a
-name exists, whether a variable is definitely assigned, whether a `const` is
-being reassigned, or whether a function returns on every required path.
+The current implementation enforces a first slice of semantic rules: it knows
+whether a name exists, whether a `const` (file, local, or parameter) is being
+reassigned, whether a same-scope identifier was already declared, and whether
+a call target is callable. It does not yet know whether `x + y` is
+type-correct, whether a variable is definitely assigned, whether return arity
+matches the declared signature, or whether a function returns on every
+required path.
 
 ## Pending Work By Design Area
 
@@ -364,21 +468,26 @@ Pending:
 
 ### Semantics
 
+Implemented (v0):
+
+- Symbol tables for file, function, and block scopes.
+- Name resolution across the scope chain.
+- Same-scope duplicate declaration detection.
+- `const` reassignment rejection (file consts, locals, and parameters).
+- `let` mutation allowed; assignments validated against symbol kind.
+- Function callee must resolve to a `SymbolFunction`.
+
 Pending:
 
-- Symbol tables.
-- Scope creation and name resolution.
-- Duplicate declaration detection.
-- Shadowing rejection (inner-scope and same-scope, per §3.4).
+- Cross-scope shadowing rejection (§3.4).
 - Type checking.
 - One-level bidirectional type inference.
 - Literal defaulting.
-- Return type validation.
-- Function call arity and argument checks.
+- Return type and arity validation.
+- Function call argument count and type checks.
 - Operator type rules.
 - Definite-assignment analysis.
-- `const` reassignment rejection.
-- `let` mutation rules.
+- Support for function-typed values as callees.
 
 ### Safety Model
 
@@ -467,20 +576,27 @@ Tasks:
 
 ### Phase 4: Add Semantic Analysis V0
 
+Status: mostly complete for the name/scope checks; type tracking on function
+symbols still pending.
+
 Goal: turn the untyped AST into a checked AST for the current subset.
 
 Tasks:
 
-1. Build symbol tables for file scope and block scopes.
-2. Resolve identifiers.
-3. Reject duplicate declarations in the same scope.
-4. Reject unresolved names.
-5. Track function signatures.
-6. Track local variables.
-7. Validate assignment targets.
-8. Reject assignment to local `const`.
-9. Validate that function calls refer to callable declarations.
-10. Record function return type lists and error type lists in function symbols.
+1. Done: build symbol tables for file scope, function scope, and block scopes.
+2. Done: resolve identifiers across the scope chain.
+3. Done: reject duplicate declarations in the same scope.
+4. Done: reject unresolved names.
+5. Pending: record function signatures (parameter types, return types, error
+   types) on `SymbolFunction` so later phases can type-check calls.
+6. Done: track local variables (`SymbolLocalConst`, `SymbolLocalLet`) and
+   parameters.
+7. Done: validate assignment targets.
+8. Done: reject assignment to local `const`, file `const`, parameters, and
+   function names.
+9. Done: validate that function calls refer to callable declarations.
+10. Pending: record function return type lists and error type lists in
+    function symbols.
 
 ### Phase 5: Add Type Checking V0
 

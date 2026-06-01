@@ -21,10 +21,13 @@ func (p *Parser) Previous() token.Token {
 
 func (p *Parser) Peek() token.Token {
 	next := p.Position + 1
+	for next < len(p.Tokens) && isCommentKind(p.Tokens[next].Kind) {
+		next++
+	}
+
 	if next >= len(p.Tokens) {
 		return p.Tokens[len(p.Tokens)-1]
 	}
-
 	return p.Tokens[next]
 }
 
@@ -39,6 +42,8 @@ func (p *Parser) Check(kind token.Kind) bool {
 }
 
 func (p *Parser) Expect(kind token.Kind, message string) (token.Token, bool) {
+	p.skipComments()
+
 	if p.Current().Kind == kind {
 		return p.Advance(), true
 	}
@@ -84,7 +89,27 @@ func posOf(t token.Token) Position {
 	return Position{Line: t.Line, Column: t.Column}
 }
 
+func isCommentKind(kind token.Kind) bool {
+	return kind == token.Kind_LineComment || kind == token.Kind_BlockComment
+}
+
+func (p *Parser) skipComments() {
+	for isCommentKind(p.Current().Kind) {
+		p.Advance()
+	}
+}
+
+func (p *Parser) ParseComment() Comment {
+	comment := p.Advance()
+	return Comment{
+		Position:  posOf(comment),
+		Text:      comment.Lexeme,
+		Multiline: comment.Kind == token.Kind_BlockComment,
+	}
+}
+
 func (p *Parser) ParsePrimaryExpression() (Expression, bool) {
+	p.skipComments()
 
 	if p.Current().Kind == token.Kind_StringLiteral {
 		tok := p.Advance()
@@ -163,6 +188,7 @@ func (p *Parser) ParseMultiplicativeExpression() (Expression, bool) {
 		return nil, false
 	}
 
+	p.skipComments()
 	for p.Current().Kind == token.Symbol_Asterisk ||
 		p.Current().Kind == token.Symbol_FSlash {
 		operator := p.Advance()
@@ -177,6 +203,7 @@ func (p *Parser) ParseMultiplicativeExpression() (Expression, bool) {
 			Operator: operator.Lexeme,
 			Right:    right,
 		}
+		p.skipComments()
 	}
 
 	return left, true
@@ -188,6 +215,7 @@ func (p *Parser) ParseAdditiveExpression() (Expression, bool) {
 		return nil, false
 	}
 
+	p.skipComments()
 	for p.Current().Kind == token.Symbol_Plus ||
 		p.Current().Kind == token.Symbol_Minus {
 		operator := p.Advance()
@@ -202,6 +230,7 @@ func (p *Parser) ParseAdditiveExpression() (Expression, bool) {
 			Operator: operator.Lexeme,
 			Right:    right,
 		}
+		p.skipComments()
 	}
 
 	return left, true
@@ -213,6 +242,7 @@ func (p *Parser) ParseComparisionExpression() (Expression, bool) {
 		return nil, false
 	}
 
+	p.skipComments()
 	for p.Current().Kind == token.Symbol_Less ||
 		p.Current().Kind == token.Symbol_LessEq ||
 		p.Current().Kind == token.Symbol_Greater ||
@@ -231,6 +261,7 @@ func (p *Parser) ParseComparisionExpression() (Expression, bool) {
 			Operator: operator.Lexeme,
 			Right:    right,
 		}
+		p.skipComments()
 	}
 
 	return left, true
@@ -243,6 +274,7 @@ func (p *Parser) ParseLogicalAndExpression() (Expression, bool) {
 		return nil, false
 	}
 
+	p.skipComments()
 	for p.Current().Kind == token.Symbol_LogicalAnd {
 		operator := p.Advance()
 		right, ok := p.ParseComparisionExpression()
@@ -256,6 +288,7 @@ func (p *Parser) ParseLogicalAndExpression() (Expression, bool) {
 			Operator: operator.Lexeme,
 			Right:    right,
 		}
+		p.skipComments()
 	}
 
 	return left, true
@@ -267,6 +300,7 @@ func (p *Parser) ParseLogicalOrExpression() (Expression, bool) {
 		return nil, false
 	}
 
+	p.skipComments()
 	for p.Current().Kind == token.Symbol_LogicalOr {
 		operator := p.Advance()
 		right, ok := p.ParseLogicalAndExpression()
@@ -280,6 +314,7 @@ func (p *Parser) ParseLogicalOrExpression() (Expression, bool) {
 			Operator: operator.Lexeme,
 			Right:    right,
 		}
+		p.skipComments()
 	}
 
 	return left, true
@@ -295,9 +330,11 @@ func (p *Parser) ParseFunctionCallExpression() (Expression, bool) {
 		return nil, false
 	}
 
+	p.skipComments()
 	for p.Current().Kind == token.Symbol_LeftParen {
 		var arguments []Expression
 		p.Advance() //consume left paren
+		p.skipComments()
 		if p.Current().Kind == token.Symbol_RightParen {
 			arguments = []Expression{}
 		} else {
@@ -306,6 +343,7 @@ func (p *Parser) ParseFunctionCallExpression() (Expression, bool) {
 				return nil, false
 			}
 			arguments = append(arguments, expr)
+			p.skipComments()
 			for p.Current().Kind == token.Symbol_Comma {
 				p.Advance() //consume comma
 				expr, ok := p.ParseExpression()
@@ -313,6 +351,7 @@ func (p *Parser) ParseFunctionCallExpression() (Expression, bool) {
 					return nil, false
 				}
 				arguments = append(arguments, expr)
+				p.skipComments()
 			}
 		}
 		if _, ok := p.Expect(token.Symbol_RightParen, "expected ) symbol"); !ok {
@@ -323,6 +362,7 @@ func (p *Parser) ParseFunctionCallExpression() (Expression, bool) {
 			Callee:    callee,
 			Arguments: arguments,
 		}
+		p.skipComments()
 	}
 
 	return callee, true
@@ -351,6 +391,7 @@ func (p *Parser) ParseReturnStatement() (ReturnStatement, bool) {
 	}
 	values = append(values, expr)
 
+	p.skipComments()
 	for p.Current().Kind == token.Symbol_Comma {
 		p.Advance() //consume comma
 		expr, ok := p.ParseExpression()
@@ -358,6 +399,7 @@ func (p *Parser) ParseReturnStatement() (ReturnStatement, bool) {
 			return ReturnStatement{}, false
 		}
 		values = append(values, expr)
+		p.skipComments()
 	}
 
 	if _, ok := p.Expect(token.Symbol_Semicolon, "; expected"); !ok {
@@ -375,6 +417,7 @@ func (p *Parser) ParseVarDeclStatement() (VariableDeclarationStatement, bool) {
 	}
 
 	typeReference := TypeReference{Name: Identifier{}}
+	p.skipComments()
 	if p.Current().Kind == token.Symbol_Colon {
 		p.Advance() // consume colon
 		typeIdentifier, ok := p.Expect(
@@ -389,6 +432,7 @@ func (p *Parser) ParseVarDeclStatement() (VariableDeclarationStatement, bool) {
 		}
 	}
 
+	p.skipComments()
 	if _, ok := p.Expect(token.Symbol_Equals, "symbol = expected"); !ok {
 		return VariableDeclarationStatement{}, false
 	}
@@ -476,6 +520,7 @@ func (p *Parser) ParseIfElseBlock() (Statement, bool) {
 
 	var elseBlock BlockStatement
 
+	p.skipComments()
 	if p.Current().Kind == token.Keyword_Else {
 		p.Advance() //consume else
 		if _, ok := p.Expect(token.Symbol_LeftBrace, "symbol { expected"); !ok {
@@ -536,6 +581,11 @@ func (p *Parser) ParseBlockStatement() (BlockStatement, bool) {
 	statements := []Statement{}
 
 	for p.Current().Kind != token.Symbol_RightBrace {
+		if isCommentKind(p.Current().Kind) {
+			statements = append(statements, p.ParseComment())
+			continue
+		}
+
 		if p.Current().Kind == token.Kind_EOF {
 			current := p.Current()
 			p.addError(
@@ -635,6 +685,7 @@ func (p *Parser) ParseFunctionParameter() (FunctionParameter, bool) {
 func (p *Parser) ParseFunctionParameters() ([]FunctionParameter, bool) {
 	var parameters = []FunctionParameter{}
 
+	p.skipComments()
 	if p.Current().Kind == token.Symbol_RightParen {
 		p.Advance() //consume right paren
 		return parameters, true
@@ -646,6 +697,7 @@ func (p *Parser) ParseFunctionParameters() ([]FunctionParameter, bool) {
 	}
 	parameters = append(parameters, first)
 
+	p.skipComments()
 	for p.Current().Kind != token.Symbol_RightParen {
 		if _, ok := p.Expect(token.Symbol_Comma, "symbol , expected"); !ok {
 			return nil, false
@@ -655,6 +707,7 @@ func (p *Parser) ParseFunctionParameters() ([]FunctionParameter, bool) {
 			return nil, false
 		}
 		parameters = append(parameters, param)
+		p.skipComments()
 	}
 	if _, ok := p.Expect(token.Symbol_RightParen, "symbol ) expected"); !ok {
 		return nil, false
@@ -684,6 +737,7 @@ func (p *Parser) ParseFunctionDeclaration() (FunctionDeclaration, bool) {
 		return FunctionDeclaration{}, false
 	}
 
+	p.skipComments()
 	returns := []TypeReference{}
 	errors := []TypeReference{}
 
@@ -701,6 +755,7 @@ func (p *Parser) ParseFunctionDeclaration() (FunctionDeclaration, bool) {
 			TypeReference{Name: Identifier{Name: returnTypeToken.Lexeme}},
 		)
 
+		p.skipComments()
 		for p.Current().Kind == token.Symbol_Comma {
 			p.Advance() // consume comma
 			returnTypeToken, ok := p.Expect(
@@ -714,8 +769,10 @@ func (p *Parser) ParseFunctionDeclaration() (FunctionDeclaration, bool) {
 				returns,
 				TypeReference{Name: Identifier{Name: returnTypeToken.Lexeme}},
 			)
+			p.skipComments()
 		}
 
+		p.skipComments()
 		if p.Current().Kind == token.Symbol_Pipe {
 			p.Advance() //consume | symbol
 			errorType, ok := p.Expect(
@@ -731,6 +788,7 @@ func (p *Parser) ParseFunctionDeclaration() (FunctionDeclaration, bool) {
 				TypeReference{Name: Identifier{Name: errorType.Lexeme}},
 			)
 
+			p.skipComments()
 			for p.Current().Kind == token.Symbol_Comma {
 				p.Advance() // consume comma
 				errorType, ok := p.Expect(
@@ -744,11 +802,13 @@ func (p *Parser) ParseFunctionDeclaration() (FunctionDeclaration, bool) {
 					errors,
 					TypeReference{Name: Identifier{Name: errorType.Lexeme}},
 				)
+				p.skipComments()
 			}
 		}
 
 	}
 
+	p.skipComments()
 	if _, ok := p.Expect(token.Symbol_LeftBrace, "expected { symbol"); !ok {
 		return FunctionDeclaration{}, false
 	}
@@ -783,6 +843,10 @@ func (p *Parser) ParseConstDeclaration() (ConstDeclaration, bool) {
 }
 
 func (p *Parser) ParseDeclaration() (Declaration, bool) {
+	if isCommentKind(p.Current().Kind) {
+		return p.ParseComment(), true
+	}
+
 	if p.Current().Kind == token.Keyword_Function {
 		p.Advance()
 		declaration, ok := p.ParseFunctionDeclaration()
@@ -825,7 +889,10 @@ func (p *Parser) synchronizeDeclaration(start int) {
 
 	for p.Current().Kind != token.Kind_EOF {
 		switch p.Current().Kind {
-		case token.Keyword_Function, token.Keyword_Const:
+		case token.Keyword_Function,
+			token.Keyword_Const,
+			token.Kind_LineComment,
+			token.Kind_BlockComment:
 			return
 		default:
 			p.Advance()
@@ -849,6 +916,8 @@ func (p *Parser) synchronizeStatement(start int) {
 			token.Keyword_Let,
 			token.Keyword_If,
 			token.Keyword_While,
+			token.Kind_LineComment,
+			token.Kind_BlockComment,
 			token.Symbol_RightBrace:
 			return
 		default:

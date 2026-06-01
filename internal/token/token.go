@@ -11,6 +11,8 @@ const (
 	Kind_BooleanLiteral
 	Kind_StringLiteral
 	Kind_CharacterLiteral
+	Kind_LineComment
+	Kind_BlockComment
 
 	Keyword_Function
 	Keyword_Return
@@ -69,6 +71,10 @@ func (k Kind) String() string {
 		return "string literal"
 	case Kind_CharacterLiteral:
 		return "character literal"
+	case Kind_LineComment:
+		return "line comment"
+	case Kind_BlockComment:
+		return "block comment"
 	case Keyword_Function:
 		return "function"
 	case Keyword_Return:

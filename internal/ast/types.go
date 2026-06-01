@@ -22,6 +22,15 @@ type Declaration interface {
 	Pos() Position
 }
 
+type Comment struct {
+	Position
+	Text      string
+	Multiline bool
+}
+
+func (Comment) declarationNode() {}
+func (Comment) statementNode()   {}
+
 type FunctionParameter struct {
 	Position
 	Name Identifier
