@@ -42,7 +42,18 @@ type InitializeResult struct {
 }
 
 type ServerCapabilities struct {
-	TextDocumentSync TextDocumentSyncOptions `json:"textDocumentSync"`
+	TextDocumentSync   TextDocumentSyncOptions `json:"textDocumentSync"`
+	HoverProvider      bool                    `json:"hoverProvider,omitempty"`
+	DefinitionProvider bool                    `json:"definitionProvider,omitempty"`
+	CompletionProvider *CompletionOptions      `json:"completionProvider,omitempty"`
+}
+
+// CompletionOptions advertises completion. TriggerCharacters is empty in
+// v1 — Delta has no `.`/`::` member access, so identifier characters
+// (which the client triggers on by default) are sufficient.
+type CompletionOptions struct {
+	TriggerCharacters []string `json:"triggerCharacters,omitempty"`
+	ResolveProvider   bool     `json:"resolveProvider"`
 }
 
 type TextDocumentSyncOptions struct {
@@ -132,3 +143,67 @@ type Position struct {
 	Line      int `json:"line"`
 	Character int `json:"character"`
 }
+
+// textDocument/{hover,definition,completion}
+
+type TextDocumentPositionParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+}
+
+type HoverParams = TextDocumentPositionParams
+
+// Hover renders as a single MarkupContent block plus an optional range
+// the client uses to underline the symbol under the cursor.
+type Hover struct {
+	Contents MarkupContent `json:"contents"`
+	Range    *Range        `json:"range,omitempty"`
+}
+
+type MarkupContent struct {
+	Kind  string `json:"kind"` // "markdown" or "plaintext"
+	Value string `json:"value"`
+}
+
+type DefinitionParams = TextDocumentPositionParams
+
+// Location names a region inside a document. v1 only ever emits the
+// document the request came in on — multi-file resolution isn't on the
+// roadmap until modules land.
+type Location struct {
+	URI   string `json:"uri"`
+	Range Range  `json:"range"`
+}
+
+type CompletionParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+	Context      *CompletionContext     `json:"context,omitempty"`
+}
+
+type CompletionContext struct {
+	TriggerKind      int    `json:"triggerKind"`
+	TriggerCharacter string `json:"triggerCharacter,omitempty"`
+}
+
+type CompletionItem struct {
+	Label      string `json:"label"`
+	Kind       int    `json:"kind"`                 // LSP CompletionItemKind enum
+	Detail     string `json:"detail,omitempty"`     // signature / type
+	SortText   string `json:"sortText,omitempty"`   // for ordering
+	InsertText string `json:"insertText,omitempty"` // defaults to Label
+}
+
+type CompletionList struct {
+	IsIncomplete bool             `json:"isIncomplete"`
+	Items        []CompletionItem `json:"items"`
+}
+
+// LSP CompletionItemKind values we use. Full enum is 1..25; only these
+// are meaningful for the language surface today.
+const (
+	CompletionItemKindFunction = 3
+	CompletionItemKindVariable = 6
+	CompletionItemKindKeyword  = 14
+	CompletionItemKindConstant = 21
+)

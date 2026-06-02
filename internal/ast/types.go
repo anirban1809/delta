@@ -54,6 +54,11 @@ type TypeReference struct {
 
 type BlockStatement struct {
 	Position
+	// End is the source position of the closing `}`. Used by the LSP to
+	// answer "is the cursor inside this block?" when building the
+	// scope-at-position tree. Zero value when the block was never closed
+	// (e.g. truncated input recovered by the parser).
+	End        Position
 	Statements []Statement
 }
 

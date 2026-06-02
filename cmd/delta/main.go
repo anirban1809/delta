@@ -12,8 +12,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
+
+const testsRoot = "test-source/tests"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -114,45 +117,144 @@ type testCase struct {
 	Note        string `json:"note,omitempty"`
 }
 
+type suiteResult struct {
+	Name     string
+	Pass     int
+	Fail     int
+	Failures []string // formatted as "<suite>/<file>"
+}
+
+// runTest dispatches `delta test` subcommands:
+//
+//	delta test                          — list discovered suites
+//	delta test <suite>                  — run one suite by name
+//	delta test all                      — run every discovered suite
+//	delta test <path-to-manifest.json>  — run an explicit manifest (back-compat)
 func runTest(args []string) {
-	manifestPath := "test-source/tests/tests.json"
-	if len(args) >= 1 {
-		manifestPath = args[0]
+	if len(args) == 0 {
+		suites, err := discoverSuites()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if len(suites) == 0 {
+			fmt.Printf("no suites found under %s\n", testsRoot)
+			return
+		}
+		fmt.Println("available test suites:")
+		for _, s := range suites {
+			fmt.Printf("  %s\n", s)
+		}
+		fmt.Println("\nusage: delta test <suite> | all | <path-to-manifest.json>")
+		return
 	}
+
+	arg := args[0]
+
+	// 1. Back-compat: explicit manifest path
+	if strings.HasSuffix(arg, ".json") || strings.ContainsRune(arg, os.PathSeparator) {
+		res, err := runSuite(arg)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if res.Fail > 0 {
+			os.Exit(1)
+		}
+		return
+	}
+
+	// 2. Run every suite
+	if arg == "all" {
+		suites, err := discoverSuites()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		totalPass, totalFail := 0, 0
+		var allFailures []string
+		for _, s := range suites {
+			res, err := runSuite(filepath.Join(testsRoot, s, "tests.json"))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "suite %s: %v\n", s, err)
+				totalFail++
+				continue
+			}
+			totalPass += res.Pass
+			totalFail += res.Fail
+			allFailures = append(allFailures, res.Failures...)
+		}
+		fmt.Printf("\n== overall: %d passed, %d failed ==\n", totalPass, totalFail)
+		if totalFail > 0 {
+			fmt.Println("\nfailed tests:")
+			for _, f := range allFailures {
+				fmt.Printf("  - %s\n", f)
+			}
+			os.Exit(1)
+		}
+		return
+	}
+
+	// 3. Named suite
+	manifest := filepath.Join(testsRoot, arg, "tests.json")
+	if _, err := os.Stat(manifest); err != nil {
+		fmt.Fprintf(os.Stderr, "unknown suite %q (no %s)\n", arg, manifest)
+		os.Exit(2)
+	}
+	res, err := runSuite(manifest)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	if res.Fail > 0 {
+		os.Exit(1)
+	}
+}
+
+// discoverSuites returns the names of every directory under testsRoot that
+// contains a tests.json file, sorted alphabetically.
+func discoverSuites() ([]string, error) {
+	entries, err := os.ReadDir(testsRoot)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", testsRoot, err)
+	}
+	var suites []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		manifest := filepath.Join(testsRoot, e.Name(), "tests.json")
+		if _, err := os.Stat(manifest); err == nil {
+			suites = append(suites, e.Name())
+		}
+	}
+	sort.Strings(suites)
+	return suites, nil
+}
+
+// runSuite reads a manifest, executes every case, writes per-file .out files,
+// and prints a summary. Returns aggregated counts; does not call os.Exit.
+func runSuite(manifestPath string) (suiteResult, error) {
+	suiteName := filepath.Base(filepath.Dir(manifestPath))
+	res := suiteResult{Name: suiteName}
 
 	raw, err := os.ReadFile(manifestPath)
 	if err != nil {
-		fmt.Fprintf(
-			os.Stderr,
-			"failed to read manifest %s: %v\n",
-			manifestPath,
-			err,
-		)
-		os.Exit(2)
+		return res, fmt.Errorf("failed to read manifest %s: %w", manifestPath, err)
 	}
 
 	var cases []testCase
 	if err := json.Unmarshal(raw, &cases); err != nil {
-		fmt.Fprintf(
-			os.Stderr,
-			"failed to parse manifest %s: %v\n",
-			manifestPath,
-			err,
-		)
-		os.Exit(2)
+		return res, fmt.Errorf("failed to parse manifest %s: %w", manifestPath, err)
 	}
 
 	manifestDir := filepath.Dir(manifestPath)
 	resultsDir := filepath.Join(manifestDir, "test-results")
 	if err := os.MkdirAll(resultsDir, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create %s: %v\n", resultsDir, err)
-		os.Exit(2)
+		return res, fmt.Errorf("failed to create %s: %w", resultsDir, err)
 	}
 
-	pass, fail := 0, 0
-	var failures []string
-
-	fmt.Printf("running %d tests from %s\n", len(cases), manifestPath)
+	fmt.Printf("== suite %s: running %d tests from %s ==\n", suiteName, len(cases), manifestPath)
 	fmt.Printf("writing per-file output to %s\n\n", resultsDir)
 
 	for _, tc := range cases {
@@ -161,28 +263,24 @@ func runTest(args []string) {
 		if err := writeCompileOutput(sourcePath, resultPath); err != nil {
 			fmt.Fprintf(os.Stderr, "warn: writing %s: %v\n", resultPath, err)
 		}
+		label := fmt.Sprintf("%s/%s", suiteName, tc.File)
 		ok, reason := runOneTest(sourcePath, tc)
 		if ok {
-			fmt.Printf("  PASS  %s\n", tc.File)
-			pass++
+			fmt.Printf("  PASS  %s\n", label)
+			res.Pass++
 		} else {
-			fmt.Printf("  FAIL  %s — %s\n", tc.File, reason)
+			fmt.Printf("  FAIL  %s — %s\n", label, reason)
 			if tc.Note != "" {
 				fmt.Printf("          note: %s\n", tc.Note)
 			}
-			failures = append(failures, tc.File)
-			fail++
+			res.Failures = append(res.Failures, label)
+			res.Fail++
 		}
 	}
 
-	fmt.Printf("\n%d passed, %d failed (of %d)\n", pass, fail, len(cases))
-	if fail > 0 {
-		fmt.Println("\nfailed tests:")
-		for _, f := range failures {
-			fmt.Printf("  - %s\n", f)
-		}
-		os.Exit(1)
-	}
+	fmt.Printf("\n%s: %d passed, %d failed (of %d)\n\n",
+		suiteName, res.Pass, res.Fail, len(cases))
+	return res, nil
 }
 
 // writeCompileOutput runs the pipeline and writes what `delta build` would

@@ -113,6 +113,32 @@ func (e *ErrorBag) AddError(sourceError SourceError) {
 	e.Errors = append(e.Errors, sourceError)
 }
 
+func (e *ErrorBag) UpdateLastError(sourceError SourceError) {
+	lastIdx := 0
+	if len(e.Errors) > 0 {
+		lastIdx = len(e.Errors) - 1
+	}
+
+	if sourceError.File == "" {
+		sourceError.File = e.File
+	}
+
+	if sourceError.Source == "" {
+		sourceError.Source = sourceLine(e.Source, sourceError.Line)
+	}
+
+	e.Errors[lastIdx] = sourceError
+}
+
+func (e *ErrorBag) RemoveLastError() {
+	lastIdx := 0
+	if len(e.Errors) > 0 {
+		lastIdx = len(e.Errors) - 1
+	}
+
+	e.Errors = e.Errors[:lastIdx]
+}
+
 func sourceLine(source string, line int) string {
 	if source == "" || line <= 0 {
 		return ""

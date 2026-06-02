@@ -1,0 +1,7 @@
+function add(a: int32): int32 {
+    return a;
+}
+
+function main(): int32 {
+    return add(1, 2);
+}

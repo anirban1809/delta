@@ -1,0 +1,8 @@
+function pair(): int32, int32 {
+    return 1, 2;
+}
+
+function f(): int32 {
+    let x: int32 = pair();
+    return x;
+}

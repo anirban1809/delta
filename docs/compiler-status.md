@@ -1,6 +1,6 @@
 # Delta Compiler Status
 
-Date: 2026-06-01
+Date: 2026-06-02
 
 This document describes the current implementation status of the Delta compiler
 against the design in `docs/main-spec.md` and `docs/spec-sections/`. It is a
@@ -10,12 +10,15 @@ language specification.
 ## Current Implementation
 
 The compiler currently has a small front end that can read a single `.delta`
-source file, tokenize it, parse it into an untyped AST, run a first pass of
-semantic analysis (name resolution and scope rules), and print the AST when
-analysis is clean. Tokenizer, parser, and semantic failures are reported
-through a shared diagnostic bag and printed with file, line, column, source
-line, and caret location. The same pipeline is also exposed as a Language
-Server (`delta lsp`) consumed by the bundled VS Code extension.
+source file, tokenize it, parse it into an untyped AST, run name resolution
+and a first pass of type checking, and print the AST when analysis is clean.
+Tokenizer, parser, and semantic failures are reported through a shared
+diagnostic bag and printed with file, line, column, source line, and caret
+location. The parser now performs error recovery so multiple syntax errors
+can be reported in a single pass. The same pipeline is also exposed as a
+Language Server (`delta lsp`) consumed by the bundled VS Code extension,
+which uses the analyzer's scope tree and resolved-reference map to drive
+editor features.
 
 Implemented command path:
 
@@ -30,16 +33,19 @@ Implemented command path:
 5. The AST formatter prints the parsed tree when no diagnostics are present.
 
 This means the project currently covers the first three stages of the planned
-pipeline from Section 2:
+pipeline from Section 2, with a partial type-checking pass layered on:
 
 1. lex
 2. parse
-3. semantic analysis (name resolution and scope rules; type checking still
-   pending)
+3. semantic analysis: name resolution, scope rules, and v0 type checking
+   (operator typing, call arity and argument types, return arity and types,
+   assignment compatibility, condition typing). Definite assignment, return
+   coverage, and cross-scope shadowing are still pending.
 
 The remaining planned stages are not implemented yet:
 
-1. typed AST and type checking
+1. typed AST (the current analyzer computes types but does not yet emit a
+   separate typed AST node tree)
 2. ownership and lifetime analysis
 3. checked error-state analysis
 4. C code generation
@@ -78,7 +84,9 @@ Implemented token categories:
 - Assignment operator: `=`.
 - Logical operators: `!`, `&&`, `||`.
 - Error type separator: `|`.
-- Line comments (`//`) and block comments (`/* ... */`).
+- Line comments (`//`) and block comments (`/* ... */`). Comments are
+  preserved in the AST at file and block scope and skipped by the parser
+  when looking for grammar productions.
 
 Not implemented yet:
 
@@ -171,11 +179,12 @@ Not implemented yet:
   initializer must have a type. The current parser only supports initialized
   variable declarations.
 
-Partially aligned with the design:
+Aligned with the design:
 
-- `ReturnStatement.Values []Expression` now stores multiple return
-  expressions, so the parser accepts multi-expression `return`. Semantic
-  validation against the function's declared return arity is not yet done.
+- `ReturnStatement.Values []Expression` stores multiple return
+  expressions, so the parser accepts multi-expression `return`, and the
+  semantic analyzer validates both arity and per-value types against the
+  enclosing function's declared return-type list.
 
 ### Expressions
 
@@ -272,6 +281,11 @@ These parser gaps from the first checkpoint have now been fixed:
 - Function declaration formatting now prints `ReturnTypes` and `ErrorTypes`.
 - Parser failures are now recorded as structured diagnostics instead of returned
   as plain Go errors.
+- The parser now performs error recovery via `synchronizeDeclaration` and
+  `synchronizeStatement`. After a failed declaration or statement the parser
+  skips ahead to the next safe boundary (next declaration keyword, next
+  statement keyword, after a `;`, or `}`) so multiple syntax errors can be
+  surfaced in one pass.
 
 The parser should keep focused tests for these cases as the syntax surface
 continues to evolve.
@@ -310,25 +324,33 @@ Remaining diagnostics work:
 - Add span support for multi-character highlights. Today `SourceError` carries
   a single `Line`/`Column`; the LSP adapter renders these as point ranges that
   editors widen to the token under the cursor.
-- Add parser recovery later if the compiler should report multiple syntax errors
-  in one parse pass.
+- Parser recovery is now in place (see `synchronizeDeclaration` and
+  `synchronizeStatement`); follow-up work is to tune the recovery anchors so
+  cascading "spurious" errors after a real failure are reduced.
 
 ## Semantic Analysis Status
 
-A first-pass semantic analyzer lives in `internal/semantics/`. It runs after
-parsing and reports source-located errors through the same `ErrorBag`. The
-analyzer is purely a name/scope checker today — it does not yet assign types
-or validate operator/argument compatibility.
+The semantic analyzer lives in `internal/semantics/`. It runs after parsing
+and reports source-located errors through the same `ErrorBag`. It now
+performs both name resolution and a v0 type-checking pass over the current
+language subset.
 
-Implemented:
+Implemented (name resolution and scope):
 
 - A two-pass walk of the file: pass 1 declares all top-level functions and
-  file-scope `const`s; pass 2 analyzes their bodies. This lets functions refer
-  to peers declared later in the file.
+  file-scope `const`s (recording function signatures on `SymbolFunction`);
+  pass 2 validates signature types and walks bodies. This lets functions
+  refer to peers declared later in the file.
 - Scopes for the global file, each function (parameters), and each
   `BlockStatement`. Scopes form a parent chain; `FindSymbol` walks up it.
+- A parallel `ScopeNode` tree (in `internal/semantics/types.go`) mirrors
+  the lexical scope structure with source ranges, so a cursor position can
+  be mapped to its enclosing scope via `RootScope.FindDeepest(pos)`.
 - Symbol kinds: `SymbolFunction`, `SymbolFileConst`, `SymbolParameter`,
   `SymbolLocalConst`, `SymbolLocalLet`.
+- Each symbol carries a `Display` string used for editor hover (e.g.
+  `const counter: int32`, `let x: bool`, `param a: int32`,
+  `function add(int32, int32) -> int32 | IOError`).
 - Same-scope duplicate-identifier rejection for functions, file consts,
   parameters, and locals.
 - Unknown-identifier detection inside expressions and as assignment targets.
@@ -341,21 +363,70 @@ Implemented:
   invoking a non-callable symbol is rejected.
 - Function-typed values are not yet supported; expression-shaped callees
   (e.g. `makeAdder()(3)`) parse but are rejected by the analyzer.
-- `if`, `else`, and `while` bodies recurse into nested scopes, condition
+- `if`, `else`, and `while` bodies recurse into nested scopes; condition
   expressions are analyzed against the enclosing scope.
+- A `Refs` map records every resolved identifier use-site (keyed by
+  `ast.Position`) so the LSP can answer go-to-definition and hover for
+  identifier references without re-walking the tree.
+
+Implemented (v0 type checking):
+
+- A small primitive type system: `TypeInt32`, `TypeBool`, `TypeString`,
+  `TypeChar`, `TypeVoid`, plus the sentinels `TypeEmpty` (no annotation)
+  and `TypeInvalid` (poison value used to suppress cascading errors).
+- `TypeOf` computes types for integer/boolean/string/character literals,
+  identifier references, unary expressions, binary expressions, and
+  function-call expressions. Unknown identifiers and unresolved callees
+  return `TypeInvalid` so downstream checks stay quiet.
+- Unary operator typing: `!` requires `bool`; `-` requires `int32`.
+- Binary operator typing:
+  - `+`, `-`, `*`, `/` require `int32` operands and yield `int32`.
+  - `<`, `<=`, `>`, `>=` require `int32` operands and yield `bool`.
+  - `==`, `!=` require matching operand types and only accept `int32` or
+    `bool` operands today; yield `bool`.
+  - `&&`, `||` require `bool` operands and yield `bool`.
+- Function call type checking:
+  - Resolves the callee symbol, rejects non-identifier and non-function
+    callees.
+  - Arity check against the recorded signature (`function f expects N
+    argument(s), got M`).
+  - Per-argument type check against the recorded parameter type list.
+  - In expression position, multi-return calls are rejected; void-returning
+    calls yield `void`; single-return calls yield their declared type.
+- Variable declarations infer the binding's type from the initializer when
+  no annotation is present.
+- Assignment statements check that the value's type matches the target's
+  declared type and emit a mismatch diagnostic otherwise.
+- `if` and `while` conditions are required to be `bool`.
+- Return statements are checked against the enclosing function's recorded
+  `FunctionSignature`:
+  - `void` cannot appear alongside other return types.
+  - A declared `void` return is treated as "no values expected".
+  - Return arity must match the declared return-type list.
+  - Each returned expression must match the declared type at its position.
+- Function-signature type validation: parameter and return types that do
+  not resolve to known primitives are rejected before the body is analyzed
+  (`unknown identifier <Type>`).
 
 Not implemented yet (semantics):
 
-- Type checking of any form (literal defaulting, operator typing, call
-  argument types, assignment compatibility, return value types).
-- Function call arity checks.
-- Return arity validation against declared return-type lists.
 - Definite-assignment analysis.
+- Return-coverage analysis (every non-void path must end in a `return`).
 - Cross-scope shadowing rejection (§3.4 — both inner-scope and same-scope
   shadowing should be rejected; only same-scope duplicates are caught today).
-- Validation of declared error types on function signatures.
+- Validation of declared error types on function signatures (the parser
+  surfaces them; the analyzer currently treats them as unresolved primitives
+  unless they happen to match a known type).
 - Tracking and validating callable expressions (function values, member
-  callees).
+  callees, returned functions).
+- Equality on `string` / `char`; ordering on non-`int32` types.
+- Floating-point typing.
+- Bidirectional inference (annotations are currently informational; the
+  initializer's inferred type is what the binding actually gets when a
+  non-empty annotation is supplied — this is a known gap and needs a real
+  "annotation drives inference" pass).
+- A separate, persisted typed-AST node tree. Types are computed on demand by
+  `TypeOf` rather than materialized into AST nodes.
 
 ## Editor Integration
 
@@ -389,11 +460,18 @@ Implemented:
   - Settings: `delta.server.path` (absolute path override; empty means PATH)
     and `delta.trace.server` (LSP trace level).
 
+The analyzer now exposes the two pieces the LSP needs for position-based
+queries: `Analyzer.Refs` (use-site `Position` → resolved `Symbol`) and
+`Analyzer.RootScope` (a `ScopeNode` tree with source ranges and
+`FindDeepest(pos)`). Each `Symbol` carries a `Display` string for hover.
+This is enough machinery to land hover and go-to-definition next, but
+those LSP endpoints are not wired up yet.
+
 Not implemented yet (LSP):
 
 - Hover, go-to-definition, document symbols, completion, signature help,
-  rename, code actions, formatting — all blocked on the analyzer exposing
-  position→symbol queries and a typed AST.
+  rename, code actions, formatting — the analyzer outputs are ready;
+  wiring through `internal/lsp` remains.
 - Incremental document sync.
 - Multi-file analysis / project graph.
 - Cancellation, progress reporting, persistent caches.
@@ -427,11 +505,14 @@ The current implementation is aligned with the design in these ways:
 
 The current implementation enforces a first slice of semantic rules: it knows
 whether a name exists, whether a `const` (file, local, or parameter) is being
-reassigned, whether a same-scope identifier was already declared, and whether
-a call target is callable. It does not yet know whether `x + y` is
-type-correct, whether a variable is definitely assigned, whether return arity
-matches the declared signature, or whether a function returns on every
-required path.
+reassigned, whether a same-scope identifier was already declared, whether a
+call target is callable with the right number and types of arguments, whether
+operator operand types are compatible, whether an `if`/`while` condition is
+`bool`, whether an assignment's value type matches its target, and whether a
+`return` statement matches the enclosing function's declared return-type list.
+It does not yet know whether a variable is definitely assigned before use, or
+whether a function returns on every required path. Cross-scope shadowing
+(§3.4) is also not yet rejected.
 
 ## Pending Work By Design Area
 
@@ -439,8 +520,7 @@ required path.
 
 Pending:
 
-- Semantic analysis.
-- Typed AST.
+- A materialized typed AST distinct from the parser's untyped one.
 - Ownership and lifetime analysis.
 - Checked error-state analysis.
 - C code generation.
@@ -471,23 +551,44 @@ Pending:
 Implemented (v0):
 
 - Symbol tables for file, function, and block scopes.
-- Name resolution across the scope chain.
+- A parallel `ScopeNode` tree carrying source ranges for cursor-based
+  scope lookup.
+- Name resolution across the scope chain with a `Refs` map for
+  use-site → symbol queries.
 - Same-scope duplicate declaration detection.
 - `const` reassignment rejection (file consts, locals, and parameters).
-- `let` mutation allowed; assignments validated against symbol kind.
+- `let` mutation allowed; assignments validated against symbol kind and
+  binding type.
 - Function callee must resolve to a `SymbolFunction`.
+- Primitive type system (`int32`, `bool`, `string`, `char`, `void`) with
+  `TypeInvalid` cascade suppression.
+- Literal type assignment (`int32` for integers, `bool` for booleans,
+  `string`, `char`).
+- Operator type rules for unary `!`/`-`, arithmetic, comparison,
+  equality, and logical operators.
+- Function call arity and per-argument type checks against recorded
+  `FunctionSignature`s.
+- Return arity and per-value type validation against declared return-type
+  lists (including the `void` cases).
+- `if`/`while` condition required to be `bool`.
+- Assignment target/value type compatibility.
+- Function-signature parameter and return type names validated against
+  the primitive set before body analysis.
+- Per-symbol `Display` strings ready for LSP hover.
 
 Pending:
 
 - Cross-scope shadowing rejection (§3.4).
-- Type checking.
-- One-level bidirectional type inference.
-- Literal defaulting.
-- Return type and arity validation.
-- Function call argument count and type checks.
-- Operator type rules.
 - Definite-assignment analysis.
+- Return-coverage analysis on non-void functions.
+- One-level bidirectional type inference (annotation-driven typing of
+  initializers).
+- Float typing and a wider primitive set.
+- Validation of declared function error types and any fallible-call
+  semantics.
 - Support for function-typed values as callees.
+- Equality/ordering rules for non-numeric types.
+- A materialized typed AST distinct from the parser's untyped one.
 
 ### Safety Model
 
@@ -576,8 +677,7 @@ Tasks:
 
 ### Phase 4: Add Semantic Analysis V0
 
-Status: mostly complete for the name/scope checks; type tracking on function
-symbols still pending.
+Status: complete for the current subset.
 
 Goal: turn the untyped AST into a checked AST for the current subset.
 
@@ -587,34 +687,42 @@ Tasks:
 2. Done: resolve identifiers across the scope chain.
 3. Done: reject duplicate declarations in the same scope.
 4. Done: reject unresolved names.
-5. Pending: record function signatures (parameter types, return types, error
-   types) on `SymbolFunction` so later phases can type-check calls.
+5. Done: record function signatures (parameter types, return types, error
+   types) on `SymbolFunction` via `buildSignature`.
 6. Done: track local variables (`SymbolLocalConst`, `SymbolLocalLet`) and
    parameters.
 7. Done: validate assignment targets.
 8. Done: reject assignment to local `const`, file `const`, parameters, and
    function names.
 9. Done: validate that function calls refer to callable declarations.
-10. Pending: record function return type lists and error type lists in
+10. Done: record function return type lists and error type lists in
     function symbols.
 
 ### Phase 5: Add Type Checking V0
 
-Goal: support a small typed language with `int32`, `bool`, `void`, and
-multi-return function signatures.
+Status: mostly complete for the current expression and statement subset.
+Error-type validation and annotation-driven inference remain open.
+
+Goal: support a small typed language with `int32`, `bool`, `string`, `char`,
+`void`, and multi-return function signatures.
 
 Tasks:
 
-1. Represent primitive types.
-2. Type integer literals as `int32` by default.
-3. Type boolean literals as `bool`.
-4. Validate unary operators.
-5. Validate binary operators.
-6. Validate function call arguments and return types.
-7. Validate variable declaration initializers.
-8. Validate assignment values.
-9. Validate return statements against function return type lists.
-10. Reject return arity mismatches.
+1. Done: represent primitive types (`Type` / `TypeKind` with `TypeInvalid`).
+2. Done: type integer literals as `int32` by default.
+3. Done: type boolean literals as `bool`.
+4. Done: validate unary operators (`!`, `-`).
+5. Done: validate binary operators (arithmetic, comparison, equality, logical).
+6. Done: validate function call arguments and return types.
+7. Done: validate variable declaration initializers (the binding adopts the
+   initializer's type today).
+8. Done: validate assignment values.
+9. Done: validate return statements against function return type lists.
+10. Done: reject return arity mismatches.
+11. Pending: bidirectional inference — let the declared annotation drive
+    initializer typing rather than the other way around.
+12. Pending: validate declared error types in function signatures and tie
+    them into a fallible-call story.
 
 ### Phase 6: Add Definite Assignment And Control Flow Checks
 

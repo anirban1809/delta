@@ -1,0 +1,4 @@
+function f(): bool {
+    let x: bool = true;
+    return x;
+}

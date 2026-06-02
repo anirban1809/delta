@@ -32,6 +32,16 @@
         "language": "delta",
         "scopeName": "source.delta",
         "path": "./syntaxes/delta.tmLanguage.json"
+      },
+      {
+        "scopeName": "markdown.delta.codeblock",
+        "path": "./syntaxes/delta.tmLanguage.json",
+        "injectTo": [
+          "text.html.markdown"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.delta": "delta"
+        }
       }
     ],
     "configuration": {

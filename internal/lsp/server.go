@@ -16,11 +16,21 @@ import (
 const serverName = "delta-lsp"
 const serverVersion = "0.0.1"
 
+// docState is the per-URI cache. contents is the latest text from the
+// client; result is the analyzer output for that text (possibly partial
+// if there were parse errors); lastGood is the most recent fully-parsed
+// result, used by completion when the user is mid-edit.
+type docState struct {
+	contents []byte
+	result   *pipeline.Result
+	lastGood *pipeline.Result
+}
+
 type Server struct {
 	in        *bufio.Reader
 	out       io.Writer
 	log       *log.Logger
-	documents map[string][]byte
+	documents map[string]*docState
 	shutdown  bool
 }
 
@@ -32,7 +42,7 @@ func Run(in io.Reader, out io.Writer, errLog io.Writer) error {
 		in:        bufio.NewReader(in),
 		out:       out,
 		log:       log.New(errLog, "delta-lsp: ", log.LstdFlags),
-		documents: map[string][]byte{},
+		documents: map[string]*docState{},
 	}
 
 	for {
@@ -134,6 +144,12 @@ func (s *Server) handle(msg *Message) {
 		s.handleDidChange(msg)
 	case "textDocument/didClose":
 		s.handleDidClose(msg)
+	case "textDocument/hover":
+		s.handleHover(msg)
+	case "textDocument/definition":
+		s.handleDefinition(msg)
+	case "textDocument/completion":
+		s.handleCompletion(msg)
 	default:
 		if isRequest {
 			s.replyError(msg, ErrorCodeMethodNotFound, "method not found: "+msg.Method)
@@ -150,6 +166,14 @@ func (s *Server) handleInitialize(msg *Message) {
 			TextDocumentSync: TextDocumentSyncOptions{
 				OpenClose: true,
 				Change:    TextDocumentSyncFull,
+			},
+			HoverProvider:      true,
+			DefinitionProvider: true,
+			CompletionProvider: &CompletionOptions{
+				// No trigger characters: editors invoke completion on
+				// identifier characters by default, and Delta has no
+				// member access syntax (`.`/`::`) in v1.
+				ResolveProvider: false,
 			},
 		},
 		ServerInfo: ServerInfo{Name: serverName, Version: serverVersion},
@@ -168,7 +192,9 @@ func (s *Server) handleDidOpen(msg *Message) {
 		s.log.Printf("didOpen: %v", err)
 		return
 	}
-	s.documents[p.TextDocument.URI] = []byte(p.TextDocument.Text)
+	s.documents[p.TextDocument.URI] = &docState{
+		contents: []byte(p.TextDocument.Text),
+	}
 	s.analyzeAndPublish(p.TextDocument.URI)
 }
 
@@ -182,7 +208,12 @@ func (s *Server) handleDidChange(msg *Message) {
 		return
 	}
 	// Full sync: the last change carries the whole new document.
-	s.documents[p.TextDocument.URI] = []byte(p.ContentChanges[len(p.ContentChanges)-1].Text)
+	st := s.documents[p.TextDocument.URI]
+	if st == nil {
+		st = &docState{}
+		s.documents[p.TextDocument.URI] = st
+	}
+	st.contents = []byte(p.ContentChanges[len(p.ContentChanges)-1].Text)
 	s.analyzeAndPublish(p.TextDocument.URI)
 }
 
@@ -199,7 +230,10 @@ func (s *Server) handleDidClose(msg *Message) {
 // ---- pipeline + publish ----
 
 func (s *Server) analyzeAndPublish(uri string) {
-	contents := s.documents[uri]
+	st := s.documents[uri]
+	if st == nil {
+		return
+	}
 	diags := []Diagnostic{}
 	func() {
 		defer func() {
@@ -207,9 +241,16 @@ func (s *Server) analyzeAndPublish(uri string) {
 				s.log.Printf("pipeline panic on %s: %v", uri, r)
 			}
 		}()
-		result := pipeline.Compile(uri, contents)
+		result := pipeline.Compile(uri, st.contents)
+		st.result = result
 		if result != nil && result.ErrorBag != nil {
 			diags = ToDiagnostics(result.ErrorBag.Errors)
+		}
+		// Track the last result that parsed cleanly so completion can
+		// fall back when the user is mid-edit. Semantic errors are fine
+		// — they're often *why* the user is asking for completion.
+		if result != nil && !pipeline.HasParseErrors(result) {
+			st.lastGood = result
 		}
 	}()
 	s.publishDiagnostics(uri, diags)

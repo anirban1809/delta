@@ -1,0 +1,183 @@
+[
+  {
+    "file": "return_ok.delta",
+    "expect": "pass",
+    "note": "phase 5 — single-return int32 function with arithmetic body"
+  },
+  {
+    "file": "return_type_mismatch_err.delta",
+    "expect": "fail",
+    "contains": "return",
+    "note": "phase 5 — returned value type must match the declared return type"
+  },
+  {
+    "file": "return_arity_too_few_err.delta",
+    "expect": "fail",
+    "contains": "arity",
+    "note": "phase 5 — `return;` against a non-void declared return is rejected"
+  },
+  {
+    "file": "return_arity_too_many_err.delta",
+    "expect": "fail",
+    "contains": "arity",
+    "note": "phase 5 — returning a value from a void function is rejected; treat declared `void` as zero return values"
+  },
+  {
+    "file": "return_multi_ok.delta",
+    "expect": "pass",
+    "note": "phase 5 — multi-return with matching arity and types"
+  },
+  {
+    "file": "return_multi_type_mismatch_err.delta",
+    "expect": "fail",
+    "contains": "return",
+    "note": "phase 5 — second return slot is bool but value is int32"
+  },
+  {
+    "file": "let_init_mismatch_err.delta",
+    "expect": "fail",
+    "contains": "int32",
+    "note": "phase 5 — variable initializer type must match the declared type"
+  },
+  {
+    "file": "let_inferred_ok.delta",
+    "expect": "pass",
+    "note": "phase 5 — `let x = 1` infers int32 from the initializer; subsequent int32 assignment is legal"
+  },
+  {
+    "file": "assign_type_mismatch_err.delta",
+    "expect": "fail",
+    "contains": "int32",
+    "note": "phase 5 — assignment value type must match the binding type"
+  },
+  {
+    "file": "if_cond_not_bool_err.delta",
+    "expect": "fail",
+    "contains": "bool",
+    "note": "phase 5 — `if` condition must be bool"
+  },
+  {
+    "file": "while_cond_not_bool_err.delta",
+    "expect": "fail",
+    "contains": "bool",
+    "note": "phase 5 — `while` condition must be bool"
+  },
+  {
+    "file": "call_arity_too_many_err.delta",
+    "expect": "fail",
+    "contains": "argument",
+    "note": "phase 5 — call passes more arguments than the signature declares"
+  },
+  {
+    "file": "call_arity_too_few_err.delta",
+    "expect": "fail",
+    "contains": "argument",
+    "note": "phase 5 — call passes fewer arguments than the signature declares"
+  },
+  {
+    "file": "call_arg_type_mismatch_err.delta",
+    "expect": "fail",
+    "contains": "int32",
+    "note": "phase 5 — argument type must match the corresponding parameter type"
+  },
+  {
+    "file": "call_ok.delta",
+    "expect": "pass",
+    "note": "phase 5 — clean call with matching arity and arg types"
+  },
+  {
+    "file": "unknown_param_type_err.delta",
+    "expect": "fail",
+    "contains": "nope",
+    "note": "phase 5 — unknown type name in parameter position is rejected at signature build time"
+  },
+  {
+    "file": "unknown_return_type_err.delta",
+    "expect": "fail",
+    "contains": "nope",
+    "note": "phase 5 — unknown type name in return position is rejected at signature build time"
+  },
+  {
+    "file": "binary_arith_mismatch_err.delta",
+    "expect": "fail",
+    "contains": "int32",
+    "note": "phase 5 — `+` requires both operands int32"
+  },
+  {
+    "file": "unary_not_on_int_err.delta",
+    "expect": "fail",
+    "contains": "bool",
+    "note": "phase 5 — unary `!` requires a bool operand"
+  },
+  {
+    "file": "unary_neg_on_bool_err.delta",
+    "expect": "fail",
+    "contains": "int32",
+    "note": "phase 5 — unary `-` requires an int32 operand"
+  },
+  {
+    "file": "comparison_mismatch_err.delta",
+    "expect": "fail",
+    "contains": "int32",
+    "note": "phase 5 — `<` requires both operands int32"
+  },
+  {
+    "file": "equality_cross_type_err.delta",
+    "expect": "fail",
+    "contains": "type",
+    "note": "phase 5 — `==` requires both operands the same type"
+  },
+  {
+    "file": "logical_on_int_err.delta",
+    "expect": "fail",
+    "contains": "bool",
+    "note": "phase 5 — `&&` requires both operands bool"
+  },
+  {
+    "file": "multi_return_in_expr_err.delta",
+    "expect": "fail",
+    "contains": "multi-return",
+    "note": "phase 5 — multi-return call cannot be used where a single value is expected"
+  },
+  {
+    "file": "cascade_single_error.delta",
+    "expect": "fail",
+    "contains": "unknown identifier",
+    "not_contains": "int32",
+    "error_count": 1,
+    "note": "phase 5 — once a sub-expression is poisoned (TypeInvalid), parents must not pile on type-mismatch errors"
+  },
+  {
+    "file": "bool_ops_ok.delta",
+    "expect": "pass",
+    "note": "phase 5 — bool parameters with logical operators and unary `!`"
+  },
+  {
+    "file": "let_annot_ok.delta",
+    "expect": "pass",
+    "note": "annotation-driven inference — matching annotation and initializer must pass cleanly"
+  },
+  {
+    "file": "let_annot_unknown_type_err.delta",
+    "expect": "fail",
+    "contains": "unknown type",
+    "note": "annotation-driven inference — unknown type name in a local annotation must be rejected (today the analyzer silently discards the resolveTypeName failure)"
+  },
+  {
+    "file": "file_const_annot_ok.delta",
+    "expect": "pass",
+    "note": "annotation-driven inference — matching annotation and initializer at file scope must pass"
+  },
+  {
+    "file": "file_const_init_mismatch_err.delta",
+    "expect": "fail",
+    "contains": "mismatch",
+    "note": "annotation-driven inference — file-scope const initializer type must match the annotation (today there is no check at file scope)"
+  },
+  {
+    "file": "file_const_unknown_type_err.delta",
+    "expect": "fail",
+    "contains": "unknown type",
+    "note": "annotation-driven inference — unknown type name in a file-scope const annotation must be rejected"
+  }
+]

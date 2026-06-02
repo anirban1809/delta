@@ -93,5 +93,43 @@
     "file": "chained_call_err.delta",
     "expect": "fail",
     "note": "panic bug + invalid program — adder() returns int32 (not callable), so this must error; today it panics on the unchecked Callee.(ast.Identifier) assertion. A valid chained call needs function-typed values (spec §3.6), which aren't implemented yet."
+  },
+  {
+    "file": "return_missing_err.delta",
+    "expect": "fail",
+    "contains": "must return",
+    "note": "non-void function with empty body must be rejected by return-coverage analysis"
+  },
+  {
+    "file": "return_if_only_err.delta",
+    "expect": "fail",
+    "contains": "must return",
+    "note": "return in then-branch only — missing else means not all paths return"
+  },
+  {
+    "file": "return_if_else_ok.delta",
+    "expect": "pass",
+    "note": "both branches of if/else return — function returns on all paths"
+  },
+  {
+    "file": "return_after_if_ok.delta",
+    "expect": "pass",
+    "note": "trailing return after an if-without-else satisfies return coverage"
+  },
+  {
+    "file": "return_while_err.delta",
+    "expect": "fail",
+    "contains": "must return",
+    "note": "return only inside a while body — loop conditions are not analyzed, so coverage is not guaranteed"
+  },
+  {
+    "file": "return_void_ok.delta",
+    "expect": "pass",
+    "note": "declared void return type does not require a return statement"
+  },
+  {
+    "file": "return_nested_ok.delta",
+    "expect": "pass",
+    "note": "nested if/else with returns on every leaf branch satisfies coverage"
   }
 ]

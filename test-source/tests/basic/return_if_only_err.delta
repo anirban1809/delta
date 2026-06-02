@@ -1,0 +1,5 @@
+function f(): int32 {
+    if (true) {
+        return 1;
+    }
+}

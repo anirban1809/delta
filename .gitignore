@@ -1,4 +1,4 @@
 .claude
 .vscode
 bin
-test-source/tests/test-results
+test-source/tests/*/test-results/*

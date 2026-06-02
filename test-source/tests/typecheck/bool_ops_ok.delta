@@ -1,0 +1,8 @@
+function func(a: bool, b: bool): bool{
+    return a && b || !a;
+}
+
+function func2(i: int32, b: int32): int32 {
+    func(1, 2);
+    return 0;
+}

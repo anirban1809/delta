@@ -1,0 +1,5 @@
+function f(): int32 {
+    let x = 1;
+    x = true;
+    return x;
+}

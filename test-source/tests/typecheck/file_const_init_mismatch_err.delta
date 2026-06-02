@@ -1,0 +1,5 @@
+const x: int32 = true;
+
+function f(): int32 {
+    return x;
+}

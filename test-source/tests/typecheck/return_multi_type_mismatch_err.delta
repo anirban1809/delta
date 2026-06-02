@@ -1,0 +1,3 @@
+function f(): int32, bool {
+    return 1, 2;
+}

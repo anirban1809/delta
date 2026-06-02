@@ -386,10 +386,15 @@ func (p *Parser) ParseReturnStatement() (ReturnStatement, bool) {
 	keyword := p.Advance() // consume `return`
 	values := []Expression{}
 	expr, ok := p.ParseExpression()
-	if !ok {
-		return ReturnStatement{}, false
+
+	if expr == nil {
+		p.ErrorBag.RemoveLastError()
+	} else {
+		if !ok {
+			return ReturnStatement{}, false
+		}
+		values = append(values, expr)
 	}
-	values = append(values, expr)
 
 	p.skipComments()
 	for p.Current().Kind == token.Symbol_Comma {
@@ -658,8 +663,13 @@ func (p *Parser) ParseBlockStatement() (BlockStatement, bool) {
 		statements = append(statements, expr)
 
 	}
+	closeBrace := posOf(p.Current())
 	p.Advance() //consume right brace
-	return BlockStatement{Position: openBrace, Statements: statements}, true
+	return BlockStatement{
+		Position:   openBrace,
+		End:        closeBrace,
+		Statements: statements,
+	}, true
 }
 
 func (p *Parser) ParseFunctionParameter() (FunctionParameter, bool) {
@@ -677,8 +687,16 @@ func (p *Parser) ParseFunctionParameter() (FunctionParameter, bool) {
 
 	return FunctionParameter{
 		Position: posOf(paramName),
-		Name:     Identifier{Position: posOf(paramName), Name: paramName.Lexeme},
-		Type:     TypeReference{Name: Identifier{Position: posOf(paramType), Name: paramType.Lexeme}},
+		Name: Identifier{
+			Position: posOf(paramName),
+			Name:     paramName.Lexeme,
+		},
+		Type: TypeReference{
+			Name: Identifier{
+				Position: posOf(paramType),
+				Name:     paramType.Lexeme,
+			},
+		},
 	}, true
 }
 
