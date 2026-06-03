@@ -61,6 +61,7 @@
 51. [Standard Library Surface](#51-standard-library-surface)
 52. [Package Configuration (`delta.json`)](#52-package-configuration-deltajson)
 53. [MVP Compiler Scope](#53-mvp-compiler-scope)
+54. [Standard Library Module Catalog](#54-standard-library-module-catalog)
 
 ---
 
@@ -1144,6 +1145,114 @@ delta build --release
 **Examples.** (Scope list, not code.)
 
 **Conclusion.** Adopt the scope verbatim. The biggest risk is `check` exit analysis and ownership tracking — these are the features most likely to drag MVP timeline, so they should be prototyped first.
+
+---
+
+## 54. Standard Library Module Catalog
+
+**Proposal.** Expand the §51 module list into a tiered catalog covering the full "batteries included" surface area. Modules are grouped by tier; tier numbers are organizational, not a load order. Every module is governed by the cross-cutting rules at the end of this section.
+
+### Tier 0 — Language Runtime (always linked)
+
+- **`std/core`** — primitive ops; `Disposable`, `Copyable`, `Movable`, `Comparable`, `Hash`, `Ordering`, `Iterator`/`IntoIterator` traits; `Allocator` interface; `Pair`/`Tuple`; debug `assert`; `panic`; `unreachable`; `process.exit`.
+- **`std/error`** — shared `ErrorType` base; common variants (`IoError`, `ParseError`, `NotFound`, `Unsupported`, `OutOfMemory`, `Overflow`, `Timeout`); error-set composition helpers used across the stdlib.
+- **`std/mem`** — raw `alloc`/`realloc`/`free` over `Allocator`; `copy`, `move`, `set`, `compare`, `swap`; alignment helpers; `heap T` plumbing; arena allocator.
+- **`std/c`** — opaque C types; `cstring` ↔ `String` conversion; `errno` mirror; `extern "c"` glue.
+
+### Tier 1 — Containers & Data
+
+- **`std/array`** — `Array<T>`, `FixedArray<T, N>` (const-generic), `Slice<T>`, `mod Slice<T>`.
+- **`std/string`** — `String` (owned, UTF-8), `stringview` (borrowed), `Char`, `StringBuilder`, case/normalization helpers.
+- **`std/buffer`** — `Buffer` (owned bytes), `ByteSlice`, endian read/write, hex/base64 conversions.
+- **`std/map`** — `HashMap<K, V>`, `OrderedMap<K, V>` (insertion-ordered), `TreeMap<K, V>`.
+- **`std/set`** — `HashSet<T>`, `TreeSet<T>`, `BitSet`.
+- **`std/queue`** — `Deque<T>`, `Queue<T>`, `Stack<T>`, `PriorityQueue<T>`, `RingBuffer<T, N>`.
+- **`std/iter`** — adapters (`map`, `filter`, `take`, `zip`, `chain`, `fold`, `collect`) over the core `Iterator` trait.
+
+### Tier 2 — Text, Encoding, Parsing
+
+- **`std/fmt`** — typed formatter (no `printf`); `format(...)`, `print`/`println`; `Debug`/`Display` traits.
+- **`std/unicode`** — codepoints, grapheme iteration, case folding, normalization (NFC/NFD).
+- **`std/regex`** — non-backtracking regex (RE2-style) over `stringview`.
+- **`std/json`** — parse/serialize, streaming decoder, schema-light bindings.
+- **`std/toml`**, **`std/yaml`**, **`std/csv`** — common config/data formats.
+- **`std/xml`** — minimal SAX-style + DOM.
+- **`std/base64`**, **`std/hex`**, **`std/url`** — encoding utilities.
+
+### Tier 3 — I/O & OS
+
+- **`std/io`** — `Reader`/`Writer`/`Seeker` traits; `BufReader`, `BufWriter`; `stdin`/`stdout`/`stderr`; `copy`.
+- **`std/fs`** — files, directories, metadata, permissions, temp files, atomic rename, `walkDir` iterator.
+- **`std/path`** — pure path manipulation (no fs access), platform-aware.
+- **`std/os`** — `args`, `env`, `cwd`, signals, exit codes, user/host info.
+- **`std/process`** — spawn child processes, pipes, exit status.
+- **`std/time`** — `Instant`, `Duration`, `SystemTime`, monotonic clock, sleep.
+- **`std/date`** — civil dates, calendar arithmetic, timezone DB hook.
+- **`std/log`** — leveled logger, structured fields, sinks.
+
+### Tier 4 — Concurrency
+
+- **`std/thread`** — OS threads, join, thread-local storage.
+- **`std/sync`** — `Mutex<T>`, `RwLock<T>`, `Once`, `Condvar`, `Barrier`, `WaitGroup`; lock guards via `Disposable`.
+- **`std/atomic`** — `Atomic<T>`, `MemoryOrder`.
+- **`std/channel`** — typed bounded/unbounded MPMC channels.
+- **`std/task`** — lightweight task scheduler / executor (post-MVP; namespace reserved now).
+
+### Tier 5 — Numerics
+
+- **`std/math`** — `sin`/`cos`/`exp`/`log`, constants, `clamp`, `lerp`, integer helpers.
+- **`std/random`** — seedable PRNG (xoshiro); CSPRNG lives in `std/crypto/rand`.
+- **`std/bigint`**, **`std/bigfloat`**, **`std/decimal`** — arbitrary precision.
+- **`std/bits`** — popcount, leading/trailing zeros, byte swap.
+
+### Tier 6 — Network
+
+- **`std/net`** — TCP, UDP, Unix sockets; address parsing; DNS.
+- **`std/net/tls`** — TLS client/server (wraps a pinned crypto backend).
+- **`std/http`** — HTTP/1.1 + HTTP/2 client and server; `Request`/`Response`.
+- **`std/ws`** — WebSocket client/server.
+
+### Tier 7 — Crypto & Integrity
+
+- **`std/crypto/hash`** — SHA-2, SHA-3, BLAKE3; MD5 (legacy).
+- **`std/crypto/hmac`**, **`std/crypto/aead`** — HMAC; AES-GCM, ChaCha20-Poly1305.
+- **`std/crypto/rand`** — CSPRNG.
+- **`std/crypto/pkey`** — Ed25519, X25519, ECDSA P-256.
+- **`std/checksum`** — CRC32/64, Adler32.
+- **`std/compress`** — gzip, deflate, zstd.
+
+### Tier 8 — Diagnostics & Dev Tooling
+
+- **`std/test`** — test runner integration; `expect`/`expectError`; golden files; benchmarks.
+- **`std/bench`** — microbench harness with statistical noise reporting.
+- **`std/debug`** — backtrace capture; DWARF symbolication of generated C.
+- **`std/trace`** — span-based tracing; exporter hooks.
+- **`std/metrics`** — counters, gauges, histograms.
+
+### Tier 9 — Reserved Namespaces (carve now, fill later)
+
+- **`std/db`** — SQLite-first driver; generic `Connection`/`Statement`.
+- **`std/uuid`**, **`std/ulid`** — identifier generation.
+- **`std/cli`** — arg parsing, subcommands, help generation.
+- **`std/embed`** — compile-time file embedding via the bundled toolchain.
+
+### Cross-cutting rules for every stdlib module
+
+1. **Borrow-first APIs.** Readers take `borrowed`; mutators take `mod borrowed`. No by-value `String` consumption unless ownership genuinely transfers. (Reinforces the guideline in [`docs/improvement-ideas.md`](improvement-ideas.md).)
+2. **No `new`.** All constructors are `.create(...)` or other named factories — consistent with [§9](#9-classes) and the user-class rule.
+3. **Fallible everything.** I/O, parsing, allocation, and network calls surface as `Success | IoError` (etc.), never thrown. Callers bind with `as result` and discharge with `check` ([§30](#30-error-state-discharge)).
+4. **Explicit allocator.** Every container takes an `Allocator` (defaulting to the process allocator) so arenas and test allocators slot in without rewriting call sites.
+5. **No hidden globals.** `stdin`/`stdout`/`stderr`/env are accessed through `std/io` and `std/os` handles, not free-floating macros.
+
+### Phasing relative to §51 MVP
+
+§51 ships `core`, `error`, `array`, `string`, `io`, `fs` in MVP. This catalog adds **`std/mem`** and **`std/fmt`** to that MVP set — both are load-bearing for everything above them and small enough to land with the bootstrap. All other modules in tiers 1–9 land incrementally post-MVP, in roughly tier order.
+
+**Reason.** Pinning the namespace up front prevents ecosystem fragmentation: third-party packages won't squat on `std/*`-shaped names, and downstream code can write `import { ... } from "std/http"` knowing the import path is stable before the module is fully implemented. Tiering communicates *load-bearingness*, not implementation priority — `std/fmt` is Tier 2 but ships in MVP because everything else prints through it.
+
+**Examples.** (Module catalog, not code.)
+
+**Conclusion.** Adopt the tiered catalog as the target stdlib surface. Promote `std/mem` and `std/fmt` into the MVP set alongside the §51 six. Treat tier numbers as documentation of dependency direction, not as a build schedule.
 
 ---
 

@@ -428,7 +428,7 @@ func (a *Analyzer) AnalyzeScope(
 				continue
 			}
 
-			varType, _ := resolveTypeName(stmt.Type.Name.Name)
+			varType, _ := ResolveTypeName(stmt.Type.Name.Name)
 
 			if varType.Kind == TypeInvalid {
 				a.errorAt(
@@ -594,7 +594,8 @@ func (a *Analyzer) AnalyzeFuncDecl(
 
 	block := decl.Body
 
-	if decl.ReturnTypes[0].Name.Name != "void" && !blockReturns(*block) {
+	if len(decl.ReturnTypes) > 0 && decl.ReturnTypes[0].Name.Name != "void" &&
+		!blockReturns(*block) {
 		a.errorAt(block.Position, "all paths must return a value")
 	}
 
@@ -618,7 +619,7 @@ func (a *Analyzer) AnalyzeFuncDecl(
 			continue
 		}
 
-		paramType, _ := resolveTypeName(parameter.Type.Name.Name)
+		paramType, _ := ResolveTypeName(parameter.Type.Name.Name)
 		functionScope.AddSymbol(Symbol{
 			Name:    name,
 			Kind:    SymbolParameter,
@@ -652,7 +653,7 @@ func buildSignature(decl ast.FunctionDeclaration) *FunctionSignature {
 		ErrorTypes:  make([]Type, 0, len(decl.ErrorTypes)),
 	}
 	for _, p := range decl.Parameters {
-		paramType, _ := resolveTypeName(p.Type.Name.Name)
+		paramType, _ := ResolveTypeName(p.Type.Name.Name)
 		sig.Parameters = append(
 			sig.Parameters,
 			paramType,
@@ -660,11 +661,11 @@ func buildSignature(decl ast.FunctionDeclaration) *FunctionSignature {
 	}
 
 	for _, r := range decl.ReturnTypes {
-		returnType, _ := resolveTypeName(r.Name.Name)
+		returnType, _ := ResolveTypeName(r.Name.Name)
 		sig.ReturnTypes = append(sig.ReturnTypes, returnType)
 	}
 	for _, e := range decl.ErrorTypes {
-		errorType, _ := resolveTypeName(e.Name.Name)
+		errorType, _ := ResolveTypeName(e.Name.Name)
 		sig.ErrorTypes = append(sig.ErrorTypes, errorType)
 	}
 
@@ -743,7 +744,7 @@ func (a *Analyzer) Analyze() {
 				)
 				continue
 			}
-			varType, _ := resolveTypeName(declaration.Type.Name.Name)
+			varType, _ := ResolveTypeName(declaration.Type.Name.Name)
 			if declaration.Type.Name.Name == "" {
 				varType = a.TypeOf(declaration.Value, a.GlobalScope)
 			}
@@ -765,7 +766,7 @@ func (a *Analyzer) Analyze() {
 		case ast.FunctionDeclaration:
 			typeCheckFailed := false
 			for _, returnType := range decl.ReturnTypes {
-				if _, ok := resolveTypeName(returnType.Name.Name); !ok {
+				if _, ok := ResolveTypeName(returnType.Name.Name); !ok {
 					a.errorAt(returnType.Name.Position, fmt.Sprintf("unknown identifier %s", returnType.Name.Name))
 					typeCheckFailed = true
 					continue
@@ -773,7 +774,7 @@ func (a *Analyzer) Analyze() {
 			}
 
 			for _, param := range decl.Parameters {
-				if _, ok := resolveTypeName(param.Type.Name.Name); !ok {
+				if _, ok := ResolveTypeName(param.Type.Name.Name); !ok {
 					a.errorAt(param.Name.Position, fmt.Sprintf("unknown identifier %s", param.Type.Name.Name))
 					typeCheckFailed = true
 					continue
@@ -788,7 +789,7 @@ func (a *Analyzer) Analyze() {
 		case ast.ConstDeclaration:
 			valueType := a.TypeOf(decl.Value, a.GlobalScope)
 
-			if _, ok := resolveTypeName(decl.Type.Name.Name); !ok {
+			if _, ok := ResolveTypeName(decl.Type.Name.Name); !ok {
 				a.errorAt(decl.Type.Name.Position, fmt.Sprintf("unknown type identifier %s", decl.Type.Name.Name))
 				continue
 			}

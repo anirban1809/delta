@@ -1,0 +1,13 @@
+function fact(n: int32): int32 {
+    let result: int32 = 1;
+    let i: int32 = 1;
+    while (i <= n) {
+        result = result * i;
+        i = i + 1;
+    }
+    return result;
+}
+
+function main(): int32 {
+    return fact(5);
+}

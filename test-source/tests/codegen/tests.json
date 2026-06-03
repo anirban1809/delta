@@ -1,0 +1,87 @@
+[
+  {
+    "file": "return_literal.delta",
+    "expect": "codegen_match",
+    "note": "smallest end-to-end shape: int main → delta_main → return 42"
+  },
+  {
+    "file": "arith.delta",
+    "expect": "codegen_match",
+    "note": "plan §Expression mapping: always-parenthesize for nested binary ops"
+  },
+  {
+    "file": "if_else.delta",
+    "expect": "codegen_match",
+    "note": "plan §Statement mapping: if/else with bool literal condition"
+  },
+  {
+    "file": "while_sum.delta",
+    "expect": "codegen_match",
+    "note": "let + assignment + while loop, parens around comparison and arithmetic"
+  },
+  {
+    "file": "call.delta",
+    "expect": "codegen_match",
+    "note": "helper defined before main; forward decls in source order; call expression has no extra parens"
+  },
+  {
+    "file": "file_const.delta",
+    "expect": "codegen_match",
+    "note": "plan §File-scope const lowering: static const int32_t limit = 100;"
+  },
+  {
+    "file": "bool_branch.delta",
+    "expect": "codegen_match",
+    "note": "bool parameter, mixed-type signature, multi-arg call"
+  },
+  {
+    "file": "void_helper.delta",
+    "expect": "codegen_match",
+    "note": "void return type, empty body, void-call as a statement"
+  },
+  {
+    "file": "logical_unary.delta",
+    "expect": "codegen_match",
+    "note": "&&, ||, !, unary minus; nested calls; full v0 expression surface"
+  },
+  {
+    "file": "gcd_iterative.delta",
+    "expect": "codegen_match",
+    "note": "subtractive Euclidean: while + nested if/else + assignment + != / > / -"
+  },
+  {
+    "file": "factorial_iterative.delta",
+    "expect": "codegen_match",
+    "note": "accumulator pattern: two locals, while loop, multiplication, increment"
+  },
+  {
+    "file": "mutually_recursive.delta",
+    "expect": "codegen_match",
+    "note": "is_even ↔ is_odd — proves forward decls actually enable mutual recursion in C"
+  },
+  {
+    "file": "nested_control_flow.delta",
+    "expect": "codegen_match",
+    "note": "if-in-while-in-if-in-else with multiple locals and stepwise assignment"
+  },
+  {
+    "file": "many_consts.delta",
+    "expect": "codegen_match",
+    "note": "three file-scope consts (bool + int32) plus three helpers using them"
+  },
+  {
+    "file": "local_const.delta",
+    "expect": "codegen_match",
+    "note": "plan §Statement mapping: local `const x: T = expr;` lowers to `const T x = expr;`"
+  },
+  {
+    "file": "comments_stripped.delta",
+    "expect": "codegen_match",
+    "note": "plan §Statement mapping: Delta `//` comments must be dropped from output"
+  },
+  {
+    "file": "complex_program.delta",
+    "expect": "codegen_match",
+    "note": "kitchen-sink: four functions, two file consts (mixed types), nested calls, while accumulator, multi-arg helpers — closest fixture to a realistic v0 program"
+  }
+]

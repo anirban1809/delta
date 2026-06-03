@@ -89,7 +89,7 @@ func (t Type) String() string {
 	}
 }
 
-func resolveTypeName(name string) (Type, bool) {
+func ResolveTypeName(name string) (Type, bool) {
 	switch name {
 	case "int32":
 		return Type{TypeInt32}, true

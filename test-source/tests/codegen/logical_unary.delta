@@ -1,0 +1,15 @@
+function decide(a: bool, b: bool, c: bool): bool {
+    return a && b || !c;
+}
+
+function neg(x: int32): int32 {
+    return -x;
+}
+
+function main(): int32 {
+    if (decide(true, false, false)) {
+        return neg(7);
+    } else {
+        return 0;
+    }
+}

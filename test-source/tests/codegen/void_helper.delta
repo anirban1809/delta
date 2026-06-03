@@ -1,0 +1,8 @@
+function noop() {
+    return;
+}
+
+function main(): int32 {
+    noop();
+    return 0;
+}

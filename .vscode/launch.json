@@ -11,7 +11,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${fileDirname}",
-            "args": ["build", "/Users/anirban/Documents/Code/delta/test-source/tests/typecheck/let_annot_unknown_type_err.delta"]
+            "args": ["build", "/Users/anirban/Documents/Code/delta/test-source/tests/codegen/void_helper.delta"]
         }
     ]
 }

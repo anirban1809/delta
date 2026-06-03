@@ -2,3 +2,8 @@
 .vscode
 bin
 test-source/tests/*/test-results/*
+test-source/tests/*/.codegen-out/
+test-source/build
+build/
+test-source/tests/codegen/.codegen-out
+test-source/tests/codegen/test-results

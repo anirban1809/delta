@@ -1,0 +1,42 @@
+const debug_mode: bool = false;
+const max_step: int32 = 100;
+
+function abs_diff(a: int32, b: int32): int32 {
+    if (a > b) {
+        return a - b;
+    } else {
+        return b - a;
+    }
+}
+
+function clamp(x: int32, lo: int32, hi: int32): int32 {
+    if (x < lo) {
+        return lo;
+    } else {
+        if (x > hi) {
+            return hi;
+        } else {
+            return x;
+        }
+    }
+}
+
+function step(value: int32, target: int32): int32 {
+    let diff: int32 = abs_diff(value, target);
+    let bounded: int32 = clamp(diff, 0, max_step);
+    if (debug_mode) {
+        return bounded + 1;
+    } else {
+        return bounded;
+    }
+}
+
+function main(): int32 {
+    let result: int32 = 0;
+    let i: int32 = 0;
+    while (i < 5) {
+        result = result + step(i, 3);
+        i = i + 1;
+    }
+    return result;
+}

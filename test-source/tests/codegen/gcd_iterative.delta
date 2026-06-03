@@ -1,0 +1,16 @@
+function gcd(a: int32, b: int32): int32 {
+    let x: int32 = a;
+    let y: int32 = b;
+    while (x != y) {
+        if (x > y) {
+            x = x - y;
+        } else {
+            y = y - x;
+        }
+    }
+    return x;
+}
+
+function main(): int32 {
+    return gcd(48, 18);
+}

@@ -1,6 +1,6 @@
 # Delta Compiler Status
 
-Date: 2026-06-02
+Date: 2026-06-03
 
 This document describes the current implementation status of the Delta compiler
 against the design in `docs/main-spec.md` and `docs/spec-sections/`. It is a
@@ -9,31 +9,40 @@ language specification.
 
 ## Current Implementation
 
-The compiler currently has a small front end that can read a single `.delta`
-source file, tokenize it, parse it into an untyped AST, run name resolution
-and a first pass of type checking, and print the AST when analysis is clean.
-Tokenizer, parser, and semantic failures are reported through a shared
-diagnostic bag and printed with file, line, column, source line, and caret
-location. The parser now performs error recovery so multiple syntax errors
-can be reported in a single pass. The same pipeline is also exposed as a
-Language Server (`delta lsp`) consumed by the bundled VS Code extension,
-which uses the analyzer's scope tree and resolved-reference map to drive
-editor features.
+The compiler can now take a single `.delta` source file end-to-end:
+tokenize, parse, run name resolution and a first pass of type checking,
+lower the analyzed AST to C, write it to disk, and invoke clang to produce
+a runnable executable. Tokenizer, parser, and semantic failures are
+reported through a shared diagnostic bag and printed with file, line,
+column, source line, and caret location. The parser performs error
+recovery so multiple syntax errors can be reported in a single pass. The
+same front-end pipeline is also exposed as a Language Server (`delta lsp`)
+consumed by the bundled VS Code extension, which uses the analyzer's
+scope tree and resolved-reference map to drive editor features.
 
 Implemented command path:
 
-1. `cmd/delta/main.go` accepts `delta build <file.delta>`, `delta test`, and
-   `delta lsp`.
+1. `cmd/delta/main.go` accepts `delta build <file.delta>`,
+   `delta dump-ast <file.delta>`, `delta test`, and `delta lsp`.
 2. The CLI checks that the input file has a `.delta` extension.
 3. `internal/pipeline.Compile(name, contents)` runs tokenize → parse →
-   semantic analyze in memory, returning the AST and the diagnostic bag. Both
-   the CLI and the LSP server share this entry point.
-4. If any stage reports diagnostics, downstream stages are skipped and the
-   CLI prints them.
-5. The AST formatter prints the parsed tree when no diagnostics are present.
+   semantic analyze in memory, returning the AST, the diagnostic bag, and
+   the analyzer's `Refs` map. Both the CLI and the LSP server share this
+   entry point.
+4. If any front-end stage reports diagnostics, downstream stages are
+   skipped and the CLI prints them.
+5. `delta build` then calls `internal/codegen.Emit` to lower the AST to
+   C, writes the result to `build/c/<basename>.c`, locates clang via
+   `internal/toolchain.FindClang`, and invokes it with `-std=c11 -Wall
+   -Werror=implicit-function-declaration -fwrapv -o build/<basename>
+   build/c/<basename>.c`. A non-zero clang exit on valid-Delta input is
+   surfaced as an internal compiler error with the generated `.c` left
+   in place for inspection.
+6. `delta dump-ast` runs the front end and prints the formatted AST on
+   success (the old `delta build` behavior).
 
-This means the project currently covers the first three stages of the planned
-pipeline from Section 2, with a partial type-checking pass layered on:
+The project now covers stages 1–3, 5, and 6 of the planned pipeline from
+Section 2:
 
 1. lex
 2. parse
@@ -41,6 +50,9 @@ pipeline from Section 2, with a partial type-checking pass layered on:
    (operator typing, call arity and argument types, return arity and types,
    assignment compatibility, condition typing). Definite assignment, return
    coverage, and cross-scope shadowing are still pending.
+5. C code generation (single-TU; see "Codegen Status" below for the
+   covered surface)
+6. Clang invocation (single-call compile + link to `build/<basename>`)
 
 The remaining planned stages are not implemented yet:
 
@@ -48,9 +60,6 @@ The remaining planned stages are not implemented yet:
    separate typed AST node tree)
 2. ownership and lifetime analysis
 3. checked error-state analysis
-4. C code generation
-5. Clang compile
-6. Clang link
 
 ## Implemented Language Surface
 
@@ -428,6 +437,62 @@ Not implemented yet (semantics):
 - A separate, persisted typed-AST node tree. Types are computed on demand by
   `TypeOf` rather than materialized into AST nodes.
 
+## Codegen Status
+
+The C code generator lives in `internal/codegen/`. It walks the analyzed
+AST and emits a single C translation unit. It is paired with
+`internal/toolchain/` for clang location and `cmd/delta` for the
+write-and-invoke step.
+
+Implemented (verified by 17 golden-file fixtures under
+`test-source/tests/codegen/`):
+
+- Single-file lowering to `build/c/<basename>.c`, then clang invocation
+  to produce `build/<basename>`. Generated `.c` is preserved on failure.
+- Type mapping: `int32 → int32_t`, `bool → bool` (via `<stdbool.h>`),
+  `void → void`, `char → char`. Every TU opens with `#include <stdint.h>`
+  and `#include <stdbool.h>`.
+- Function lowering: forward declarations for every function are emitted
+  in source order at the top of the TU; bodies follow with named
+  parameters (no unnamed `int32_t f(int32_t)` style).
+- Entry-point wrapper: a user `function main(): int32` is renamed to
+  `delta_main` at the C level; an `int main()` shim at the bottom of the
+  file calls `(int)delta_main()`. The user's Delta source still says
+  `main`.
+- File-scope `const` lowers to `static const T name = expr;` between the
+  forward decls and the bodies.
+- Statements: `return` (with and without value), `let`, local `const`
+  (lowered as `const T x = expr;`), assignment, `if`/`else`, `while`,
+  function-call-as-statement (`ExpressionStatement`), and block
+  statements with brace wrapping regardless of statement count.
+- Expressions: integer literals, boolean literals, identifiers,
+  unary `-` and `!`, binary arithmetic (`+`, `-`, `*`, `/`), comparison
+  (`<`, `<=`, `>`, `>=`, `==`, `!=`), logical (`&&`, `||`), and function
+  calls.
+- Precedence-aware re-parenthesization for binary expressions: parens are
+  re-emitted around an operand only when the natural C reading would
+  re-group differently than the AST demands (covers `(x + offset) *
+  scale` and rejects redundant parens on cases like `a - b - c`).
+- Comments in Delta source are dropped from the emitted C.
+
+Pending (planned in `docs/plans/c-codegen-v0.md`):
+
+- Structured codegen diagnostics in the `ErrorBag`. Today the `*ErrorBag`
+  return value is plumbed through `codegen.Emit` but unused — errors
+  from `cType` and `buildSignature` go to `println` instead.
+- "Fail-closed" guards on out-of-scope constructs (multi-return
+  signatures, error-typed signatures, `string`/`char` types in user
+  positions). Today these would silently produce broken C if reached.
+- Entry-point validation (no `main`, `main` with params, `main` with
+  non-`int32` return) at the codegen boundary.
+- `#line N "src.delta"` directives at statement boundaries
+  (plan §Source mapping; deliberately last in the implementation order).
+- Negative test fixtures (`expect: "build_fail"`) once the diagnostics
+  land.
+
+See the "Notes" subsection under "Phase 7: Generate C For The Current
+Subset" further down for additional design notes.
+
 ## Editor Integration
 
 `delta` now ships a Language Server subcommand and a bundled VS Code
@@ -523,10 +588,19 @@ Pending:
 - A materialized typed AST distinct from the parser's untyped one.
 - Ownership and lifetime analysis.
 - Checked error-state analysis.
-- C code generation.
-- Clang compile and link.
-- Build directories and generated artifacts.
-- Incremental compilation.
+- Structured codegen diagnostics in the `ErrorBag` and fail-closed
+  guards for out-of-scope constructs (see "Codegen Status").
+- `#line` directives in the generated C for source mapping.
+- Multi-file translation units, name mangling, and bundled clang.
+- Incremental compilation, `.delta-meta`, and parallel codegen.
+- Release/debug modes, LTO, sanitizers, and determinism flags.
+
+Done:
+
+- Single-TU C code generation for the v0 surface (see "Codegen Status").
+- Single-call clang compile + link to `build/<basename>`.
+- Build directory layout (`build/c/<basename>.c` then `build/<basename>`).
+- Host clang lookup with a structured "not found on PATH" error.
 
 ### Syntax
 
@@ -740,28 +814,76 @@ Tasks:
 
 Goal: produce a runnable program for the current small language.
 
+Status: **substantially done.** Tasks 2–8 are implemented for the
+in-scope v0 surface and verified by 17 golden-file fixtures under
+`test-source/tests/codegen/`. Task 1 was resolved by walking the
+analyzed AST directly (no separate typed IR materialized — types are
+re-resolved on demand). See "Codegen Status" earlier in this document
+for the exact surface coverage and the remaining structured-diagnostics
+work.
+
 Tasks:
 
-1. Define a small typed IR or use the typed AST directly.
-2. Emit C for functions.
-3. Emit C for local variables.
-4. Emit C for expressions.
-5. Emit C for `if`, `while`, `return`, and assignment.
-6. Map `int32` and `bool` to C types.
-7. Generate a `main` entry point convention.
-8. Write generated files under a build directory.
+1. ~~Define a small typed IR or use the typed AST directly.~~ — using
+   the analyzed AST directly.
+2. ~~Emit C for functions.~~
+3. ~~Emit C for local variables.~~ (`let` and local `const`)
+4. ~~Emit C for expressions.~~ (literals, identifiers, unary, binary,
+   calls; with precedence-aware re-parenthesization)
+5. ~~Emit C for `if`, `while`, `return`, and assignment.~~ Plus
+   call-as-statement.
+6. ~~Map `int32` and `bool` to C types.~~ (also `void`, `char`)
+7. ~~Generate a `main` entry point convention.~~ (user `main` → C
+   `delta_main`; `int main()` wrapper calls `(int)delta_main()`)
+8. ~~Write generated files under a build directory.~~
+   (`build/c/<basename>.c`)
+
+Remaining within Phase 7:
+
+- Populate `*diagnostics.ErrorBag` from the emitter (today errors go to
+  `println`).
+- Fail-closed guards for unsupported constructs (multi-return signatures,
+  error-typed signatures, `string`/`char` in user positions).
+- Entry-point validation (no `main`, params, wrong return type) at the
+  codegen boundary.
+- `#line N "src.delta"` directives at statement boundaries.
+
+Notes:
+
+- Empty parameter lists: in C, `f()` in a declaration means "unspecified
+  parameters" (K&R style), while `f(void)` means "definitively no
+  parameters." Clang accepts both, but if the codegen ever needs
+  prototype-checked calls across TUs the `(void)` form is the stricter one.
+  Fine for v0 — just keep it in mind.
 
 ### Phase 8: Invoke Clang
 
 Goal: complete a minimal end-to-end `delta build`.
 
+Status: **done for v0.** `delta build` now drives the full pipeline
+through to a runnable binary on a machine with clang on PATH.
+
 Tasks:
 
-1. Locate a C compiler.
-2. Compile generated C to an object file.
-3. Link the final executable.
-4. Report compile and link errors clearly.
-5. Keep generated C inspectable for debugging.
+1. ~~Locate a C compiler.~~ — `internal/toolchain.FindClang` uses
+   `exec.LookPath("clang")` and returns a structured
+   `ErrClangMissing` if not found.
+2. ~~Compile generated C to an object file.~~ — single clang call with
+   `-std=c11 -Wall -Werror=implicit-function-declaration -fwrapv`.
+3. ~~Link the final executable.~~ — same call also links to
+   `build/<basename>`.
+4. ~~Report compile and link errors clearly.~~ — non-zero clang exit on
+   valid-Delta input is treated as an ICE and clang stderr is piped to
+   the user with a "this is a codegen bug, please report" header.
+5. ~~Keep generated C inspectable for debugging.~~ — `build/c/<basename>.c`
+   is preserved on failure.
+
+Pending (out of scope for v0, tracked under "Pending Work By Design
+Area"):
+
+- Bundled clang and `DELTA_CC` env var.
+- Multi-file translation units and name mangling.
+- Separate debug / release modes.
 
 ### Phase 9: Expand Toward The Full Design
 
@@ -780,22 +902,27 @@ After the basic compiler can build small programs, expand in this order:
 
 ## Near-Term Milestone
 
-The best next milestone is:
+The previous milestone was:
 
 > Parse and type-check a single-file program with functions, parameters,
 > `const`, `let`, assignment, `if`, `while`, function calls, multiple return
 > types, declared error types, `int32`, `bool`, and `void`, then generate C and
 > compile it.
 
-That milestone is small enough to finish without resolving the entire language,
-but it exercises the compiler architecture in the same order as the full design:
+That milestone is now substantially reached: `delta build hello.delta`
+produces a runnable executable, all six pipeline stages from tokenize
+through clang link are wired, and the codegen test suite confirms the
+emitter agrees with the spec on a representative slice of programs.
 
-1. tokenize
-2. parse
-3. resolve names
-4. type-check
-5. generate C
-6. compile with Clang
+The next milestone is to harden codegen from "happy path works" to
+"safe on the entire analyzer-accepted surface":
 
-Once that works, the larger sections of the design can be incorporated one pass
-at a time without restarting the compiler.
+> Populate `*ErrorBag` from `codegen.Emit`, add fail-closed guards for
+> the out-of-scope constructs the analyzer happens to accept
+> (multi-return, error-typed signatures, `string`/`char` in user
+> positions), validate the entry-point shape at the codegen boundary,
+> and add the negative `expect: "build_fail"` test verb and fixtures.
+
+After that, the larger sections of the design (definite assignment,
+return coverage, ownership and lifetimes, modules) can be incorporated
+one pass at a time without restarting the compiler.

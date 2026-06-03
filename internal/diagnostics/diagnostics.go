@@ -10,7 +10,8 @@ type Stage string
 const (
 	Tokenizer Stage = "tokenizer"
 	Parser    Stage = "parser"
-	Semantic        = "semantic"
+	Semantic  Stage = "semantic"
+	Codegen   Stage = "codegen"
 )
 
 type Severity int

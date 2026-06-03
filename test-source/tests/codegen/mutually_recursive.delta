@@ -1,0 +1,23 @@
+function is_even(n: int32): bool {
+    if (n == 0) {
+        return true;
+    } else {
+        return is_odd(n - 1);
+    }
+}
+
+function is_odd(n: int32): bool {
+    if (n == 0) {
+        return false;
+    } else {
+        return is_even(n - 1);
+    }
+}
+
+function main(): int32 {
+    if (is_even(10)) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
