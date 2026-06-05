@@ -11,10 +11,13 @@ import (
 // non-nil only when semantic analysis ran (i.e. parsing succeeded). LSP
 // handlers should check before dereferencing.
 type Result struct {
-	File      ast.File
-	ErrorBag  *diagnostics.ErrorBag
-	Refs      map[ast.Position]semantics.Symbol
-	RootScope *semantics.ScopeNode
+	File        ast.File
+	ErrorBag    *diagnostics.ErrorBag
+	Refs        map[ast.Position]semantics.Symbol
+	RootScope   *semantics.ScopeNode
+	Conversions map[ast.Position]semantics.ConversionInfo
+	Divisions   map[ast.Position]semantics.Type
+	Shifts      map[ast.Position]semantics.Type
 }
 
 func Compile(name string, contents []byte) *Result {
@@ -35,10 +38,13 @@ func Compile(name string, contents []byte) *Result {
 	}
 	analyzer.Analyze()
 	return &Result{
-		File:      file,
-		ErrorBag:  bag,
-		Refs:      analyzer.Refs,
-		RootScope: analyzer.RootScope,
+		File:        file,
+		ErrorBag:    bag,
+		Refs:        analyzer.Refs,
+		RootScope:   analyzer.RootScope,
+		Conversions: analyzer.Conversions,
+		Divisions:   analyzer.Divisions,
+		Shifts:      analyzer.Shifts,
 	}
 }
 

@@ -207,6 +207,8 @@ func formatExpression(out *strings.Builder, expression Expression, depth int) {
 		}
 	case IntegerLiteral:
 		writeLine(out, depth, "IntegerLiteral value=%q", expression.Value)
+	case FloatLiteral:
+		writeLine(out, depth, "FloatLiteral value=%q", expression.Value)
 	case BooleanLiteral:
 		writeLine(out, depth, "BooleanLiteral value=%q", expression.Value)
 	case StringLiteral:

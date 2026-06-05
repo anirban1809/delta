@@ -1,0 +1,5 @@
+function main(): int32 {
+    let max: int32 = 2_147_483_647;
+    let min: int32 = -2_147_483_648;
+    return 0;
+}

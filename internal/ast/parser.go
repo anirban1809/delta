@@ -93,6 +93,20 @@ func isCommentKind(kind token.Kind) bool {
 	return kind == token.Kind_LineComment || kind == token.Kind_BlockComment
 }
 
+// isAssignmentOperator reports whether kind begins an assignment statement:
+// plain `=` or a compound `+=` / `-=` / `*=`.
+func isAssignmentOperator(kind token.Kind) bool {
+	switch kind {
+	case token.Symbol_Equals,
+		token.Symbol_PlusEquals,
+		token.Symbol_MinusEquals,
+		token.Symbol_AsteriskEquals:
+		return true
+	default:
+		return false
+	}
+}
+
 func (p *Parser) skipComments() {
 	for isCommentKind(p.Current().Kind) {
 		p.Advance()
@@ -124,6 +138,11 @@ func (p *Parser) ParsePrimaryExpression() (Expression, bool) {
 	if p.Current().Kind == token.Kind_IntegerLiteral {
 		tok := p.Advance()
 		return IntegerLiteral{Position: posOf(tok), Value: tok.Lexeme}, true
+	}
+
+	if p.Current().Kind == token.Kind_FloatLiteral {
+		tok := p.Advance()
+		return FloatLiteral{Position: posOf(tok), Value: tok.Lexeme}, true
 	}
 
 	if p.Current().Kind == token.Kind_BooleanLiteral {
@@ -159,7 +178,9 @@ func (p *Parser) ParseUnaryExpression() (Expression, bool) {
 
 	var expr Expression
 
-	if symbol.Kind == token.Symbol_Not || symbol.Kind == token.Symbol_Minus {
+	if symbol.Kind == token.Symbol_Not ||
+		symbol.Kind == token.Symbol_Minus ||
+		symbol.Kind == token.Symbol_Tilde {
 		p.Advance()
 		expr, ok := p.ParseUnaryExpression()
 		if !ok {
@@ -190,7 +211,8 @@ func (p *Parser) ParseMultiplicativeExpression() (Expression, bool) {
 
 	p.skipComments()
 	for p.Current().Kind == token.Symbol_Asterisk ||
-		p.Current().Kind == token.Symbol_FSlash {
+		p.Current().Kind == token.Symbol_FSlash ||
+		p.Current().Kind == token.Symbol_Percent {
 		operator := p.Advance()
 		right, ok := p.ParseUnaryExpression()
 		if !ok {
@@ -236,8 +258,37 @@ func (p *Parser) ParseAdditiveExpression() (Expression, bool) {
 	return left, true
 }
 
-func (p *Parser) ParseComparisionExpression() (Expression, bool) {
+// ParseShiftExpression handles `<<` and `>>`, which in C bind tighter than the
+// relational operators but looser than additive ones.
+func (p *Parser) ParseShiftExpression() (Expression, bool) {
 	left, ok := p.ParseAdditiveExpression()
+	if !ok {
+		return nil, false
+	}
+
+	p.skipComments()
+	for p.Current().Kind == token.Symbol_ShiftLeft ||
+		p.Current().Kind == token.Symbol_ShiftRight {
+		operator := p.Advance()
+		right, ok := p.ParseAdditiveExpression()
+		if !ok {
+			return nil, false
+		}
+
+		left = BinaryExpression{
+			Position: left.Pos(),
+			Left:     left,
+			Operator: operator.Lexeme,
+			Right:    right,
+		}
+		p.skipComments()
+	}
+
+	return left, true
+}
+
+func (p *Parser) ParseComparisionExpression() (Expression, bool) {
+	left, ok := p.ParseShiftExpression()
 	if !ok {
 		return nil, false
 	}
@@ -250,7 +301,7 @@ func (p *Parser) ParseComparisionExpression() (Expression, bool) {
 		p.Current().Kind == token.Symbol_Equality ||
 		p.Current().Kind == token.Symbol_NotEquals {
 		operator := p.Advance()
-		right, ok := p.ParseAdditiveExpression()
+		right, ok := p.ParseShiftExpression()
 		if !ok {
 			return nil, false
 		}
@@ -268,8 +319,89 @@ func (p *Parser) ParseComparisionExpression() (Expression, bool) {
 
 }
 
-func (p *Parser) ParseLogicalAndExpression() (Expression, bool) {
+// Bitwise binary operators sit between comparison and logical-and, binding
+// tighter than `&&`/`||` but looser than any comparison. Among themselves the
+// C precedence holds: `&` (tightest) > `^` > `|` (loosest).
+func (p *Parser) ParseBitwiseAndExpression() (Expression, bool) {
 	left, ok := p.ParseComparisionExpression()
+	if !ok {
+		return nil, false
+	}
+
+	p.skipComments()
+	for p.Current().Kind == token.Symbol_Ampersand {
+		operator := p.Advance()
+		right, ok := p.ParseComparisionExpression()
+		if !ok {
+			return nil, false
+		}
+
+		left = BinaryExpression{
+			Position: left.Pos(),
+			Left:     left,
+			Operator: operator.Lexeme,
+			Right:    right,
+		}
+		p.skipComments()
+	}
+
+	return left, true
+}
+
+func (p *Parser) ParseBitwiseXorExpression() (Expression, bool) {
+	left, ok := p.ParseBitwiseAndExpression()
+	if !ok {
+		return nil, false
+	}
+
+	p.skipComments()
+	for p.Current().Kind == token.Symbol_Caret {
+		operator := p.Advance()
+		right, ok := p.ParseBitwiseAndExpression()
+		if !ok {
+			return nil, false
+		}
+
+		left = BinaryExpression{
+			Position: left.Pos(),
+			Left:     left,
+			Operator: operator.Lexeme,
+			Right:    right,
+		}
+		p.skipComments()
+	}
+
+	return left, true
+}
+
+func (p *Parser) ParseBitwiseOrExpression() (Expression, bool) {
+	left, ok := p.ParseBitwiseXorExpression()
+	if !ok {
+		return nil, false
+	}
+
+	p.skipComments()
+	for p.Current().Kind == token.Symbol_Pipe {
+		operator := p.Advance()
+		right, ok := p.ParseBitwiseXorExpression()
+		if !ok {
+			return nil, false
+		}
+
+		left = BinaryExpression{
+			Position: left.Pos(),
+			Left:     left,
+			Operator: operator.Lexeme,
+			Right:    right,
+		}
+		p.skipComments()
+	}
+
+	return left, true
+}
+
+func (p *Parser) ParseLogicalAndExpression() (Expression, bool) {
+	left, ok := p.ParseBitwiseOrExpression()
 	if !ok {
 		return nil, false
 	}
@@ -277,7 +409,7 @@ func (p *Parser) ParseLogicalAndExpression() (Expression, bool) {
 	p.skipComments()
 	for p.Current().Kind == token.Symbol_LogicalAnd {
 		operator := p.Advance()
-		right, ok := p.ParseComparisionExpression()
+		right, ok := p.ParseBitwiseOrExpression()
 		if !ok {
 			return nil, false
 		}
@@ -372,11 +504,12 @@ func (p *Parser) ParseFunctionCallExpression() (Expression, bool) {
 // AssignmentExpo
 // MemberExpr
 // FunctionCall
-// LogicalExpr
+// LogicalExpr        (|| then &&)
+// BitwiseExpr        (| then ^ then &)
 // ComparisonExpr
 // AdditiveExpr
 // MultiplicitaveExpr
-// UnaryExpr
+// UnaryExpr          (! - ~)
 // PrimaryExpr
 func (p *Parser) ParseExpression() (Expression, bool) {
 	return p.ParseLogicalExpression()
@@ -480,7 +613,20 @@ func (p *Parser) ParseExpressionStatement() (ExpressionStatement, bool) {
 func (p *Parser) ParseAssignmentStatement() (AssignmentStatement, bool) {
 	target := p.Advance() // consume identifier
 
-	if _, ok := p.Expect(token.Symbol_Equals, "symbol '=' expected"); !ok {
+	// The assignment operator is either plain `=` or a compound form
+	// (`+=`, `-=`, `*=`); the latter records the arithmetic operator.
+	opTok := p.Advance()
+	operator := ""
+	switch opTok.Kind {
+	case token.Symbol_Equals:
+	case token.Symbol_PlusEquals:
+		operator = "+"
+	case token.Symbol_MinusEquals:
+		operator = "-"
+	case token.Symbol_AsteriskEquals:
+		operator = "*"
+	default:
+		p.addError(opTok.Line, opTok.Column, "assignment operator expected")
 		return AssignmentStatement{}, false
 	}
 
@@ -496,6 +642,7 @@ func (p *Parser) ParseAssignmentStatement() (AssignmentStatement, bool) {
 	return AssignmentStatement{
 		Position: posOf(target),
 		Target:   Identifier{Position: posOf(target), Name: target.Lexeme},
+		Operator: operator,
 		Value:    value,
 	}, true
 }
@@ -624,7 +771,7 @@ func (p *Parser) ParseBlockStatement() (BlockStatement, bool) {
 		}
 
 		if p.Current().Kind == token.Kind_Identifier &&
-			p.Peek().Kind == token.Symbol_Equals {
+			isAssignmentOperator(p.Peek().Kind) {
 			constStatement, ok := p.ParseAssignmentStatement()
 			if !ok {
 				p.synchronizeStatement(start)

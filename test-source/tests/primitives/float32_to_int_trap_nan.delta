@@ -1,0 +1,6 @@
+function main(): int32 {
+    let zero: float32 = 0.0;
+    let nan: float32 = zero / zero;
+    let n: int32 = int32(nan);
+    return n;
+}

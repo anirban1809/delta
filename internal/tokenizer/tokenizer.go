@@ -1,6 +1,7 @@
 package tokenizer
 
 import (
+	"strings"
 	"unicode"
 
 	"delta/internal/diagnostics"
@@ -57,7 +58,7 @@ func (t *Tokenizer) nextToken() token.Token {
 	}
 
 	if unicode.IsDigit(current) {
-		return t.integerLiteral()
+		return t.numberLiteral()
 	}
 
 	if current == '"' {
@@ -128,6 +129,15 @@ func (t *Tokenizer) nextToken() token.Token {
 			Column: column,
 		}
 	case '+':
+		if t.peek() == '=' {
+			t.advance()
+			return token.Token{
+				Kind:   token.Symbol_PlusEquals,
+				Lexeme: "+=",
+				Line:   line,
+				Column: column,
+			}
+		}
 		return token.Token{
 			Kind:   token.Symbol_Plus,
 			Lexeme: "+",
@@ -135,6 +145,15 @@ func (t *Tokenizer) nextToken() token.Token {
 			Column: column,
 		}
 	case '-':
+		if t.peek() == '=' {
+			t.advance()
+			return token.Token{
+				Kind:   token.Symbol_MinusEquals,
+				Lexeme: "-=",
+				Line:   line,
+				Column: column,
+			}
+		}
 		return token.Token{
 			Kind:   token.Symbol_Minus,
 			Lexeme: "-",
@@ -142,6 +161,15 @@ func (t *Tokenizer) nextToken() token.Token {
 			Column: column,
 		}
 	case '*':
+		if t.peek() == '=' {
+			t.advance()
+			return token.Token{
+				Kind:   token.Symbol_AsteriskEquals,
+				Lexeme: "*=",
+				Line:   line,
+				Column: column,
+			}
+		}
 		return token.Token{
 			Kind:   token.Symbol_Asterisk,
 			Lexeme: "*",
@@ -155,6 +183,13 @@ func (t *Tokenizer) nextToken() token.Token {
 			Line:   line,
 			Column: column,
 		}
+	case '%':
+		return token.Token{
+			Kind:   token.Symbol_Percent,
+			Lexeme: "%",
+			Line:   line,
+			Column: column,
+		}
 
 	case '>':
 		if t.peek() == '=' {
@@ -162,6 +197,15 @@ func (t *Tokenizer) nextToken() token.Token {
 			return token.Token{
 				Kind:   token.Symbol_GreaterEq,
 				Lexeme: ">=",
+				Line:   line,
+				Column: column,
+			}
+		}
+		if t.peek() == '>' {
+			t.advance()
+			return token.Token{
+				Kind:   token.Symbol_ShiftRight,
+				Lexeme: ">>",
 				Line:   line,
 				Column: column,
 			}
@@ -179,6 +223,15 @@ func (t *Tokenizer) nextToken() token.Token {
 			return token.Token{
 				Kind:   token.Symbol_LessEq,
 				Lexeme: "<=",
+				Line:   line,
+				Column: column,
+			}
+		}
+		if t.peek() == '<' {
+			t.advance()
+			return token.Token{
+				Kind:   token.Symbol_ShiftLeft,
+				Lexeme: "<<",
 				Line:   line,
 				Column: column,
 			}
@@ -236,12 +289,12 @@ func (t *Tokenizer) nextToken() token.Token {
 			}
 		}
 
-		t.addError(
-			line,
-			column,
-			"unexpected character '&'; did you mean '&&'?",
-		)
-		return illegalToken("&", line, column)
+		return token.Token{
+			Kind:   token.Symbol_Ampersand,
+			Lexeme: "&",
+			Line:   line,
+			Column: column,
+		}
 	case '|':
 		if t.peek() == '|' {
 			t.advance()
@@ -256,6 +309,20 @@ func (t *Tokenizer) nextToken() token.Token {
 		return token.Token{
 			Kind:   token.Symbol_Pipe,
 			Lexeme: "|",
+			Line:   line,
+			Column: column,
+		}
+	case '^':
+		return token.Token{
+			Kind:   token.Symbol_Caret,
+			Lexeme: "^",
+			Line:   line,
+			Column: column,
+		}
+	case '~':
+		return token.Token{
+			Kind:   token.Symbol_Tilde,
+			Lexeme: "~",
 			Line:   line,
 			Column: column,
 		}
@@ -288,20 +355,115 @@ func (t *Tokenizer) identifier() token.Token {
 	}
 }
 
-func (t *Tokenizer) integerLiteral() token.Token {
+func (t *Tokenizer) numberLiteral() token.Token {
 	start := t.index
 	line := t.line
 	column := t.column
 
-	for !t.isAtEnd() && unicode.IsDigit(t.peek()) {
-		t.advance()
+	// Radix-prefixed integer literals (0x / 0b / 0o) have no fractional or
+	// exponent form, so they are scanned separately and returned immediately.
+	if t.peek() == '0' {
+		switch t.peekAhead(1) {
+		case 'x', 'X':
+			return t.radixLiteral(isHexDigit, "hexadecimal")
+		case 'b', 'B':
+			return t.radixLiteral(isBinaryDigit, "binary")
+		case 'o', 'O':
+			return t.radixLiteral(isOctalDigit, "octal")
+		}
+	}
+
+	isFloat := false
+
+	t.consumeDigits()
+
+	// Fractional part: a '.' is only part of the number when followed by a
+	// digit, so a trailing dot (or a future member access) is left untouched.
+	if t.peek() == '.' && unicode.IsDigit(t.peekAhead(1)) {
+		isFloat = true
+		t.advance() // consume '.'
+		t.consumeDigits()
+	}
+
+	// Exponent part: 'e'/'E', an optional sign, then at least one digit.
+	if t.peek() == 'e' || t.peek() == 'E' {
+		offset := 1
+		if t.peekAhead(offset) == '+' || t.peekAhead(offset) == '-' {
+			offset++
+		}
+		if unicode.IsDigit(t.peekAhead(offset)) {
+			isFloat = true
+			t.advance() // consume 'e'/'E'
+			if t.peek() == '+' || t.peek() == '-' {
+				t.advance() // consume sign
+			}
+			t.consumeDigits()
+		}
+	}
+
+	kind := token.Kind_IntegerLiteral
+	if isFloat {
+		kind = token.Kind_FloatLiteral
 	}
 
 	return token.Token{
-		Kind:   token.Kind_IntegerLiteral,
-		Lexeme: string(t.source[start:t.index]),
+		Kind: kind,
+		Lexeme: strings.ReplaceAll(
+			string(t.source[start:t.index]),
+			string('_'),
+			"",
+		),
 		Line:   line,
 		Column: column,
+	}
+}
+
+// radixLiteral scans a radix-prefixed integer literal (the 0x / 0b / 0o forms).
+// The two prefix characters are consumed first, then every digit accepted by
+// isDigit (plus '_' separators). At least one digit must follow the prefix.
+func (t *Tokenizer) radixLiteral(
+	isDigit func(rune) bool,
+	name string,
+) token.Token {
+	start := t.index
+	line := t.line
+	column := t.column
+
+	t.advance() // consume '0'
+	t.advance() // consume the radix letter (x/b/o)
+
+	digits := 0
+	for !t.isAtEnd() && (isDigit(t.peek()) || t.peek() == '_') {
+		if t.peek() != '_' {
+			digits++
+		}
+		t.advance()
+	}
+
+	if digits == 0 {
+		t.addError(
+			line,
+			column,
+			"expected at least one "+name+" digit after numeric prefix",
+		)
+		return illegalToken(string(t.source[start:t.index]), line, column)
+	}
+
+	return token.Token{
+		Kind: token.Kind_IntegerLiteral,
+		Lexeme: strings.ReplaceAll(
+			string(t.source[start:t.index]),
+			string('_'),
+			"",
+		),
+		Line:   line,
+		Column: column,
+	}
+}
+
+func (t *Tokenizer) consumeDigits() {
+	for !t.isAtEnd() && (unicode.IsDigit(t.peek()) || t.peek() == '_') {
+		t.advance()
 	}
 }
 
@@ -438,7 +600,7 @@ func (t *Tokenizer) consumeEscape(name string) {
 	case 'n', 't', 'r', '\\', '\'', '"', '0':
 		return
 	case 'x':
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			if t.isAtEnd() || !isHexDigit(t.peek()) {
 				t.addError(
 					line,
@@ -653,6 +815,14 @@ func isHexDigit(r rune) bool {
 	return ('0' <= r && r <= '9') ||
 		('a' <= r && r <= 'f') ||
 		('A' <= r && r <= 'F')
+}
+
+func isBinaryDigit(r rune) bool {
+	return r == '0' || r == '1'
+}
+
+func isOctalDigit(r rune) bool {
+	return '0' <= r && r <= '7'
 }
 
 func hexValue(r rune) int {

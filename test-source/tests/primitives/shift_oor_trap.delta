@@ -1,0 +1,6 @@
+function main(): int32 {
+    let a: uint32 = 1;
+    let s: uint32 = 32;
+    let r: uint32 = a << s;
+    return 0;
+}

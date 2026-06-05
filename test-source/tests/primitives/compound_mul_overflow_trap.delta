@@ -1,0 +1,5 @@
+function main(): int32 {
+    let x: int32 = int32(1_000_000);
+    x *= 1_000_000;
+    return x;
+}

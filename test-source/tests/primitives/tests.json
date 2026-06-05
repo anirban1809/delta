@@ -1,0 +1,133 @@
+[
+  {
+    "file": "uint8_add_ok.delta",
+    "expect": "pass",
+    "note": "phase A — uint8 add within range; analyzer must recognize uint8 as a primitive"
+  },
+  {
+    "file": "int64_arith_ok.delta",
+    "expect": "pass",
+    "note": "phase A — int64 with mul/sub and `_` digit separators in literals"
+  },
+  {
+    "file": "uintsize_arith_ok.delta",
+    "expect": "pass",
+    "note": "phase A — uintsize is nominally distinct from uint64 but lowers to uintptr_t"
+  },
+  {
+    "file": "mixed_widths_err.delta",
+    "expect": "fail",
+    "contains": "int32",
+    "note": "phase A — int32 + int64 is rejected; no implicit widening per spec §5"
+  },
+  {
+    "file": "int32_to_int64_ok.delta",
+    "expect": "pass",
+    "note": "phase A — widening int32 → int64 via call-style conversion; free, no trap"
+  },
+  {
+    "file": "int64_to_int32_narrow_trap.delta",
+    "expect": "trap",
+    "panic_contains": "narrowing conversion out of range",
+    "panic_at": "int64_to_int32_narrow_trap.delta:3",
+    "note": "phase A — int32(big) traps because 5_000_000_000 doesn't fit int32"
+  },
+  {
+    "file": "int32_to_uint32_sign_flip_trap.delta",
+    "expect": "trap",
+    "panic_contains": "sign-flip conversion out of range",
+    "panic_at": "int32_to_uint32_sign_flip_trap.delta:3",
+    "note": "phase A — uint32(-1) traps; sign-flip with negative source is invalid"
+  },
+  {
+    "file": "int_max_constant_ok.delta",
+    "expect": "pass",
+    "note": "phase A — literals exactly at int32 MIN/MAX must fit-target-check OK"
+  },
+  {
+    "file": "float64_arith_ok.delta",
+    "expect": "pass",
+    "note": "phase A — float64 with decimal and scientific (e-form) literals"
+  },
+  {
+    "file": "float32_to_int_trap_nan.delta",
+    "expect": "trap",
+    "panic_contains": "float-to-int conversion of NaN",
+    "panic_at": "float32_to_int_trap_nan.delta:4",
+    "note": "phase A — 0.0 / 0.0 produces NaN (float ops don't trap); int32(nan) traps"
+  },
+  {
+    "file": "float32_to_int_ok.delta",
+    "expect": "pass",
+    "note": "phase A — in-range float32 → int32 truncates toward zero, no trap"
+  },
+  {
+    "file": "float_mixed_precision_err.delta",
+    "expect": "fail",
+    "contains": "float32",
+    "note": "phase A — float32 + float64 is a compile error; explicit conversion required"
+  },
+  {
+    "file": "mod_ok.delta",
+    "expect": "pass",
+    "note": "phase A — `%` operator on int32; truncated-division remainder"
+  },
+  {
+    "file": "mod_zero_trap.delta",
+    "expect": "trap",
+    "panic_contains": "division by zero",
+    "panic_at": "mod_zero_trap.delta:4",
+    "note": "phase A — `%` by zero traps with the same guard as `/`"
+  },
+  {
+    "file": "bitwise_ops_ok.delta",
+    "expect": "pass",
+    "note": "phase A — `&`, `|`, `^`, `~` on uint32 with hex literals"
+  },
+  {
+    "file": "shift_ok.delta",
+    "expect": "pass",
+    "note": "phase A — `<<` and `>>` on uint32; shift RHS is uint32 per spec §5.4"
+  },
+  {
+    "file": "shift_oor_trap.delta",
+    "expect": "trap",
+    "panic_contains": "shift count out of range",
+    "panic_at": "shift_oor_trap.delta:4",
+    "note": "phase A — shift count equal to bit width traps (count must be < 32 for uint32)"
+  },
+  {
+    "file": "compound_add_ok.delta",
+    "expect": "pass",
+    "note": "phase A — compound assignment forms `+=`, `-=`, `*=` lower to helper-call form"
+  },
+  {
+    "file": "compound_mul_overflow_trap.delta",
+    "expect": "trap",
+    "panic_contains": "arithmetic overflow in `*`",
+    "panic_at": "compound_mul_overflow_trap.delta:3",
+    "note": "phase A — 1_000_000 * 1_000_000 overflows int32 and traps at the compound site"
+  },
+  {
+    "file": "char_compare_ok.delta",
+    "expect": "pass",
+    "note": "phase A — char ordering comparison; codepoint compare lowered as integer compare"
+  },
+  {
+    "file": "char_from_uint32_ok.delta",
+    "expect": "pass",
+    "note": "phase A — char(65) succeeds because U+0041 is a valid scalar value"
+  },
+  {
+    "file": "char_from_invalid_trap.delta",
+    "expect": "trap",
+    "panic_contains": "invalid Unicode scalar value",
+    "panic_at": "char_from_invalid_trap.delta:3",
+    "note": "phase A — char(0xD800) traps; surrogate range is excluded from char by construction"
+  },
+  {
+    "file": "hex_binary_underscore_ok.delta",
+    "expect": "pass",
+    "note": "phase A — hex (0xFF_FF), binary (0b1010_1010), and decimal (1_000_000) with `_` separators"
+  }
+]

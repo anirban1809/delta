@@ -4,6 +4,7 @@ import (
 	"delta/internal/ast"
 	"delta/internal/diagnostics"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -69,6 +70,24 @@ type Analyzer struct {
 	// scope-at-position lookup and may be used by future LSP features.
 	RootScope *ScopeNode
 
+	// Conversions records every numeric `T(x)` conversion the analyzer
+	// resolved (ConvFree or ConvTrap), keyed by the call expression's
+	// position, so codegen knows whether to emit a plain cast or a trapping
+	// range-check helper.
+	Conversions map[ast.Position]ConversionInfo
+
+	// Divisions records every integer `/` and `%` operation, keyed by the
+	// binary expression's position, with its operand type. Codegen lowers
+	// these to a divisor-checked helper that traps on division/modulo by
+	// zero. Float division is not recorded (IEEE defines x/0.0).
+	Divisions map[ast.Position]Type
+
+	// Shifts records every `<<` / `>>` operation, keyed by the binary
+	// expression's position, with the left-operand type. Codegen lowers
+	// these to a helper that traps when the shift count is >= the type's
+	// bit width.
+	Shifts map[ast.Position]Type
+
 	// currentNode tracks the ScopeNode being built. Push/pop'd by
 	// AnalyzeScope and AnalyzeFunctionDeclaration via deferred restores.
 	currentNode *ScopeNode
@@ -99,6 +118,27 @@ func (a *Analyzer) pushScopeNode(scope *Scope, start, end ast.Position) func() {
 // recordRef captures a resolved identifier use-site. Safe to call with
 // the zero Symbol — but callers should only invoke this when a real
 // resolution succeeded so go-to-definition jumps don't land on garbage.
+func (a *Analyzer) recordConversion(pos ast.Position, info ConversionInfo) {
+	if a.Conversions == nil {
+		a.Conversions = map[ast.Position]ConversionInfo{}
+	}
+	a.Conversions[pos] = info
+}
+
+func (a *Analyzer) recordDivision(pos ast.Position, operandType Type) {
+	if a.Divisions == nil {
+		a.Divisions = map[ast.Position]Type{}
+	}
+	a.Divisions[pos] = operandType
+}
+
+func (a *Analyzer) recordShift(pos ast.Position, leftType Type) {
+	if a.Shifts == nil {
+		a.Shifts = map[ast.Position]Type{}
+	}
+	a.Shifts[pos] = leftType
+}
+
 func (a *Analyzer) recordRef(pos ast.Position, sym Symbol) {
 	if a.Refs == nil {
 		return
@@ -160,6 +200,28 @@ func (a *Analyzer) AnalyzeExpr(expr ast.Expression, scope *Scope) {
 
 		switch callee := expression.Callee.(type) {
 		case ast.Identifier:
+			intTypes := []string{"int8", "int16", "int32", "int64"}
+			uintTypes := []string{"uint8", "uint16", "uint32", "uint64"}
+
+			if slices.Contains(intTypes, callee.Name) ||
+				slices.Contains(uintTypes, callee.Name) ||
+				callee.Name == "char" {
+				a.GlobalScope.AddSymbol(Symbol{
+					Name: callee.Name,
+					Kind: SymbolFunction,
+					Signature: &FunctionSignature{
+						Parameters: []Type{
+							{TypeInt32}, //this type is just a placeholder
+						},
+						ReturnTypes: []Type{
+							{TypeInt32}, //this type is just a placeholder
+						},
+					},
+					DefPos:  callee.Position,
+					Display: callee.Name,
+				})
+			}
+
 			calleeSymbol := a.GetSym(scope, callee.Name)
 
 			if calleeSymbol.Kind != SymbolFunction {
@@ -181,6 +243,7 @@ func (a *Analyzer) AnalyzeExpr(expr ast.Expression, scope *Scope) {
 		}
 
 	case ast.IntegerLiteral,
+		ast.FloatLiteral,
 		ast.BooleanLiteral,
 		ast.StringLiteral,
 		ast.CharacterLiteral:
@@ -205,16 +268,54 @@ func (a *Analyzer) typeOfUnary(e ast.UnaryExpression, scope *Scope) Type {
 		return Type{TypeBool}
 
 	case "-":
-		if operandT.Kind != TypeInt32 {
+		if !operandT.IsInteger() && !operandT.IsFloat() {
 			a.errorAt(e.Position, fmt.Sprintf(
-				"unary `-` requires int32 operand, got %s", operandT))
+				"unary `-` requires numeric operand, got %s", operandT))
 			return Type{Kind: TypeInvalid}
 		}
-		return Type{TypeInt32}
+		return Type{operandT.Kind}
+
+	case "~":
+		if !operandT.IsInteger() {
+			a.errorAt(e.Position, fmt.Sprintf(
+				"unary `~` requires integer operand, got %s", operandT))
+			return Type{Kind: TypeInvalid}
+		}
+		return Type{operandT.Kind}
 	}
 
 	a.errorAt(e.Position, fmt.Sprintf("unknown unary operator %q", e.Operator))
 	return Type{Kind: TypeInvalid}
+}
+
+func isIntegerLiteral(expr ast.Expression) bool {
+	switch expr.(type) {
+	case ast.IntegerLiteral:
+		return true
+	}
+
+	return false
+}
+
+func isFloatLiteral(expr ast.Expression) bool {
+	switch expr.(type) {
+	case ast.FloatLiteral:
+		return true
+	}
+
+	return false
+}
+
+// isNumeric reports whether a type participates in arithmetic and ordered
+// comparisons — any integer or floating-point type.
+func isNumeric(t Type) bool {
+	return t.IsInteger() || t.IsFloat()
+}
+
+// isComparable reports whether a type supports ordered comparison
+// (`< <= > >=`): any numeric type or char (compared by code point).
+func isComparable(t Type) bool {
+	return isNumeric(t) || t.Kind == TypeChar
 }
 
 // typeOfBinary returns the type of a binary expression. Operand types are
@@ -222,25 +323,121 @@ func (a *Analyzer) typeOfUnary(e ast.UnaryExpression, scope *Scope) Type {
 func (a *Analyzer) typeOfBinary(e ast.BinaryExpression, scope *Scope) Type {
 	leftT := a.TypeOf(e.Left, scope)
 	rightT := a.TypeOf(e.Right, scope)
+
+	if (leftT.IsInteger() && rightT.IsInteger()) && isIntegerLiteral(e.Left) &&
+		!isIntegerLiteral(e.Right) {
+		leftT = rightT
+	}
+
+	if (leftT.IsInteger() && rightT.IsInteger()) && !isIntegerLiteral(e.Left) &&
+		isIntegerLiteral(e.Right) {
+		rightT = leftT
+	}
+
+	if (leftT.IsFloat() && rightT.IsFloat()) && isFloatLiteral(e.Left) &&
+		!isFloatLiteral(e.Right) {
+		leftT = rightT
+	}
+
+	if (leftT.IsFloat() && rightT.IsFloat()) && !isFloatLiteral(e.Left) &&
+		isFloatLiteral(e.Right) {
+		rightT = leftT
+	}
+
+	if leftT != rightT {
+
+		a.errorAt(
+			e.Position,
+			fmt.Sprintf(
+				"incompatibe types in expression: %s and %s",
+				leftT.String(),
+				rightT.String(),
+			),
+		)
+		return Type{TypeInvalid}
+	}
+
 	if leftT.Kind == TypeInvalid || rightT.Kind == TypeInvalid {
 		return Type{Kind: TypeInvalid}
 	}
 
 	switch e.Operator {
 	case "+", "-", "*", "/":
-		if leftT.Kind != TypeInt32 || rightT.Kind != TypeInt32 {
+		if !isNumeric(leftT) || !isNumeric(rightT) ||
+			leftT.Kind != rightT.Kind {
 			a.errorAt(e.Position, fmt.Sprintf(
-				"operator `%s` requires int32 operands, got %s and %s",
-				e.Operator, leftT, rightT))
+				"operator `%s` requires matching numeric operands, got %s and %s",
+				e.Operator,
+				leftT,
+				rightT,
+			))
+
 			return Type{Kind: TypeInvalid}
 		}
-		return Type{TypeInt32}
+
+		if e.Operator == "/" && leftT.IsInteger() {
+			a.recordDivision(e.Position, leftT)
+		}
+
+		return Type{leftT.Kind}
+
+	case "%":
+		// Unlike the other arithmetic operators, `%` is integer-only: C's `%`
+		// is not defined for floating-point operands (that would need fmod).
+		if !leftT.IsInteger() || !rightT.IsInteger() ||
+			leftT.Kind != rightT.Kind {
+			a.errorAt(e.Position, fmt.Sprintf(
+				"operator `%s` requires matching integer operands, got %s and %s",
+				e.Operator,
+				leftT,
+				rightT,
+			))
+			return Type{Kind: TypeInvalid}
+		}
+
+		a.recordDivision(e.Position, leftT)
+		return Type{leftT.Kind}
+
+	case "&", "|", "^":
+		// Bitwise operators are integer-only (no float, no bool) and yield
+		// the shared operand type.
+		if !leftT.IsInteger() || !rightT.IsInteger() ||
+			leftT.Kind != rightT.Kind {
+			a.errorAt(e.Position, fmt.Sprintf(
+				"operator `%s` requires matching integer operands, got %s and %s",
+				e.Operator,
+				leftT,
+				rightT,
+			))
+			return Type{Kind: TypeInvalid}
+		}
+		return Type{leftT.Kind}
+
+	case "<<", ">>":
+		// Shifts are integer-only. The result takes the left operand's type;
+		// the count need not share that type. Recorded so codegen can emit a
+		// helper that traps when the count is out of range.
+		if !leftT.IsInteger() || !rightT.IsInteger() {
+			a.errorAt(e.Position, fmt.Sprintf(
+				"operator `%s` requires integer operands, got %s and %s",
+				e.Operator,
+				leftT,
+				rightT,
+			))
+			return Type{Kind: TypeInvalid}
+		}
+		a.recordShift(e.Position, leftT)
+		return Type{leftT.Kind}
 
 	case "<", "<=", ">", ">=":
-		if leftT.Kind != TypeInt32 || rightT.Kind != TypeInt32 {
+		if !isComparable(leftT) || !isComparable(rightT) ||
+			leftT.Kind != rightT.Kind {
 			a.errorAt(e.Position, fmt.Sprintf(
-				"operator `%s` requires int32 operands, got %s and %s",
-				e.Operator, leftT, rightT))
+				"operator `%s` requires matching numeric or char operands, got %s and %s",
+				e.Operator,
+				leftT,
+				rightT,
+			))
 			return Type{Kind: TypeInvalid}
 		}
 		return Type{TypeBool}
@@ -255,7 +452,7 @@ func (a *Analyzer) typeOfBinary(e ast.BinaryExpression, scope *Scope) Type {
 			))
 			return Type{Kind: TypeInvalid}
 		}
-		if leftT.Kind != TypeInt32 && leftT.Kind != TypeBool {
+		if !isNumeric(leftT) && leftT.Kind != TypeBool && leftT.Kind != TypeChar {
 			a.errorAt(e.Position, fmt.Sprintf(
 				"operator `%s` is not defined for type %s", e.Operator, leftT))
 			return Type{Kind: TypeInvalid}
@@ -317,6 +514,17 @@ func (a *Analyzer) typeOfCall(e ast.FunctionCallExpression, scope *Scope) Type {
 
 	sig := sym.Signature
 
+	// `T(x)` numeric conversions are parsed as calls but are not real
+	// functions — the callee is a type name registered with a placeholder
+	// signature. Recognize and lower them here instead of running the
+	// parameter-matching path: the argument type is *meant* to differ from
+	// the target, and narrowing / sign-flipping forms are accepted and
+	// range-checked at runtime rather than rejected.
+	if target, isType := ResolveTypeName(ident.Name); isType &&
+		(target.IsInteger() || target.Kind == TypeChar) {
+		return a.typeOfConversion(e, target, scope)
+	}
+
 	// Arity: report once, but still type-check overlapping positions so
 	// arg-type errors don't get hidden behind the arity error.
 	if len(e.Arguments) != len(sig.Parameters) {
@@ -334,6 +542,7 @@ func (a *Analyzer) typeOfCall(e ast.FunctionCallExpression, scope *Scope) Type {
 		if want.Kind == TypeInvalid || argT.Kind == TypeInvalid {
 			continue
 		}
+
 		if want.Kind != argT.Kind {
 			a.errorAt(e.Position, fmt.Sprintf(
 				"argument %d of %s: expected %s, got %s",
@@ -360,10 +569,56 @@ func (a *Analyzer) typeOfCall(e ast.FunctionCallExpression, scope *Scope) Type {
 	}
 }
 
+// typeOfConversion type-checks and records a numeric `T(x)` conversion. Any
+// numeric argument is accepted: narrowing and sign-flipping forms are not
+// errors — they are recorded as ConvTrap so codegen emits a runtime range
+// check (per spec §5, explicit casts trap on out-of-range, they don't fail to
+// compile). Only a non-numeric argument or wrong arity is a compile error.
+// In expression position a conversion has the target type.
+func (a *Analyzer) typeOfConversion(
+	e ast.FunctionCallExpression,
+	target Type,
+	scope *Scope,
+) Type {
+	// typeOfCall has already established the callee is an identifier.
+	ident := e.Callee.(ast.Identifier)
+
+	if len(e.Arguments) != 1 {
+		a.errorAt(e.Position, fmt.Sprintf(
+			"conversion %s expects 1 argument, got %d",
+			ident.Name, len(e.Arguments)))
+		for _, arg := range e.Arguments {
+			a.TypeOf(arg, scope)
+		}
+		return target
+	}
+
+	argT := a.TypeOf(e.Arguments[0], scope)
+	if argT.Kind == TypeInvalid {
+		return target
+	}
+
+	switch kind := ClassifyConversion(argT, target); kind {
+	case ConvForbidden:
+		a.errorAt(e.Position, fmt.Sprintf(
+			"conversion from %s to %s is not allowed", argT, target))
+	default:
+		a.recordConversion(e.Position, ConversionInfo{
+			From: argT,
+			To:   target,
+			Kind: kind,
+		})
+	}
+
+	return target
+}
+
 func (a *Analyzer) TypeOf(expr ast.Expression, scope *Scope) Type {
 	switch e := expr.(type) {
 	case ast.IntegerLiteral:
 		return Type{TypeInt32}
+	case ast.FloatLiteral:
+		return Type{TypeFloat64}
 	case ast.BooleanLiteral:
 		return Type{TypeBool}
 	case ast.StringLiteral:
@@ -433,16 +688,20 @@ func (a *Analyzer) AnalyzeScope(
 			if varType.Kind == TypeInvalid {
 				a.errorAt(
 					stmt.Position,
-					fmt.Sprintf("unknown type: %s", varType.String()),
+					fmt.Sprintf("unknown type: %s", stmt.Type.Name.Name),
 				)
+			}
 
-			} else {
-				if stmt.Type.Name.Name != "" {
-					varType = a.TypeOf(stmt.Value, &scope)
-				}
+			if varType.Kind == TypeEmpty {
+				varType = a.TypeOf(stmt.Value, &scope)
+			}
 
-				if varType.Kind == TypeEmpty {
-					varType = a.TypeOf(stmt.Value, &scope)
+			if !isIntegerLiteral(stmt.Value) && !isFloatLiteral(stmt.Value) {
+				typeLeft := varType
+				typeRight := a.TypeOf(stmt.Value, &scope)
+
+				if typeLeft != typeRight {
+					continue
 				}
 			}
 
@@ -493,6 +752,12 @@ func (a *Analyzer) AnalyzeScope(
 				a.errorAt(stmt.Target.Position, message)
 			}
 
+			if stmt.Operator != "" && !symbol.Type.IsInteger() {
+				a.errorAt(stmt.Target.Position, fmt.Sprintf(
+					"compound assignment `%s=` requires an integer binding, got %s",
+					stmt.Operator, symbol.Type))
+			}
+
 			if symbol.Type != a.TypeOf(expr, &scope) {
 				a.errorAt(stmt.Target.Position, fmt.Sprintf("assignment value type must match the binding type, want %s, received %s", symbol.Type.String(), a.TypeOf(expr, &scope).String()))
 			}
@@ -530,6 +795,14 @@ func (a *Analyzer) AnalyzeScope(
 			for i, expr := range stmt.Values {
 				a.AnalyzeExpr(expr, &scope)
 				exprType := a.TypeOf(expr, &scope)
+
+				switch expr.(type) {
+				case ast.IntegerLiteral:
+					if exprType.Kind == TypeEmpty {
+						exprType = Type{TypeInt32}
+					}
+				}
+
 				if exprType.Kind == TypeInvalid {
 					continue
 				}
@@ -709,6 +982,9 @@ func (a *Analyzer) Analyze() {
 	// Initialize LSP-facing outputs. RootScope wraps GlobalScope and is the
 	// anchor for all child scope nodes created during the walk.
 	a.Refs = map[ast.Position]Symbol{}
+	a.Conversions = map[ast.Position]ConversionInfo{}
+	a.Divisions = map[ast.Position]Type{}
+	a.Shifts = map[ast.Position]Type{}
 	a.RootScope = &ScopeNode{Scope: a.GlobalScope}
 	a.currentNode = a.RootScope
 

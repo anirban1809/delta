@@ -1,0 +1,5 @@
+function main(): int32 {
+    let big: int64 = 5_000_000_000;
+    let small: int32 = int32(big);
+    return small;
+}

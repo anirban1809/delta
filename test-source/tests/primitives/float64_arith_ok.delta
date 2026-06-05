@@ -1,0 +1,6 @@
+function main(): int32 {
+    let a: float64 = 3.14;
+    let b: float64 = 2.5e1;
+    let c: float64 = a * b + 1.0;
+    return 0;
+}

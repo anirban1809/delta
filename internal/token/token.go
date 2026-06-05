@@ -8,6 +8,7 @@ const (
 
 	Kind_Identifier
 	Kind_IntegerLiteral
+	Kind_FloatLiteral
 	Kind_BooleanLiteral
 	Kind_StringLiteral
 	Kind_CharacterLiteral
@@ -35,6 +36,7 @@ const (
 	Symbol_Minus
 	Symbol_Asterisk
 	Symbol_FSlash
+	Symbol_Percent
 	Symbol_Less
 	Symbol_LessEq
 	Symbol_Greater
@@ -46,6 +48,14 @@ const (
 	Symbol_LogicalAnd
 	Symbol_LogicalOr
 	Symbol_Pipe
+	Symbol_Ampersand
+	Symbol_Caret
+	Symbol_Tilde
+	Symbol_ShiftLeft
+	Symbol_ShiftRight
+	Symbol_PlusEquals
+	Symbol_MinusEquals
+	Symbol_AsteriskEquals
 )
 
 type Token struct {
@@ -65,6 +75,8 @@ func (k Kind) String() string {
 		return "identifier"
 	case Kind_IntegerLiteral:
 		return "integer literal"
+	case Kind_FloatLiteral:
+		return "float literal"
 	case Kind_BooleanLiteral:
 		return "boolean literal"
 	case Kind_StringLiteral:
@@ -113,6 +125,8 @@ func (k Kind) String() string {
 		return "*"
 	case Symbol_FSlash:
 		return "/"
+	case Symbol_Percent:
+		return "%"
 	case Symbol_Less:
 		return "<"
 	case Symbol_LessEq:
@@ -135,6 +149,22 @@ func (k Kind) String() string {
 		return "||"
 	case Symbol_Pipe:
 		return "|"
+	case Symbol_Ampersand:
+		return "&"
+	case Symbol_Caret:
+		return "^"
+	case Symbol_Tilde:
+		return "~"
+	case Symbol_ShiftLeft:
+		return "<<"
+	case Symbol_ShiftRight:
+		return ">>"
+	case Symbol_PlusEquals:
+		return "+="
+	case Symbol_MinusEquals:
+		return "-="
+	case Symbol_AsteriskEquals:
+		return "*="
 	default:
 		return "unknown"
 	}

@@ -1,0 +1,6 @@
+function main(): int32 {
+    let a: uint8 = 10;
+    let b: uint8 = 20;
+    let c: uint8 = a + b;
+    return 0;
+}

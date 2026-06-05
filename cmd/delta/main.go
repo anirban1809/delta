@@ -46,9 +46,13 @@ func main() {
 }
 
 type compileResult struct {
-	File     ast.File
-	ErrorBag *diagnostics.ErrorBag
-	Refs     map[ast.Position]semantics.Symbol
+	File        ast.File
+	ErrorBag    *diagnostics.ErrorBag
+	Refs        map[ast.Position]semantics.Symbol
+	Conversions map[ast.Position]semantics.ConversionInfo
+	Divisions   map[ast.Position]semantics.Type
+	Shifts      map[ast.Position]semantics.Type
+	SourcePath  string
 }
 
 func compile(sourcePath string) (*compileResult, error) {
@@ -82,9 +86,13 @@ func compile(sourcePath string) (*compileResult, error) {
 	analyzer.Analyze()
 
 	return &compileResult{
-		File:     file,
-		ErrorBag: errorBag,
-		Refs:     analyzer.Refs,
+		File:        file,
+		ErrorBag:    errorBag,
+		Refs:        analyzer.Refs,
+		Conversions: analyzer.Conversions,
+		Divisions:   analyzer.Divisions,
+		Shifts:      analyzer.Shifts,
+		SourcePath:  sourcePath,
 	}, nil
 }
 
@@ -156,6 +164,10 @@ func runBuild(args []string) {
 		File:         result.File,
 		ErrorBag:     result.ErrorBag,
 		PositionRefs: result.Refs,
+		Conversions:  result.Conversions,
+		Divisions:    result.Divisions,
+		Shifts:       result.Shifts,
+		SourcePath:   sourcePath,
 	}
 
 	cBytes := emitter.Emit()
@@ -220,7 +232,12 @@ type testCase struct {
 	Contains    string `json:"contains,omitempty"`
 	NotContains string `json:"not_contains,omitempty"`
 	ErrorCount  int    `json:"error_count,omitempty"`
-	Note        string `json:"note,omitempty"`
+	// PanicContains / PanicAt apply to `expect: "trap"`: the substring the
+	// panic message must contain, and the "file.delta:line" location it must
+	// reference. See docs/plans/goal-v0.5/phase-a-primitive-types.md.
+	PanicContains string `json:"panic_contains,omitempty"`
+	PanicAt       string `json:"panic_at,omitempty"`
+	Note          string `json:"note,omitempty"`
 }
 
 type suiteResult struct {
@@ -473,6 +490,15 @@ func runOneTest(sourcePath string, tc testCase) (ok bool, reason string) {
 		}
 		return runCodegenMatch(sourcePath, result)
 
+	case "trap":
+		if len(msgs) != 0 {
+			return false, "front-end errors before trap run: " + strings.Join(
+				msgs,
+				"; ",
+			)
+		}
+		return runTrapTest(sourcePath, result, tc)
+
 	case "fail":
 		if len(msgs) == 0 {
 			return false, "expected errors, got none"
@@ -555,6 +581,10 @@ func runCodegenMatch(
 		File:         result.File,
 		ErrorBag:     result.ErrorBag,
 		PositionRefs: result.Refs,
+		Conversions:  result.Conversions,
+		Divisions:    result.Divisions,
+		Shifts:       result.Shifts,
+		SourcePath:   sourcePath,
 	}
 
 	cBytes := emitter.Emit()
@@ -586,6 +616,107 @@ func runCodegenMatch(
 		actualPath,
 		firstLineDiff(expected, actual),
 	)
+}
+
+// runTrapTest is the runtime-trap test (`expect: "trap"`):
+//
+//  1. Emit C for the (already front-end-clean) program.
+//  2. Compile it to a native binary with clang.
+//  3. Run the binary; it must exit non-zero (Delta panics call abort()).
+//  4. The panic line on stderr must contain panic_contains and panic_at.
+//
+// A build failure or a clean (exit-0) run is a test failure: the contract is
+// build-succeeds-then-traps. See docs/plans/goal-v0.5/phase-a-primitive-types.md.
+func runTrapTest(
+	sourcePath string,
+	result *compileResult,
+	tc testCase,
+) (ok bool, reason string) {
+	emitter := codegen.Emitter{
+		File:         result.File,
+		ErrorBag:     result.ErrorBag,
+		PositionRefs: result.Refs,
+		Conversions:  result.Conversions,
+		Divisions:    result.Divisions,
+		Shifts:       result.Shifts,
+		SourcePath:   sourcePath,
+	}
+
+	cBytes := emitter.Emit()
+	if emitter.ErrorBag != nil && len(emitter.ErrorBag.Errors) > 0 {
+		msgs := make([]string, 0, len(emitter.ErrorBag.Errors))
+		for _, e := range emitter.ErrorBag.Errors {
+			msgs = append(msgs, e.Message)
+		}
+		return false, "codegen errors: " + strings.Join(msgs, "; ")
+	}
+
+	clangPath, clangErr := toolchain.FindClang()
+	if clangErr != nil {
+		return false, "clang not found on PATH: " + clangErr.Message
+	}
+
+	tmpDir, err := os.MkdirTemp("", "delta-trap-")
+	if err != nil {
+		return false, "failed to create temp dir: " + err.Error()
+	}
+	defer os.RemoveAll(tmpDir)
+
+	base := strings.TrimSuffix(filepath.Base(sourcePath), ".delta")
+	cFile := filepath.Join(tmpDir, base+".c")
+	if err := os.WriteFile(cFile, cBytes, 0644); err != nil {
+		return false, "failed to write generated C: " + err.Error()
+	}
+
+	binaryPath := filepath.Join(tmpDir, base)
+	build := exec.Command(
+		clangPath,
+		"-std=c11",
+		"-Wall",
+		"-Werror=implicit-function-declaration",
+		"-fwrapv",
+		"-o", binaryPath,
+		cFile,
+	)
+	var buildErr strings.Builder
+	build.Stderr = &buildErr
+	if err := build.Run(); err != nil {
+		return false, "trap test must build, but clang failed: " + strings.TrimSpace(
+			buildErr.String(),
+		)
+	}
+
+	run := exec.Command(binaryPath)
+	var stderr strings.Builder
+	run.Stderr = &stderr
+	runErr := run.Run()
+	panicMsg := strings.TrimSpace(stderr.String())
+
+	if runErr == nil {
+		return false, "expected a runtime trap (non-zero exit), but the program exited 0\n  stderr: " + panicMsg
+	}
+	// A non-zero exit (abort()) surfaces as *exec.ExitError — that is the
+	// expected path. Anything else (binary missing, etc.) is a harness fault.
+	if _, isExit := runErr.(*exec.ExitError); !isExit {
+		return false, "failed to run trap binary: " + runErr.Error()
+	}
+
+	if tc.PanicContains != "" && !strings.Contains(panicMsg, tc.PanicContains) {
+		return false, fmt.Sprintf(
+			"panic message does not contain %q\n  stderr: %s",
+			tc.PanicContains,
+			panicMsg,
+		)
+	}
+	if tc.PanicAt != "" && !strings.Contains(panicMsg, tc.PanicAt) {
+		return false, fmt.Sprintf(
+			"panic location does not contain %q\n  stderr: %s",
+			tc.PanicAt,
+			panicMsg,
+		)
+	}
+
+	return true, ""
 }
 
 // clangSyntaxCheck runs `clang -fsyntax-only` on the given .c file. Returns

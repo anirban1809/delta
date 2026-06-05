@@ -84,6 +84,11 @@ type IntegerLiteral struct {
 	Value string
 }
 
+type FloatLiteral struct {
+	Position
+	Value string
+}
+
 type BooleanLiteral struct {
 	Position
 	Value string
@@ -104,6 +109,7 @@ type CharacterLiteral struct {
 func (CharacterLiteral) expressionNode() {}
 
 func (IntegerLiteral) expressionNode() {}
+func (FloatLiteral) expressionNode()   {}
 func (BooleanLiteral) expressionNode() {}
 
 type Identifier struct {
@@ -158,7 +164,10 @@ func (ExpressionStatement) statementNode() {}
 type AssignmentStatement struct {
 	Position
 	Target Identifier
-	Value  Expression
+	// Operator is the compound-assignment arithmetic operator ("+", "-",
+	// "*") for `+=`/`-=`/`*=`, or "" for a plain `=` assignment.
+	Operator string
+	Value    Expression
 }
 
 func (AssignmentStatement) statementNode() {}

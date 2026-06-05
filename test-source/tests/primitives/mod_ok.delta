@@ -1,0 +1,6 @@
+function main(): int32 {
+    let a: int32 = 17;
+    let b: int32 = 5;
+    let r: int32 = a % b;
+    return r;
+}

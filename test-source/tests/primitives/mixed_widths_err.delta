@@ -1,0 +1,6 @@
+function main(): int32 {
+    let a: int32 = 1;
+    let b: int64 = 2;
+    let c: int64 = a + b;
+    return 0;
+}

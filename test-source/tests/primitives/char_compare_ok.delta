@@ -1,0 +1,8 @@
+function main(): int32 {
+    let a: char = 'A';
+    let b: char = 'B';
+    if (a < b) {
+        return 0;
+    }
+    return 1;
+}

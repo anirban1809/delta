@@ -3,18 +3,19 @@
 Date drafted: 2026-06-03
 Status: target, not started.
 Predecessor: [compiler-status.md](compiler-status.md) — the v0 baseline this goal extends.
-Spec basis: [main-spec.md](main-spec.md) plus the section files under [spec-sections/](spec-sections/), in particular §3, §5, §6, §9, §11, §12, §13, §14.
+Spec basis: [main-spec.md](main-spec.md) plus the section files under [spec-sections/](spec-sections/), in particular §1, §3, §5, §6, §9, §11, §12, §13, §14.
 
 ## Goal
 
-A user can write a single-file Delta program that:
+A user can write a **multi-file** Delta project that:
 
-1. Defines classes with private state and public methods.
-2. Mutates instances through `mod borrowed` references and reads them through `borrowed` references.
-3. Transfers ownership with `move` and copies cloneable state with `clone`.
-4. Performs trapping numeric computation across the full primitive type set from §5–§6.
-5. Recovers from fallible operations with `as result` and `check`.
-6. Prints results to stdout via `extern "c"` interop with `printf`.
+1. Splits across modules using `import` and `export`, with at least one user module and one standard library module.
+2. Defines classes with private state and public methods.
+3. Mutates instances through `mod borrowed` references and reads them through `borrowed` references.
+4. Transfers ownership with `move` and copies cloneable state with `clone`.
+5. Performs trapping numeric computation across the full primitive type set from §5–§6.
+6. Recovers from fallible operations with `as result` and `check`.
+7. Emits diagnostic output through the standard library logging module (`std/log`), which is itself written in Delta and shipped with the compiler.
 
 …and the compiler enforces, at compile time:
 
@@ -24,19 +25,18 @@ A user can write a single-file Delta program that:
 - Move-state tracking (no use-after-move; no conditional moves).
 - Borrow exclusivity at call sites.
 - Class capability rules (`const` binding cannot call `mod` methods).
+- Import/export visibility (a non-`export` declaration is invisible to importers).
 
-This is the smallest milestone past the v0 baseline that commits the compiler to Delta's safety identity. It deliberately stays inside the single-file, single-TU world and excludes modules, the full string family, generics, interfaces, decorators, tagged unions, arrays, and slices — those are later milestones.
+This is the smallest milestone past the v0 baseline that commits the compiler to Delta's safety identity *and* establishes the module system the rest of the spec depends on. It excludes the full string family, generics, interfaces, decorators, tagged unions, arrays, and slices — those are later milestones.
 
 ## Acceptance program
 
-The following program is the success criterion. If it compiles under `delta build`, runs to completion, prints `42` and then `22`, **and** a variant that uses `a` after `move a` is rejected at compile time with a clear diagnostic, the goal is met.
+The acceptance program is a three-file project. If `delta build main.delta` produces a runnable executable, the executable prints the expected output, and the negative variants listed under "Success criteria" are all rejected with clear diagnostics, the goal is met.
+
+### `counter.delta`
 
 ```delta
-extern "c" {
-    function printf(fmt: cstringview, ...args): int32;
-}
-
-class Counter {
+export class Counter {
     private value: int64;
 
     public static new(start: int64): Counter {
@@ -48,12 +48,28 @@ class Counter {
     }
 
     public mod add(delta: int64): void | OverflowError {
-        this.value = check (this.value + delta) as result;
+        this.value = this.value + delta as result;
+        check result {
+            return error as OverflowError { };
+        }
+        // this.value is now valid (committed only on fall-through past the check block)
+        return;
     }
 }
+```
+
+### `main.delta`
+
+```delta
+import { Counter } from "./counter";
+import { info } from "std/log";
 
 function bump(c: mod borrowed Counter, amount: int64): void | OverflowError {
-    check c.add(amount);
+    c.add(amount) as result;
+    check result {
+        return error as OverflowError { };
+    }
+    return;
 }
 
 function readSum(a: borrowed Counter, b: borrowed Counter): int64 {
@@ -68,17 +84,48 @@ function main(): int32 {
     let a = Counter.new(10);
     let b = Counter.new(20);
 
-    check bump(mod borrowed a, 5);
-    check bump(mod borrowed a, 7);
+    bump(mod borrowed a, 5) as result;
+    check result {
+        return 1;
+    }
+    bump(mod borrowed a, 7) as result;
+    check result {
+        return 1;
+    }
 
     const total = readSum(borrowed a, borrowed b);
-    printf("%lld\n", total);
+    info("total", total);
 
-    const final = consume(move a);
-    printf("%lld\n", final);
+    const finalValue = consume(move a);
+    info("final", finalValue);
     return 0;
 }
 ```
+
+### `std/log.delta` (shipped with the compiler)
+
+The standard library module that backs the `info`/`warn`/`error` calls above. It is plain Delta source, embedded in the compiler binary and resolved when an import path begins with `std/`.
+
+```delta
+extern "c" {
+    function fprintf(stream: cstringview, fmt: cstringview, ...args): int32;
+    function stderr(): cstringview;
+}
+
+export function info(message: cstringview, value: int64): void {
+    fprintf(stderr(), "[INFO] %s: %lld\n", message, value);
+}
+
+export function warn(message: cstringview, value: int64): void {
+    fprintf(stderr(), "[WARN] %s: %lld\n", message, value);
+}
+
+export function error(message: cstringview, value: int64): void {
+    fprintf(stderr(), "[ERROR] %s: %lld\n", message, value);
+}
+```
+
+(The `stderr()` accessor is a thin wrapper because `stderr` is a macro/global in C; the compiler ships a one-line C shim with the stdlib. The exact shape of the shim is an implementation detail of Phase J.)
 
 ## In-scope language surface
 
@@ -119,9 +166,10 @@ The full feature surface required for the acceptance program, grouped by spec se
 ### Phase C — Error model (§3)
 
 - End-to-end handling of fallible signatures `T | ErrorType` and `T, U | ErrorType, OtherError`.
-- `expr as result` expression — produces a pending fallible value.
-- `check expr` expression and `check { ... }` block — unwraps or propagates.
-- Codegen lowering: fallible returns become a tagged result struct in C; `check` becomes a branch that either continues or returns the error.
+- `expr as resultName` binding form — runs the fallible expression; success values are bound but marked *pending* by the compiler until the matching `check` block proves the error path diverges.
+- `check resultName { ... }` block — runs only when the result is in the error state. Inside the block, `resultName.error` is readable. Every control-flow path inside the block must exit via `return`, `panic`, `break`, `continue`, `process.exit`, or `unreachable`. There is no `else`. After the block, the pending success bindings become valid.
+- `return error as ErrorType { ... }` — the only way to propagate an error from within a `check` block (or to produce an error from a fallible function in general).
+- Codegen lowering: fallible returns become a tagged result struct in C; `as result` writes into a hidden `result` value carrying tag + success-bindings + error; `check resultName { ... }` lowers to `if (result.tag != 0) { ... }`; the analyzer guarantees the block's body diverges so fall-through past the block sees the success state.
 - Built-in numeric error types tied to trap sites: `OverflowError`, `DivideByZeroError`, `NarrowingError`, `ShiftCountError`.
 
 ### Phase D — Minimal C interop for visible output (§3)
@@ -177,10 +225,43 @@ The full feature surface required for the acceptance program, grouped by spec se
 - Owner disposal frees the heap allocation at scope exit; field disposal cascades.
 - *Use case for v0.5:* enables a class to own a large value or a recursive field without yet introducing arrays or generic collections.
 
+### Phase I — Multi-file modules (§1)
+
+- One file = one module; file path determines module identity.
+- `export` modifier on top-level `function`, `class`, and `const` declarations. A non-`export` declaration is module-private and invisible to importers.
+- `import { Name, Other } from "./relative/path";` resolves to `./relative/path.delta` relative to the importing file's directory. Path is required to begin with `./` or `../` for relative imports; bare paths are reserved for the standard library and (later) third-party packages.
+- `import { Name } from "std/...";` resolves against the embedded standard library (see Phase J).
+- Renaming form `import { Name as Local } from "...";` is **out of scope** for v0.5 — only the bare form is required.
+- Module graph construction at build time: starting from the file passed to `delta build`, the compiler discovers transitively imported files, parses and analyzes each once, and detects cycles (rejected with a diagnostic naming the cycle path).
+- Cross-module name resolution: an `import` binds the named symbol into the importing file's top scope. Importing a name that the source module did not `export` is a diagnostic.
+- Codegen produces one C translation unit per Delta module: `build/c/<module-id>.c`. All TUs are passed to clang in a single invocation, plus the user's entry point becomes the program's `main`.
+- Name mangling: every exported symbol is prefixed with a stable module identifier (e.g. `delta__counter__Counter_get`) to avoid collisions across TUs. Module-private symbols are emitted `static` in their TU and need no mangling beyond a per-file disambiguator.
+- `delta.json` manifest is **out of scope** for v0.5 — entry-file discovery is the only project mode. Tracking issue for the manifest mode remains in `compiler-status.md`'s pending list.
+- Build-output layout extends naturally: `build/c/main.c`, `build/c/counter.c`, `build/c/std__log.c`, `build/<basename>`.
+
+### Phase J — Standard library: `std/log` (§1, new)
+
+The standard library is plain Delta source shipped with the compiler. v0.5 includes exactly one module — `std/log` — to prove the delivery mechanism and give Delta programs a way to emit diagnostic output without writing their own `extern "c"` block.
+
+- Stdlib sources are **embedded** in the `delta` binary at build time (Go `embed.FS`).
+- Import paths beginning with `std/` resolve against the embedded FS. Any other bare path is currently a diagnostic ("unknown import root"); third-party package roots are future work.
+- The embedded stdlib participates in module-graph construction exactly like user code: it is parsed, analyzed, codegen'd to a TU, and linked into the final binary. There is no privileged path.
+- The compiler ships a minimal C support shim (one `.c` file with the `stderr()` accessor) co-located with the embedded `std/log.delta` source. The shim is linked in whenever `std/log` is reachable in the module graph.
+- v0.5 `std/log` surface (final, minimal):
+  - `export function info(message: cstringview, value: int64): void`
+  - `export function warn(message: cstringview, value: int64): void`
+  - `export function error(message: cstringview, value: int64): void`
+  - Each writes to stderr with a level prefix (`[INFO] `, `[WARN] `, `[ERROR] `), followed by the message, `: `, the value, and a newline.
+- Deliberately excluded from v0.5 logging surface: log-level filtering (compile-time or runtime), structured fields, formatters, sinks other than stderr, timestamps, message-only overloads (the `(message, value)` shape is the only form until templates land). These are straightforward additions once the string family arrives.
+
 ## Out of scope (deferred)
 
 - Full string family (`string`, `stringview`, `cstring`, template literals, `StringBuilder`, `.slice()`, `ByteOffset`).
-- Modules, imports, exports, multi-file translation units, `delta.json` manifests.
+- `delta.json` manifest mode; only entry-file discovery is supported.
+- `import { Name as Local }` rename form; `import * as ns from "..."` namespace form; re-exports.
+- Third-party package roots (anything besides `./...`, `../...`, and `std/...`).
+- Standard library modules beyond `std/log` (no `std/io`, no `std/collections`, no `std/unicode` for v0.5).
+- Log-level filtering, structured fields, custom sinks, timestamps — anything beyond the three `(message, value)` functions.
 - `Wrap<T>` and `Saturate<T>` numeric tags.
 - Generics, interfaces, decorators.
 - Tagged unions (`type U = A | B`) and `switch type`.
@@ -188,21 +269,23 @@ The full feature surface required for the acceptance program, grouped by spec se
 - `for...of`, arrays, slices, object literals (beyond class literals).
 - User-supplied `uses Disposable`, `uses Copyable`, `uses Cloneable` hooks.
 - Inheritance, nested classes, static fields, user-defined `==`.
-- Incremental compilation, name mangling, release/debug modes, sanitizers, bundled clang.
+- Incremental compilation, release/debug modes, sanitizers, bundled clang. (Name mangling *is* in scope — see Phase I.)
 
 ## Recommended phasing
 
-Implementing all of A–H in one pass is too large to land cleanly. The recommendation is to split along the line where the error model ends and the ownership story begins:
+Implementing all of A–J in one pass is too large to land cleanly. The recommendation is to split along the line where the error model ends and the ownership story begins. Modules and the standard library land **early in v0.5a** because every later phase benefits from being able to factor code across files, and `std/log` is the cleanest way to give Delta programs visible output without each one re-declaring `printf`.
 
-### v0.5a — Numeric breadth, classes as inline values, error model
+### v0.5a — Modules, numeric breadth, classes as inline values, error model
 
-Phases **A, B, C, D, E**. At the end of v0.5a:
+Phases **I (modules), D (extern), J (std/log), A, B, C, E** — roughly in that order. At the end of v0.5a:
 
+- Multi-file projects build: `delta build main.delta` discovers and compiles transitively imported `.delta` files, emits one C TU per module, and links them through a single clang invocation.
+- The embedded `std/log` module is importable and works as the canonical way to emit diagnostic output.
 - The full primitive type surface is type-checked and lowered correctly.
 - Definite assignment, return coverage, and shadowing are enforced.
 - Fallible signatures and `check` / `as result` are end-to-end, including the tagged-result C lowering.
 - Classes work as inline value types with public/private members, static functions, and `mod` methods.
-- `extern "c"` allows printing through `printf`.
+- `extern "c"` allows declaring C functions for use by stdlib and (where needed) user code.
 
 The intentionally-unsound gap at the end of v0.5a: passing a class by value emits a plain struct copy. There is no `move`, no `clone`, no borrow checker yet, so the compiler does not stop you from using a "moved-from" binding. v0.5b closes this gap.
 
@@ -216,23 +299,27 @@ Phases **F, G, H**. At the end of v0.5b:
 - `heap T` enables owning indirection with automatic disposal.
 - The struct-copy hole from v0.5a becomes a compile error and is replaced by the real ownership story.
 
-Each sub-milestone is independently demonstrable: v0.5a can run a numeric program that prints via `printf`; v0.5b can run the full acceptance program above with all safety guarantees enforced.
+Each sub-milestone is independently demonstrable: v0.5a can run a multi-file numeric program that logs via `std/log`; v0.5b can run the full acceptance program above with all safety guarantees enforced.
 
 ## Success criteria
 
-The goal is reached when, on a clean checkout:
+The goal is reached when, on a clean checkout, with `main.delta` and `counter.delta` from the acceptance program above placed in a project directory:
 
-1. `delta build acceptance.delta` produces `build/acceptance` with no diagnostics.
-2. `./build/acceptance` prints exactly:
+1. `delta build main.delta` produces `build/main` with no diagnostics, after discovering and compiling `counter.delta` and the embedded `std/log` module.
+2. `./build/main` writes exactly the following to **stderr**:
 
    ```text
-   42
-   22
+   [INFO] total: 42
+   [INFO] final: 22
    ```
 
+   and exits with status `0`.
 3. A variant of the program that reads `a` after `consume(move a)` fails `delta build` with a diagnostic that names the moved binding and points at both the `move` site and the use site.
 4. A variant that calls `c.add(...)` through a `borrowed Counter` (instead of `mod borrowed Counter`) fails with a capability diagnostic.
 5. A variant that passes `mod borrowed a` and `borrowed a` to the same call fails with a borrow-exclusivity diagnostic.
 6. A variant that omits `check` on a fallible call fails with an unhandled-fallible diagnostic.
+7. A variant that imports a symbol `counter.delta` does **not** `export` fails with a visibility diagnostic.
+8. A variant that creates an import cycle between two user modules fails with a diagnostic naming the cycle path.
+9. A variant that imports from `"foo/bar"` (bare path, not `./...` or `std/...`) fails with an "unknown import root" diagnostic.
 
-After v0.5, the remaining sections of the spec (full string family, modules, generics, tagged unions, arrays/slices, interfaces) can be added one pass at a time without restructuring the compiler.
+After v0.5, the remaining sections of the spec (full string family, generics, tagged unions, arrays/slices, interfaces, additional stdlib modules, `delta.json` manifests) can be added one pass at a time without restructuring the compiler.
