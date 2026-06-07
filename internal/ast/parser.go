@@ -6,9 +6,10 @@ import (
 )
 
 type Parser struct {
-	Tokens   []token.Token
-	Position int
-	ErrorBag *diagnostics.ErrorBag
+	Tokens    []token.Token
+	Position  int
+	ErrorBag  *diagnostics.ErrorBag
+	loopDepth int
 }
 
 func (p *Parser) Current() token.Token {
@@ -195,7 +196,7 @@ func (p *Parser) ParseUnaryExpression() (Expression, bool) {
 
 	}
 
-	expr, ok := p.ParseFunctionCallExpression()
+	expr, ok := p.ParsePostfixExpression()
 	if !ok {
 		return nil, false
 	}
@@ -456,12 +457,31 @@ func (p *Parser) ParseLogicalExpression() (Expression, bool) {
 	return p.ParseLogicalOrExpression()
 }
 
-func (p *Parser) ParseFunctionCallExpression() (Expression, bool) {
-	callee, ok := p.ParsePrimaryExpression()
+func (p *Parser) ParsePostfixExpression() (Expression, bool) {
+	expr, ok := p.ParsePrimaryExpression()
 	if !ok {
 		return nil, false
 	}
 
+	p.skipComments()
+	switch p.Current().Kind {
+	case token.Symbol_LeftParen:
+		return p.ParseFunctionCallExpression(expr)
+	//parse index [] and member expressions
+	case token.Symbol_Increment, token.Symbol_Decrement:
+		return PostfixUnaryExpression{
+			Position: expr.Pos(),
+			Operand:  expr,
+			Operator: p.Advance().Lexeme,
+		}, true
+	}
+
+	return expr, true
+}
+
+func (p *Parser) ParseFunctionCallExpression(
+	callee Expression,
+) (Expression, bool) {
 	p.skipComments()
 	for p.Current().Kind == token.Symbol_LeftParen {
 		var arguments []Expression
@@ -568,6 +588,17 @@ func (p *Parser) ParseVarDeclStatement() (VariableDeclarationStatement, bool) {
 		typeReference = TypeReference{
 			Name: Identifier{Name: typeIdentifier.Lexeme},
 		}
+	}
+
+	if p.Current().Kind == token.Symbol_Semicolon {
+		p.Advance() //consume semicolon
+		return VariableDeclarationStatement{
+			Position: posOf(modifier),
+			Mutable:  modifier.Kind == token.Keyword_Let,
+			Name:     ident.Lexeme,
+			Type:     typeReference,
+			Value:    nil,
+		}, true
 	}
 
 	p.skipComments()
@@ -693,7 +724,188 @@ func (p *Parser) ParseIfElseBlock() (Statement, bool) {
 
 }
 
+func (p *Parser) ParseForStatementBlock() (ForStatement, bool) {
+	p.loopDepth++
+	keyword := p.Advance() //consume for keyword
+	if _, ok := p.Expect(token.Symbol_LeftParen, "symbol ( expected"); !ok {
+		return ForStatement{}, false
+	}
+
+	var init VariableDeclarationStatement
+
+	if p.Current().Kind == token.Symbol_Semicolon {
+		p.Advance() //consume semicolon
+	} else {
+		init, _ = p.ParseVarDeclStatement()
+	}
+
+	var cond Expression
+	if p.Current().Kind == token.Symbol_Semicolon {
+		p.Advance() //consume semicolon
+	} else {
+		cond, _ = p.ParseExpression()
+		if _, ok := p.Expect(token.Symbol_Semicolon, "symbol ; expected"); !ok {
+			return ForStatement{}, false
+		}
+	}
+
+	var step Expression
+	if p.Current().Kind == token.Symbol_RightParen {
+		p.Advance() //consume right paren
+	} else {
+		step, _ = p.ParseExpression()
+		if _, ok := p.Expect(token.Symbol_RightParen, "symbol ) expected"); !ok {
+			return ForStatement{}, false
+		}
+	}
+
+	if _, ok := p.Expect(token.Symbol_LeftBrace, "symbol { expected"); !ok {
+		return ForStatement{}, false
+	}
+
+	body, _ := p.ParseBlockStatement()
+
+	p.loopDepth--
+	return ForStatement{
+		Position: posOf(keyword),
+		Init:     init,
+		Cond:     cond,
+		Step:     step,
+		Body:     &body,
+	}, true
+}
+
+func (p *Parser) ParseSwitchStatementBlock() (SwitchStatement, bool) {
+	keyword := p.Advance()
+	if _, ok := p.Expect(token.Symbol_LeftParen, "symbol ( expected"); !ok {
+		return SwitchStatement{}, false
+	}
+
+	scrutinee, ok := p.ParseExpression()
+	if !ok {
+		return SwitchStatement{}, false
+	}
+
+	if scrutinee == nil {
+		p.addError(
+			keyword.Line,
+			keyword.Column,
+			"empty scrutinee in switch statement is not allowed",
+		)
+	}
+
+	if _, ok := p.Expect(token.Symbol_RightParen, "symbol ) expected"); !ok {
+		return SwitchStatement{}, false
+	}
+
+	if _, ok := p.Expect(token.Symbol_LeftBrace, "symbol { expected"); !ok {
+		return SwitchStatement{}, false
+	}
+
+	var cases []*SwitchCase
+	var def SwitchCase
+
+	for p.Current().Kind != token.Symbol_RightBrace {
+		// Comments are real tokens; skip any sitting before a case/default or
+		// before the switch's closing brace so they don't read as unexpected.
+		p.skipComments()
+		if p.Current().Kind == token.Symbol_RightBrace {
+			break
+		}
+
+		var label Expression
+
+		if p.Current().Kind != token.Keyword_Case &&
+			p.Current().Kind != token.Keyword_Default {
+			p.addError(
+				p.Current().Line,
+				p.Current().Column,
+				"keyword case or default expected",
+			)
+		}
+
+		for p.Current().Kind == token.Keyword_Case {
+			var caseValue SwitchCase
+			p.Advance() //consume case keyword
+			label, ok = p.ParseExpression()
+			if !ok {
+				return SwitchStatement{}, false
+			}
+
+			switch label := label.(type) {
+			case IntegerLiteral, CharacterLiteral, UnaryExpression:
+				caseValue.Labels = append(caseValue.Labels, label)
+			default:
+				p.addError(p.Current().Line, p.Current().Column, "case labels must be integer or char literals")
+			}
+
+			if p.Current().Kind == token.Symbol_Comma {
+				for p.Current().Kind != token.Symbol_Colon {
+					p.Advance() // consume comma
+					label, _ = p.ParseExpression()
+					switch label := label.(type) {
+					case IntegerLiteral, CharacterLiteral, UnaryExpression:
+						caseValue.Labels = append(caseValue.Labels, label)
+					default:
+						p.addError(p.Current().Line, p.Current().Column, "case labels must be integer or char literals")
+					}
+				}
+			}
+
+			if _, ok := p.Expect(token.Symbol_Colon, "symbol : expected"); !ok {
+				return SwitchStatement{}, false
+			}
+
+			if _, ok := p.Expect(token.Symbol_LeftBrace, "symbol { expected"); !ok {
+				return SwitchStatement{}, false
+			}
+
+			caseBody, _ := p.ParseBlockStatement()
+
+			for _, stmt := range caseBody.Statements {
+				if brk, ok := stmt.(BreakStatement); ok && p.loopDepth == 0 {
+					p.addError(
+						brk.Line,
+						brk.Column,
+						"break is not allowed outside of a loop",
+					)
+				}
+			}
+
+			caseValue.Body = &caseBody
+			cases = append(cases, &caseValue)
+			// Tolerate comments between consecutive case clauses.
+			p.skipComments()
+		}
+
+		if _, ok := p.Expect(token.Keyword_Default, "missing default case"); !ok {
+			return SwitchStatement{}, false
+		}
+
+		if _, ok := p.Expect(token.Symbol_Colon, "symbol : expected"); !ok {
+			return SwitchStatement{}, false
+		}
+
+		if _, ok := p.Expect(token.Symbol_LeftBrace, "symbol { expected"); !ok {
+			return SwitchStatement{}, false
+		}
+
+		defBlock, _ := p.ParseBlockStatement()
+		def.Body = &defBlock
+	}
+
+	p.Advance() //consume right brace for end of switch statement
+
+	return SwitchStatement{
+		Position:  posOf(keyword),
+		Scrutinee: scrutinee,
+		Cases:     cases,
+		Default:   &def,
+	}, true
+}
+
 func (p *Parser) ParseWhileBlock() (WhileStatement, bool) {
+	p.loopDepth++
 	keyword := p.Advance() //consume while
 	if _, ok := p.Expect(token.Symbol_LeftParen, "symbol ( expected"); !ok {
 		return WhileStatement{}, false
@@ -715,6 +927,8 @@ func (p *Parser) ParseWhileBlock() (WhileStatement, bool) {
 	if !ok {
 		return WhileStatement{}, false
 	}
+
+	p.loopDepth--
 	return WhileStatement{
 		Position:  posOf(keyword),
 		Condition: condition,
@@ -759,6 +973,46 @@ func (p *Parser) ParseBlockStatement() (BlockStatement, bool) {
 			continue
 		}
 
+		if p.Current().Kind == token.Keyword_Break {
+			if p.loopDepth == 0 {
+				p.addError(
+					p.Current().Line,
+					p.Current().Column,
+					"break is not allowed outside of a loop",
+				)
+			}
+
+			keyword := p.Advance() //consume break
+			if _, ok := p.Expect(token.Symbol_Semicolon, "symbol ; expected"); !ok {
+				continue
+			}
+			statements = append(
+				statements,
+				BreakStatement{Position: posOf(keyword)},
+			)
+			continue
+		}
+
+		if p.Current().Kind == token.Keyword_Continue {
+			if p.loopDepth == 0 {
+				p.addError(
+					p.Current().Line,
+					p.Current().Column,
+					"continue is not allowed outside of a loop",
+				)
+			}
+
+			keyword := p.Advance() //consume continue
+			if _, ok := p.Expect(token.Symbol_Semicolon, "symbol ; expected"); !ok {
+				continue
+			}
+			statements = append(
+				statements,
+				ContinueStatement{Position: posOf(keyword)},
+			)
+			continue
+		}
+
 		if p.Current().Kind == token.Keyword_Const ||
 			p.Current().Kind == token.Keyword_Let {
 			constStatement, ok := p.ParseVarDeclStatement()
@@ -772,22 +1026,32 @@ func (p *Parser) ParseBlockStatement() (BlockStatement, bool) {
 
 		if p.Current().Kind == token.Kind_Identifier &&
 			isAssignmentOperator(p.Peek().Kind) {
-			constStatement, ok := p.ParseAssignmentStatement()
+			identStmt, ok := p.ParseAssignmentStatement()
 			if !ok {
 				p.synchronizeStatement(start)
 				continue
 			}
-			statements = append(statements, constStatement)
+			statements = append(statements, identStmt)
 			continue
 		}
 
 		if p.Current().Kind == token.Keyword_If {
-			constStatement, ok := p.ParseIfElseBlock()
+			ifStmt, ok := p.ParseIfElseBlock()
 			if !ok {
 				p.synchronizeStatement(start)
 				continue
 			}
-			statements = append(statements, constStatement)
+			statements = append(statements, ifStmt)
+			continue
+		}
+
+		if p.Current().Kind == token.Keyword_For {
+			forStmt, ok := p.ParseForStatementBlock()
+			if !ok {
+				p.synchronizeStatement(start)
+				continue
+			}
+			statements = append(statements, forStmt)
 			continue
 		}
 
@@ -798,6 +1062,16 @@ func (p *Parser) ParseBlockStatement() (BlockStatement, bool) {
 				continue
 			}
 			statements = append(statements, constStatement)
+			continue
+		}
+
+		if p.Current().Kind == token.Keyword_Switch {
+			switchStmt, ok := p.ParseSwitchStatementBlock()
+			if !ok {
+				p.synchronizeStatement(start)
+				continue
+			}
+			statements = append(statements, switchStmt)
 			continue
 		}
 

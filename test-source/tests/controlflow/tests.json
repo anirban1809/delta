@@ -1,0 +1,338 @@
+[
+  {
+    "file": "for_basic_ok.delta",
+    "expect": "pass",
+    "note": "phase B — C-style for with full init/cond/step, postfix i++; sum 1..=10 == 55"
+  },
+  {
+    "file": "for_exclusive_ok.delta",
+    "expect": "pass",
+    "note": "phase B — exclusive upper bound via `i < 10`; sum 0..9 == 45"
+  },
+  {
+    "file": "for_empty_init_ok.delta",
+    "expect": "pass",
+    "note": "phase B — empty init slot; induction variable declared in enclosing scope"
+  },
+  {
+    "file": "for_empty_step_ok.delta",
+    "expect": "pass",
+    "note": "phase B — empty step slot; body advances induction variable"
+  },
+  {
+    "file": "for_nested_ok.delta",
+    "expect": "pass",
+    "note": "phase B — nested for-loops; inner ++ on its own induction variable"
+  },
+  {
+    "file": "for_int64_ok.delta",
+    "expect": "pass",
+    "note": "phase B — wide induction variable (int64); 1+...+1000 == 500_500"
+  },
+  {
+    "file": "for_int32_increment_overflow_trap.delta",
+    "expect": "trap",
+    "panic_contains": "arithmetic overflow",
+    "panic_at": "for_int32_increment_overflow_trap.delta:2",
+    "note": "phase B — `i++` at int32 MAX traps on the synthesized add at the for-step site"
+  },
+  {
+    "file": "for_empty_cond_ok.delta",
+    "expect": "pass",
+    "note": "phase B — empty cond slot; infinite loop exited via `break`; sum 0..4 == 10"
+  },
+  {
+    "file": "for_non_bool_cond_err.delta",
+    "expect": "fail",
+    "contains": "bool",
+    "note": "phase B — for-cond must type as bool; int32 scrutinee rejected"
+  },
+  {
+    "file": "for_const_var_step_err.delta",
+    "expect": "fail",
+    "contains": "const",
+    "note": "phase B — `const` for-var cannot be incremented by the step expression"
+  },
+  {
+    "file": "incdec_basic_ok.delta",
+    "expect": "pass",
+    "note": "phase B — postfix ++ and -- as statements; net effect 0+3-1 == 2"
+  },
+  {
+    "file": "incdec_postfix_value_ok.delta",
+    "expect": "pass",
+    "note": "phase B — postfix value semantics: i++ yields the pre-update value"
+  },
+  {
+    "file": "incdec_in_for_step_ok.delta",
+    "expect": "pass",
+    "note": "phase B — ++ in for-step position; canonical Phase B for shape"
+  },
+  {
+    "file": "incdec_decrement_loop_ok.delta",
+    "expect": "pass",
+    "note": "phase B — descending for-loop driven by `i--`; sum 5+4+3+2+1 == 15"
+  },
+  {
+    "file": "incdec_const_err.delta",
+    "expect": "fail",
+    "contains": "const",
+    "note": "phase B — ++ on a const binding is rejected (place must be mutable)"
+  },
+  {
+    "file": "incdec_float_err.delta",
+    "expect": "fail",
+    "contains": "integer",
+    "note": "phase B — ++ on float is rejected; operand must be an integer binding"
+  },
+  {
+    "file": "incdec_bool_err.delta",
+    "expect": "fail",
+    "contains": "integer",
+    "note": "phase B — ++ on bool is rejected; operand must be an integer binding"
+  },
+  {
+    "file": "incdec_int32_overflow_trap.delta",
+    "expect": "trap",
+    "panic_contains": "arithmetic overflow",
+    "panic_at": "incdec_int32_overflow_trap.delta:3",
+    "note": "phase B — `i++` at int32_MAX traps via the Phase A add helper"
+  },
+  {
+    "file": "incdec_int32_underflow_trap.delta",
+    "expect": "trap",
+    "panic_contains": "arithmetic overflow",
+    "panic_at": "incdec_int32_underflow_trap.delta:3",
+    "note": "phase B — `i--` at int32_MIN traps via the Phase A sub helper"
+  },
+  {
+    "file": "incdec_uint8_underflow_trap.delta",
+    "expect": "trap",
+    "panic_contains": "arithmetic overflow",
+    "panic_at": "incdec_uint8_underflow_trap.delta:3",
+    "note": "phase B — `i--` at 0 on uint8 traps; unsigned has no wrap exemption (spec §5)"
+  },
+  {
+    "file": "break_basic_ok.delta",
+    "expect": "pass",
+    "note": "phase B — `break` exits the for-loop early; last observed value is 4"
+  },
+  {
+    "file": "continue_basic_ok.delta",
+    "expect": "pass",
+    "note": "phase B — `continue` skips the rest of the body; sums even numbers 0..9 == 20"
+  },
+  {
+    "file": "continue_runs_for_step_ok.delta",
+    "expect": "pass",
+    "note": "phase B — `continue` still runs the for-step (codegen `goto __delta_for_step_N`); 5 iterations"
+  },
+  {
+    "file": "break_outside_loop_err.delta",
+    "expect": "fail",
+    "contains": "loop",
+    "note": "phase B — `break` at top level is a structured error"
+  },
+  {
+    "file": "continue_outside_loop_err.delta",
+    "expect": "fail",
+    "contains": "loop",
+    "note": "phase B — `continue` at top level is a structured error"
+  },
+  {
+    "file": "break_nested_loop_ok.delta",
+    "expect": "pass",
+    "note": "phase B — `break` exits only the innermost loop; outer continues, total count == 6"
+  },
+  {
+    "file": "switch_basic_int_ok.delta",
+    "expect": "pass",
+    "note": "phase B — single-label cases over int32; hits `case 2`"
+  },
+  {
+    "file": "switch_multi_label_ok.delta",
+    "expect": "pass",
+    "note": "phase B — multi-label `case 1, 2, 3:` shared body; default for non-matches"
+  },
+  {
+    "file": "switch_default_hit_ok.delta",
+    "expect": "pass",
+    "note": "phase B — value matches none of the listed cases; default fires"
+  },
+  {
+    "file": "switch_char_ok.delta",
+    "expect": "pass",
+    "note": "phase B — char scrutinee with multi-label `case 'a', 'e', ...:` block"
+  },
+  {
+    "file": "switch_negative_label_ok.delta",
+    "expect": "pass",
+    "note": "phase B — negative integer labels (`case -1, -2:`) on a signed scrutinee"
+  },
+  {
+    "file": "switch_int64_ok.delta",
+    "expect": "pass",
+    "note": "phase B — int64 scrutinee with multi-digit literal labels"
+  },
+  {
+    "file": "switch_uint32_ok.delta",
+    "expect": "pass",
+    "note": "phase B — unsigned scrutinee; labels type-check against uint32"
+  },
+  {
+    "file": "switch_no_fallthrough_ok.delta",
+    "expect": "pass",
+    "note": "phase B — Decision 7: case 1 body runs once, no fall-through into case 2 or default"
+  },
+  {
+    "file": "switch_break_targets_loop_ok.delta",
+    "expect": "pass",
+    "note": "phase B — Decision 8: `break` inside switch-inside-for exits the for, not just the switch"
+  },
+  {
+    "file": "switch_continue_targets_loop_ok.delta",
+    "expect": "pass",
+    "note": "phase B — Decision 8: `continue` inside switch-inside-for runs the for-step then re-tests cond"
+  },
+  {
+    "file": "switch_nested_ok.delta",
+    "expect": "pass",
+    "note": "phase B — switch nested inside a switch case body; each opens its own scope"
+  },
+  {
+    "file": "switch_return_coverage_ok.delta",
+    "expect": "pass",
+    "note": "phase B — every case (incl. default) ends in `return`; switch is a CFG sink for return-coverage"
+  },
+  {
+    "file": "switch_no_default_err.delta",
+    "expect": "fail",
+    "contains": "default",
+    "note": "phase B — value switch missing `default` is rejected per Decision 7"
+  },
+  {
+    "file": "switch_duplicate_label_err.delta",
+    "expect": "fail",
+    "contains": "duplicate",
+    "note": "phase B — same label `1` listed twice across cases; diagnostic must point at both positions"
+  },
+  {
+    "file": "switch_duplicate_in_multi_err.delta",
+    "expect": "fail",
+    "contains": "duplicate",
+    "note": "phase B — `case 1, 2, 1:` repeats `1` within a single multi-label case"
+  },
+  {
+    "file": "switch_bool_scrutinee_err.delta",
+    "expect": "fail",
+    "contains": "bool",
+    "note": "phase B — bool scrutinee rejected per Decision 5; analyzer should hint at `if`"
+  },
+  {
+    "file": "switch_float_scrutinee_err.delta",
+    "expect": "fail",
+    "contains": "float",
+    "note": "phase B — float scrutinee rejected per Decision 5; equality on floats is unsafe"
+  },
+  {
+    "file": "switch_label_type_mismatch_err.delta",
+    "expect": "fail",
+    "contains": "char",
+    "note": "phase B — `case 'a':` against an int32 scrutinee; label/scrutinee type must match"
+  },
+  {
+    "file": "switch_negative_label_unsigned_err.delta",
+    "expect": "fail",
+    "contains": "incompatible type in case",
+    "note": "phase B — `case -1:` (int32) against a uint32 scrutinee; reported as a case/scrutinee type mismatch"
+  },
+  {
+    "file": "switch_break_outside_loop_err.delta",
+    "expect": "fail",
+    "contains": "loop",
+    "note": "phase B — switch at top level is not a loop; Decision 8 routes `break` to the enclosing loop, none here"
+  },
+  {
+    "file": "let_uninit_simple_ok.delta",
+    "expect": "pass",
+    "note": "phase B — `let x: int32;` (no init), assign, then read; definite-assignment passes"
+  },
+  {
+    "file": "let_uninit_both_branches_ok.delta",
+    "expect": "pass",
+    "note": "phase B — both arms of `if`/`else` assign `x`; lattice join is Live"
+  },
+  {
+    "file": "let_uninit_one_branch_err.delta",
+    "expect": "fail",
+    "contains": "uninitialized",
+    "note": "phase B — only the `then` branch assigns; read after the `if` may be uninitialized"
+  },
+  {
+    "file": "let_uninit_read_before_assign_err.delta",
+    "expect": "fail",
+    "contains": "uninitialized",
+    "note": "phase B — read of `x` with no prior assignment on any path"
+  },
+  {
+    "file": "let_uninit_in_loop_only_err.delta",
+    "expect": "fail",
+    "contains": "uninitialized",
+    "note": "phase B — assignment inside a for-body doesn't dominate the read after the loop (loop may execute 0 times)"
+  },
+  {
+    "file": "let_uninit_before_loop_ok.delta",
+    "expect": "pass",
+    "note": "phase B — assignment before the loop dominates the post-loop read"
+  },
+  {
+    "file": "return_cov_basic_ok.delta",
+    "expect": "pass",
+    "note": "phase B — single straight-line return; trivial coverage"
+  },
+  {
+    "file": "return_cov_branches_ok.delta",
+    "expect": "pass",
+    "note": "phase B — both `if`/`else` arms return; coverage joins on the two return edges"
+  },
+  {
+    "file": "return_cov_void_ok.delta",
+    "expect": "pass",
+    "note": "phase B — void function may omit explicit `return`; coverage exempts void"
+  },
+  {
+    "file": "return_cov_missing_err.delta",
+    "expect": "fail",
+    "contains": "return",
+    "note": "phase B — non-void function falls off the end with no `return`"
+  },
+  {
+    "file": "return_cov_one_branch_missing_err.delta",
+    "expect": "fail",
+    "contains": "return",
+    "note": "phase B — `then` arm returns, `else` arm is empty; coverage rejects the missing path"
+  },
+  {
+    "file": "return_cov_switch_default_missing_return_err.delta",
+    "expect": "fail",
+    "contains": "return",
+    "note": "phase B — every non-default case returns, but `default` body doesn't; switch is not a coverage sink here"
+  },
+  {
+    "file": "shadow_for_var_outer_err.delta",
+    "expect": "fail",
+    "contains": "duplicate identifier",
+    "note": "phase B — for-loop induction var `i` shadows an outer-scope `i` (Decision 14)"
+  },
+  {
+    "file": "shadow_let_in_for_body_err.delta",
+    "expect": "fail",
+    "contains": "duplicate identifier",
+    "note": "phase B — body-scope `let i` shadows the for-init binding `i`"
+  },
+  {
+    "file": "shadow_case_body_disjoint_ok.delta",
+    "expect": "pass",
+    "note": "phase B — each `case` body opens its own scope (§3.4); same name `x` in two cases is not shadowing"
+  }
+]

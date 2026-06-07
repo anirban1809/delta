@@ -1,0 +1,8 @@
+function main(): int32 {
+    let n: int32 = 1;
+    switch (n) {
+        case 1:   { break; }
+        default:  { return 0; }
+    }
+    return 0;
+}

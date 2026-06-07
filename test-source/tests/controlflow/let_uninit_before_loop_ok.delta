@@ -1,0 +1,9 @@
+function main(): int32 {
+    let x: int32;
+    x = 10;
+    for (let i: int32 = 0; i < 5; i++) {
+        x = x + 1;
+    }
+    if (x != 15) { return 1; }
+    return 0;
+}

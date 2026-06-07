@@ -129,6 +129,15 @@ func (t *Tokenizer) nextToken() token.Token {
 			Column: column,
 		}
 	case '+':
+		if t.peek() == '+' {
+			t.advance()
+			return token.Token{
+				Kind:   token.Symbol_Increment,
+				Lexeme: "++",
+				Line:   line,
+				Column: column,
+			}
+		}
 		if t.peek() == '=' {
 			t.advance()
 			return token.Token{
@@ -145,6 +154,15 @@ func (t *Tokenizer) nextToken() token.Token {
 			Column: column,
 		}
 	case '-':
+		if t.peek() == '-' {
+			t.advance()
+			return token.Token{
+				Kind:   token.Symbol_Decrement,
+				Lexeme: "--",
+				Line:   line,
+				Column: column,
+			}
+		}
 		if t.peek() == '=' {
 			t.advance()
 			return token.Token{

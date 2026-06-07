@@ -28,8 +28,9 @@ type Symbol struct {
 }
 
 type Scope struct {
-	Parent  *Scope
-	Symbols map[string]Symbol
+	Parent      *Scope
+	Symbols     map[string]Symbol
+	assignments []Symbol
 }
 
 // AddSymbol stores sym under its Name. Callers are responsible for
@@ -88,6 +89,12 @@ type Analyzer struct {
 	// bit width.
 	Shifts map[ast.Position]Type
 
+	// IncDecs records every postfix `++` / `--`, keyed by the postfix
+	// expression's position, with the operand's integer type. Codegen lowers
+	// these to an overflow-checked helper, the same way compound assignment
+	// traps on `+=` / `-=`.
+	IncDecs map[ast.Position]Type
+
 	// currentNode tracks the ScopeNode being built. Push/pop'd by
 	// AnalyzeScope and AnalyzeFunctionDeclaration via deferred restores.
 	currentNode *ScopeNode
@@ -139,6 +146,13 @@ func (a *Analyzer) recordShift(pos ast.Position, leftType Type) {
 	a.Shifts[pos] = leftType
 }
 
+func (a *Analyzer) recordIncDec(pos ast.Position, operandType Type) {
+	if a.IncDecs == nil {
+		a.IncDecs = map[ast.Position]Type{}
+	}
+	a.IncDecs[pos] = operandType
+}
+
 func (a *Analyzer) recordRef(pos ast.Position, sym Symbol) {
 	if a.Refs == nil {
 		return
@@ -168,6 +182,21 @@ func (a *Analyzer) GetSym(scope *Scope, name string) Symbol {
 	return Symbol{}
 }
 
+// isAssigned reports whether sym has been assigned in this scope or any
+// enclosing scope. Assignment lists are filled as the analyzer walks
+// statements top-to-bottom, so a binding assigned in an outer block is
+// visible to reads in nested blocks (e.g. `x = 5;` in a function body,
+// then `return x;` inside an `if`).
+func (a *Analyzer) isAssigned(scope *Scope, sym Symbol) bool {
+	if slices.Contains(scope.assignments, sym) {
+		return true
+	}
+	if scope.Parent != nil {
+		return a.isAssigned(scope.Parent, sym)
+	}
+	return false
+}
+
 // errorAt records a semantic diagnostic at the given AST position.
 func (a *Analyzer) errorAt(pos ast.Position, message string) {
 	a.ErrorBag.AddError(diagnostics.SourceError{
@@ -178,7 +207,7 @@ func (a *Analyzer) errorAt(pos ast.Position, message string) {
 	})
 }
 
-func (a *Analyzer) AnalyzeExpr(expr ast.Expression, scope *Scope) {
+func (a *Analyzer) AnalyzeExpr(expr ast.Expression, scope *Scope) bool {
 	expression := expr
 	switch expression := expression.(type) {
 	case ast.Identifier:
@@ -187,14 +216,60 @@ func (a *Analyzer) AnalyzeExpr(expr ast.Expression, scope *Scope) {
 				expression.Position,
 				fmt.Sprintf("unknown identifier: %s", expression.Name),
 			)
-		} else {
-			a.recordRef(expression.Position, a.GetSym(scope, expression.Name))
+			return false
 		}
+
+		symbol := a.GetSym(scope, expression.Name)
+		if symbol.Kind == SymbolLocalLet && !a.isAssigned(scope, symbol) {
+			a.errorAt(
+				expression.Position,
+				fmt.Sprintf("%s is uninitialized", symbol.Name),
+			)
+			return false
+		}
+
+		a.recordRef(expression.Position, a.GetSym(scope, expression.Name))
+		return true
 	case ast.BinaryExpression:
-		a.AnalyzeExpr(expression.Left, scope)
-		a.AnalyzeExpr(expression.Right, scope)
+		leftOK := a.AnalyzeExpr(expression.Left, scope)
+		rightOK := a.AnalyzeExpr(expression.Right, scope)
+		return leftOK && rightOK
 	case ast.UnaryExpression:
-		a.AnalyzeExpr(expression.Expression, scope)
+		return a.AnalyzeExpr(expression.Expression, scope)
+
+	case ast.PostfixUnaryExpression:
+		expr := expression.Operand
+		switch i := expr.(type) {
+		case ast.Identifier:
+			if ok := a.FindSymbol(scope, i.Name); !ok {
+				a.errorAt(
+					expression.Position,
+					fmt.Sprintf("unknown identifier: %s", i.Name),
+				)
+				return false
+			}
+
+			sym := a.GetSym(scope, i.Name)
+
+			if sym.Kind == SymbolLocalConst {
+				a.errorAt(
+					expression.Position,
+					fmt.Sprintf("cannot apply %s operator on const %s", expression.Operator, i.Name),
+				)
+				return false
+			}
+
+			if !sym.Type.IsInteger() {
+				a.errorAt(
+					expression.Position,
+					fmt.Sprintf("operand of %s must be an integer binding, got %s", expression.Operator, sym.Type),
+				)
+				return false
+			}
+
+			a.recordRef(i.Position, sym)
+			a.recordIncDec(expression.Position, sym.Type)
+		}
 
 	case ast.FunctionCallExpression:
 
@@ -224,22 +299,30 @@ func (a *Analyzer) AnalyzeExpr(expr ast.Expression, scope *Scope) {
 
 			calleeSymbol := a.GetSym(scope, callee.Name)
 
+			ok := true
 			if calleeSymbol.Kind != SymbolFunction {
 				a.errorAt(
 					callee.Position,
 					fmt.Sprintf("cannot invoke %s, not a callable function.", calleeSymbol.Name),
 				)
+				ok = false
 			}
 
-			a.AnalyzeExpr(expression.Callee, scope)
-			for _, argument := range expression.Arguments {
-				a.AnalyzeExpr(argument, scope)
+			if !a.AnalyzeExpr(expression.Callee, scope) {
+				ok = false
 			}
+			for _, argument := range expression.Arguments {
+				if !a.AnalyzeExpr(argument, scope) {
+					ok = false
+				}
+			}
+			return ok
 		default:
 			a.errorAt(
 				expression.Position,
 				"cannot call non-identifier expression: function-typed values are not yet supported",
 			)
+			return false
 		}
 
 	case ast.IntegerLiteral,
@@ -247,7 +330,9 @@ func (a *Analyzer) AnalyzeExpr(expr ast.Expression, scope *Scope) {
 		ast.BooleanLiteral,
 		ast.StringLiteral,
 		ast.CharacterLiteral:
+		return true
 	}
+	return true
 }
 
 // typeOfUnary returns the type of a unary expression. If the operand is
@@ -345,7 +430,6 @@ func (a *Analyzer) typeOfBinary(e ast.BinaryExpression, scope *Scope) Type {
 	}
 
 	if leftT != rightT {
-
 		a.errorAt(
 			e.Position,
 			fmt.Sprintf(
@@ -452,7 +536,8 @@ func (a *Analyzer) typeOfBinary(e ast.BinaryExpression, scope *Scope) Type {
 			))
 			return Type{Kind: TypeInvalid}
 		}
-		if !isNumeric(leftT) && leftT.Kind != TypeBool && leftT.Kind != TypeChar {
+		if !isNumeric(leftT) && leftT.Kind != TypeBool &&
+			leftT.Kind != TypeChar {
 			a.errorAt(e.Position, fmt.Sprintf(
 				"operator `%s` is not defined for type %s", e.Operator, leftT))
 			return Type{Kind: TypeInvalid}
@@ -643,16 +728,83 @@ func (a *Analyzer) TypeOf(expr ast.Expression, scope *Scope) Type {
 		return a.typeOfUnary(e, scope)
 	case ast.BinaryExpression:
 		return a.typeOfBinary(e, scope)
+	case ast.PostfixUnaryExpression:
+		return a.TypeOf(e.Operand, scope)
 	case ast.FunctionCallExpression:
 		return a.typeOfCall(e, scope)
 	}
 	return Type{Kind: TypeInvalid}
 }
 
+func (a *Analyzer) AnalyzeVarDecl(
+	decl ast.VariableDeclarationStatement,
+	scope *Scope,
+) bool {
+	a.AnalyzeExpr(decl.Value, scope)
+	kind := SymbolLocalConst
+	if decl.Mutable {
+		kind = SymbolLocalLet
+	}
+	if a.FindSymbol(scope, decl.Name) {
+		a.errorAt(
+			decl.Position,
+			fmt.Sprintf("use of duplicate identifier: %s", decl.Name),
+		)
+		return false
+	}
+
+	varType, _ := ResolveTypeName(decl.Type.Name.Name)
+
+	if varType.Kind == TypeInvalid {
+		a.errorAt(
+			decl.Position,
+			fmt.Sprintf("unknown type: %s", decl.Type.Name.Name),
+		)
+	}
+
+	if varType.Kind == TypeEmpty {
+		varType = a.TypeOf(decl.Value, scope)
+	}
+
+	if decl.Value == nil {
+		scope.AddSymbol(Symbol{
+			Name:    decl.Name,
+			Kind:    kind,
+			Type:    varType,
+			DefPos:  decl.Position,
+			Display: renderBindingDisplay(kind, decl.Name, varType),
+		})
+
+		return true
+	}
+
+	if !isIntegerLiteral(decl.Value) && !isFloatLiteral(decl.Value) {
+		typeLeft := varType
+		typeRight := a.TypeOf(decl.Value, scope)
+
+		if typeLeft != typeRight {
+			return false
+		}
+	}
+
+	symbol := Symbol{
+		Name:    decl.Name,
+		Kind:    kind,
+		Type:    varType,
+		DefPos:  decl.Position,
+		Display: renderBindingDisplay(kind, decl.Name, varType),
+	}
+
+	scope.assignments = append(scope.assignments, symbol)
+	scope.AddSymbol(symbol)
+
+	return true
+}
+
 func (a *Analyzer) AnalyzeScope(
 	block ast.BlockStatement,
 	parent *Scope,
-) {
+) []Symbol {
 	statements := block.Statements
 	scope := Scope{
 		Parent:  parent,
@@ -670,48 +822,9 @@ func (a *Analyzer) AnalyzeScope(
 			continue
 
 		case ast.VariableDeclarationStatement:
-			a.AnalyzeExpr(stmt.Value, &scope)
-			kind := SymbolLocalConst
-			if stmt.Mutable {
-				kind = SymbolLocalLet
-			}
-			if a.FindSymbol(&scope, stmt.Name) {
-				a.errorAt(
-					stmt.Position,
-					fmt.Sprintf("use of duplicate identifier: %s", stmt.Name),
-				)
+			if ok := a.AnalyzeVarDecl(stmt, &scope); !ok {
 				continue
 			}
-
-			varType, _ := ResolveTypeName(stmt.Type.Name.Name)
-
-			if varType.Kind == TypeInvalid {
-				a.errorAt(
-					stmt.Position,
-					fmt.Sprintf("unknown type: %s", stmt.Type.Name.Name),
-				)
-			}
-
-			if varType.Kind == TypeEmpty {
-				varType = a.TypeOf(stmt.Value, &scope)
-			}
-
-			if !isIntegerLiteral(stmt.Value) && !isFloatLiteral(stmt.Value) {
-				typeLeft := varType
-				typeRight := a.TypeOf(stmt.Value, &scope)
-
-				if typeLeft != typeRight {
-					continue
-				}
-			}
-
-			scope.AddSymbol(Symbol{
-				Name:    stmt.Name,
-				Kind:    kind,
-				Type:    varType,
-				DefPos:  stmt.Position,
-				Display: renderBindingDisplay(kind, stmt.Name, varType),
-			})
 
 		case ast.IfStatement:
 			exprType := a.TypeOf(stmt.Condition, &scope)
@@ -722,8 +835,24 @@ func (a *Analyzer) AnalyzeScope(
 			}
 
 			a.AnalyzeExpr(stmt.Condition, &scope)
-			a.AnalyzeScope(stmt.ThenBlock, &scope)
-			a.AnalyzeScope(stmt.ElseBlock, &scope)
+			thenAssigned := a.AnalyzeScope(stmt.ThenBlock, &scope)
+			elseAssigned := a.AnalyzeScope(stmt.ElseBlock, &scope)
+
+			// Definite-assignment join: a binding is assigned after the
+			// `if` only if every path that flows past it assigned it. A
+			// branch that always returns never reaches the code following
+			// the `if`, so it doesn't constrain the join (contributes ⊤).
+			switch {
+			case blockReturns(stmt.ThenBlock) && blockReturns(stmt.ElseBlock):
+				// No path flows past the if; nothing to propagate.
+			case blockReturns(stmt.ThenBlock):
+				scope.assignments = append(scope.assignments, elseAssigned...)
+			case blockReturns(stmt.ElseBlock):
+				scope.assignments = append(scope.assignments, thenAssigned...)
+			default:
+				scope.assignments = append(scope.assignments,
+					intersectAssignments(thenAssigned, elseAssigned)...)
+			}
 
 		case ast.AssignmentStatement:
 			expr := stmt.Value
@@ -733,12 +862,12 @@ func (a *Analyzer) AnalyzeScope(
 					stmt.Target.Position,
 					fmt.Sprintf("unknown identifier: %s", stmt.Target.Name),
 				)
-
 				break
 			}
 
 			symbol := a.GetSym(&scope, stmt.Target.Name)
 			a.recordRef(stmt.Target.Position, symbol)
+			scope.assignments = append(scope.assignments, symbol)
 
 			if symbol.Kind != SymbolLocalLet {
 				message := fmt.Sprintf("cannot assign to const: %s", stmt.Target.Name)
@@ -815,6 +944,104 @@ func (a *Analyzer) AnalyzeScope(
 		case ast.ExpressionStatement:
 			a.AnalyzeExpr(stmt.Value, &scope)
 
+		case ast.SwitchStatement:
+			scrutinee := stmt.Scrutinee
+
+			if ok := a.AnalyzeExpr(scrutinee, &scope); !ok {
+				continue
+			}
+
+			scrutineeType := a.TypeOf(scrutinee, &scope)
+			scrutineeT := scrutineeType.String()
+			if !strings.Contains(scrutineeT, "int") && !(scrutineeT == "char") {
+				a.errorAt(scrutinee.Pos(), fmt.Sprintf("type of scrutinee must be int or char, received %s", scrutineeT))
+				continue
+			}
+
+			caseLabels := []ast.Expression{}
+
+			for _, c := range stmt.Cases {
+				for _, l := range c.Labels {
+					caseLabels = append(caseLabels, l)
+				}
+			}
+
+			seen := make(map[string]struct{})
+			dup := false
+
+			var dupPos ast.Position
+			for _, l := range caseLabels {
+
+				lT := a.TypeOf(l, &scope)
+				// A bare integer-literal label adopts the scrutinee's integer
+				// type, mirroring integer-literal coercion in binary
+				// expressions. Negative labels (UnaryExpression) and char
+				// labels are not coerced.
+				if isIntegerLiteral(l) && scrutineeType.IsInteger() {
+					lT = scrutineeType
+				}
+				if scrutineeT != lT.String() {
+					a.errorAt(l.Pos(), fmt.Sprintf("incompatible type in case, want %s, got %s", scrutineeT, lT.String()))
+					break
+				}
+
+				var key string
+				switch lit := l.(type) {
+				case ast.IntegerLiteral:
+					if !strings.Contains(scrutineeT, "int") {
+						break
+					}
+
+					key = "int:" + lit.Value
+				case ast.CharacterLiteral:
+					if !strings.Contains(scrutineeT, "char") {
+						break
+					}
+
+					key = "char:" + lit.Value
+				default:
+					continue
+				}
+				if _, exists := seen[key]; exists {
+					dupPos = l.Pos()
+					dup = true
+					break
+				}
+				seen[key] = struct{}{}
+			}
+
+			if dup {
+				a.errorAt(dupPos, "duplicate case label detected")
+				continue
+			}
+
+		case ast.ForStatement:
+			decl := stmt.Init.(ast.VariableDeclarationStatement)
+			if ok := a.AnalyzeVarDecl(decl, &scope); !ok {
+				continue
+			}
+
+			if !decl.Mutable && decl.Name != "" {
+				a.errorAt(stmt.Init.Pos(), "const is not allowed in the for loop initializer, use let instead")
+				continue
+			}
+
+			if stmt.Cond != nil {
+				condType := a.TypeOf(stmt.Cond, &scope)
+				if condType.Kind != TypeBool {
+					a.errorAt(stmt.Cond.Pos(), fmt.Sprintf("condition inside if statement must be boolean, found %s", condType.String()))
+					continue
+				}
+			}
+
+			// The step runs once per iteration; analyze it so `i++` is
+			// validated and recorded for overflow-trapping codegen.
+			if stmt.Step != nil {
+				a.AnalyzeExpr(stmt.Step, &scope)
+			}
+
+			a.AnalyzeScope(*stmt.Body, &scope)
+
 		case ast.WhileStatement:
 			exprType := a.TypeOf(stmt.Condition, &scope)
 
@@ -827,16 +1054,26 @@ func (a *Analyzer) AnalyzeScope(
 			a.AnalyzeScope(stmt.Body, &scope)
 		}
 	}
+
+	return scope.assignments
+}
+
+// intersectAssignments returns the bindings assigned in both branch lists.
+// At an if/else join a binding is definitely assigned afterward only if
+// every branch assigned it, so the surviving set is the intersection.
+func intersectAssignments(then, els []Symbol) []Symbol {
+	var out []Symbol
+	for _, s := range then {
+		if slices.Contains(els, s) {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // blockReturns: is this block guaranteed to hit a `return`?
 func blockReturns(block ast.BlockStatement) bool {
-	for _, stmt := range block.Statements {
-		if statementReturns(stmt) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(block.Statements, statementReturns)
 }
 
 // statementReturns: does control definitely leave the function here?
@@ -852,6 +1089,24 @@ func statementReturns(stmt ast.Statement) bool {
 		// Conservative: never guarantee. Even `while(true) { return; }`
 		// is left out for now — we don't track loop conditions.
 		return false
+
+	case ast.ForStatement:
+		return blockReturns(*s.Body)
+
+	case ast.SwitchStatement:
+		returns := true
+		for _, c := range s.Cases {
+			if !blockReturns(*c.Body) {
+				returns = false
+				break
+			}
+		}
+
+		if !returns {
+			return false
+		} else {
+			return blockReturns(*s.Default.Body)
+		}
 	default:
 		return false
 	}
@@ -893,13 +1148,14 @@ func (a *Analyzer) AnalyzeFuncDecl(
 		}
 
 		paramType, _ := ResolveTypeName(parameter.Type.Name.Name)
-		functionScope.AddSymbol(Symbol{
+		symbol := Symbol{
 			Name:    name,
 			Kind:    SymbolParameter,
 			Type:    paramType,
 			DefPos:  parameter.Name.Position,
 			Display: renderBindingDisplay(SymbolParameter, name, paramType),
-		})
+		}
+		functionScope.AddSymbol(symbol)
 	}
 
 	if decl.Body != nil {
@@ -985,6 +1241,7 @@ func (a *Analyzer) Analyze() {
 	a.Conversions = map[ast.Position]ConversionInfo{}
 	a.Divisions = map[ast.Position]Type{}
 	a.Shifts = map[ast.Position]Type{}
+	a.IncDecs = map[ast.Position]Type{}
 	a.RootScope = &ScopeNode{Scope: a.GlobalScope}
 	a.currentNode = a.RootScope
 

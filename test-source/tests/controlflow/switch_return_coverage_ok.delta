@@ -1,0 +1,14 @@
+function pick(n: int32): int32 {
+    switch (n) {
+        case 0:   { return 100; }
+        case 1:   { return 200; }
+        default:  { return 300; }
+    }
+}
+
+function main(): int32 {
+    if (pick(0) != 100) { return 1; }
+    if (pick(1) != 200) { return 2; }
+    if (pick(9) != 300) { return 3; }
+    return 0;
+}

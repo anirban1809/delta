@@ -1,0 +1,15 @@
+function main(): int32 {
+    let n: int32 = 1;
+    switch (n) {
+        case 1: {
+            let x: int32 = 10;
+            if (x != 10) { return 1; }
+        }
+        case 2: {
+            let x: int32 = 20;
+            if (x != 20) { return 2; }
+        }
+        default: { }
+    }
+    return 0;
+}

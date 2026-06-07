@@ -1,0 +1,8 @@
+function main(): int32 {
+    let n: uint32 = 7;
+    switch (n) {
+        case 7:   { return 0; }
+        case 8:   { return 1; }
+        default:  { return 2; }
+    }
+}

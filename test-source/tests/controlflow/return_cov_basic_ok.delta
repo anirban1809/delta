@@ -1,0 +1,7 @@
+function answer(): int32 {
+    return 0;
+}
+
+function main(): int32 {
+    return answer();
+}

@@ -1,0 +1,5 @@
+function main(): int32 {
+    let i: uint8 = 0;
+    i--;
+    return 0;
+}

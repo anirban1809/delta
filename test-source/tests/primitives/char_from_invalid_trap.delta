@@ -1,5 +1,5 @@
 function main(): int32 {
     let n: uint32 = 0xD800;
-    let c: char = char(n);
+    let c: char = int32(n);
     return 0;
 }

@@ -11,7 +11,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${fileDirname}",
-            "args": ["build", "/Users/anirban/Documents/Code/delta/test-source/tests/primitives/int64_to_int32_narrow_trap.delta"]
+            "args": ["build", "/Users/anirban/Documents/Code/delta/test-source/tests/controlflow/let_uninit_one_branch_err.delta"]
         }
     ]
 }

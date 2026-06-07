@@ -1,0 +1,6 @@
+function main(): int32 {
+    let x: int32;
+    x = 5;
+    if (x != 5) { return 1; }
+    return 0;
+}

@@ -197,3 +197,42 @@ type ConstDeclaration struct {
 }
 
 func (ConstDeclaration) declarationNode() {}
+
+type ForStatement struct {
+	Position            // position of `for`
+	Init     Statement  // *VariableDeclarationStatement or *ExpressionStatement, may be nil
+	Cond     Expression // required; analyzer enforces bool typing
+	Step     Expression // expression evaluated for effect; may be nil
+	Body     *BlockStatement
+}
+
+func (ForStatement) statementNode() {}
+
+type BreakStatement struct{ Position }
+type ContinueStatement struct{ Position }
+
+func (BreakStatement) statementNode()    {}
+func (ContinueStatement) statementNode() {}
+
+type PostfixUnaryExpression struct {
+	Position            // position of the `++` / `--` token
+	Operand  Expression // place expression
+	Operator string     // "++" or "--"
+}
+
+func (PostfixUnaryExpression) expressionNode() {}
+
+type SwitchStatement struct {
+	Position  // position of `switch`
+	Scrutinee Expression
+	Cases     []*SwitchCase // ordered as written; every entry has len(Labels) >= 1
+	Default   *SwitchCase   // required by analyzer; nil only when missing (analyzer errors)
+}
+
+func (SwitchStatement) statementNode() {}
+
+type SwitchCase struct {
+	Position              // position of `case` or `default`
+	Labels   []Expression // nil iff this case is the Default
+	Body     *BlockStatement
+}

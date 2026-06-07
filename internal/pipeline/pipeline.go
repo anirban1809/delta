@@ -18,6 +18,7 @@ type Result struct {
 	Conversions map[ast.Position]semantics.ConversionInfo
 	Divisions   map[ast.Position]semantics.Type
 	Shifts      map[ast.Position]semantics.Type
+	IncDecs     map[ast.Position]semantics.Type
 }
 
 func Compile(name string, contents []byte) *Result {
@@ -45,6 +46,7 @@ func Compile(name string, contents []byte) *Result {
 		Conversions: analyzer.Conversions,
 		Divisions:   analyzer.Divisions,
 		Shifts:      analyzer.Shifts,
+		IncDecs:     analyzer.IncDecs,
 	}
 }
 

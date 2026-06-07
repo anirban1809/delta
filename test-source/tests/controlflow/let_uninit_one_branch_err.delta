@@ -1,0 +1,9 @@
+function pick(b: bool): int32 {
+    let x: int32;
+    if (b) { x = 10; }
+    return x;
+}
+
+function main(): int32 {
+    return pick(true);
+}

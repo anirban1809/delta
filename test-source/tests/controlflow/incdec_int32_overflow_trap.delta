@@ -1,0 +1,5 @@
+function main(): int32 {
+    let i: int32 = 2_147_483_647;
+    i++;
+    return 0;
+}

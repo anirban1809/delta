@@ -1,0 +1,5 @@
+function main(): int32 {
+    const x: int32 = 0;
+    x++;
+    return 0;
+}

@@ -29,17 +29,23 @@ type Emitter struct {
 	// Shifts maps each `<<` / `>>` expression (by position) to its left-operand
 	// type, so codegen can emit a helper that traps when the shift count is out
 	// of range.
-	Shifts     map[ast.Position]semantics.Type
+	Shifts map[ast.Position]semantics.Type
+
+	// IncDecs maps each postfix `++` / `--` (by position) to its operand type,
+	// so codegen can emit an overflow-checked post-increment/decrement helper.
+	IncDecs    map[ast.Position]semantics.Type
 	SourcePath string
 
 	// usedHelpers collects the trap helpers referenced during emission,
 	// keyed by helper name, so Emit only renders the ones actually needed.
-	usedHelpers      map[string]semantics.ConversionInfo
-	usedDivHelpers   map[string]divHelper
-	usedShiftHelpers map[string]divHelper
-	usedArithHelpers map[string]divHelper
+	usedHelpers       map[string]semantics.ConversionInfo
+	usedDivHelpers    map[string]divHelper
+	usedShiftHelpers  map[string]divHelper
+	usedArithHelpers  map[string]divHelper
+	usedIncDecHelpers map[string]divHelper
 
-	indent int
+	indent   int
+	indentOn bool
 }
 
 // divHelper records an operator + operand type for a runtime arithmetic guard
@@ -272,6 +278,24 @@ func arithHelperName(op string, t semantics.Type) string {
 	return fmt.Sprintf("delta_rt_%s_%s", verb, typeCode(t))
 }
 
+// emitIncDec lowers a postfix `x++` / `x--` to a call to an overflow-checked
+// helper that takes &x, traps on overflow, and returns the pre-update value
+// so the expression keeps postfix value semantics.
+func (e *Emitter) emitIncDec(
+	expr ast.PostfixUnaryExpression,
+	operandType semantics.Type,
+) string {
+	helper := incDecHelperName(expr.Operator, operandType)
+	if e.usedIncDecHelpers == nil {
+		e.usedIncDecHelpers = map[string]divHelper{}
+	}
+	e.usedIncDecHelpers[helper] = divHelper{Op: expr.Operator, Type: operandType}
+
+	return fmt.Sprintf(
+		"%s(&%s, %q, %d)",
+		helper, e.EmitExpression(expr.Operand), e.SourcePath, expr.Position.Line)
+}
+
 // arithHelperBody renders a `static inline` overflow-checked +/-/* used by
 // compound assignment, relying on clang's __builtin_*_overflow intrinsics.
 func arithHelperBody(op string, t semantics.Type) string {
@@ -294,6 +318,43 @@ func arithHelperBody(op string, t semantics.Type) string {
 		ct,
 		ct,
 		builtin,
+		msg,
+	)
+}
+
+// incDecHelperName maps a postfix operator + operand type to the generated C
+// function name, e.g. delta_rt_postinc_i32 / delta_rt_postdec_u8.
+func incDecHelperName(op string, t semantics.Type) string {
+	verb := map[string]string{"++": "postinc", "--": "postdec"}[op]
+	return fmt.Sprintf("delta_rt_%s_%s", verb, typeCode(t))
+}
+
+// incDecHelperBody renders a `static inline` overflow-checked postfix
+// increment/decrement. It takes the operand by pointer, returns the
+// pre-update value (postfix semantics), and traps via delta_panic when the
+// ±1 step overflows — unsigned wrap included (spec §5).
+func incDecHelperBody(op string, t semantics.Type) string {
+	ct, _ := cType(t)
+	builtin := map[string]string{
+		"++": "__builtin_add_overflow",
+		"--": "__builtin_sub_overflow",
+	}[op]
+	msg := "arithmetic overflow in `" + op + "`"
+	return fmt.Sprintf(
+		`static inline %s %s(%s *p, const char *file, int line){
+        %s old = *p;
+        %s r;
+        if (%s(old, (%s)1, &r)) delta_panic(file, line, "%s");
+        *p = r;
+        return old;
+  }`,
+		ct,
+		incDecHelperName(op, t),
+		ct,
+		ct,
+		ct,
+		builtin,
+		ct,
 		msg,
 	)
 }
@@ -421,10 +482,12 @@ func convHelperBody(from, to semantics.Type) string {
 
 func (e *Emitter) Indent() string {
 	var indents strings.Builder
-	for range e.indent {
-		indents.WriteString("\t")
+	if e.indentOn {
+		for range e.indent {
+			indents.WriteString("\t")
+		}
 	}
-
+	e.indentOn = true
 	return indents.String()
 }
 
@@ -560,6 +623,12 @@ func (e *Emitter) EmitExpression(expr ast.Expression) string {
 	case ast.UnaryExpression:
 		finalExpr.WriteString(expr.Operator + e.EmitExpression(expr.Expression))
 
+	case ast.PostfixUnaryExpression:
+		if operandType, ok := e.IncDecs[expr.Position]; ok {
+			return e.emitIncDec(expr, operandType)
+		}
+		finalExpr.WriteString(e.EmitExpression(expr.Operand) + expr.Operator)
+
 	case ast.FunctionCallExpression:
 		// A `T(x)` numeric conversion the analyzer resolved: lower it to a
 		// plain cast (free) or a range-checked runtime helper (trapping),
@@ -646,6 +715,62 @@ func (e *Emitter) EmitStatement(stmt ast.Statement) string {
 			finalStmt.WriteString(" else")
 			finalStmt.WriteString(e.EmitBlockStatement(stmt.ElseBlock))
 		}
+
+	case ast.ForStatement:
+		finalStmt.WriteString(e.Indent() + "for (")
+
+		if stmt.Init.(ast.VariableDeclarationStatement).Name == "" {
+			finalStmt.WriteString(";")
+		} else {
+			e.indentOn = false
+			finalStmt.WriteString(e.EmitStatement(stmt.Init))
+		}
+
+		if stmt.Cond == nil {
+			finalStmt.WriteString(";")
+		} else {
+			finalStmt.WriteString(" " + e.EmitExpression(stmt.Cond) + "; ")
+		}
+
+		if stmt.Step != nil {
+			finalStmt.WriteString(e.EmitExpression(stmt.Step))
+		}
+
+		finalStmt.WriteString(")")
+		finalStmt.WriteString(e.EmitBlockStatement(*stmt.Body))
+
+	case ast.SwitchStatement:
+		finalStmt.WriteString(e.Indent() + "switch (")
+		finalStmt.WriteString(e.EmitExpression(stmt.Scrutinee))
+		finalStmt.WriteString(") {\n")
+		e.indent += 1
+		for _, c := range stmt.Cases {
+			finalStmt.WriteString(e.Indent() + "case ")
+			for i, l := range c.Labels {
+				finalStmt.WriteString(e.EmitExpression(l))
+				finalStmt.WriteString(":")
+				if i < len(c.Labels)-1 {
+					finalStmt.WriteString(" case ")
+				}
+			}
+
+			finalStmt.WriteString(e.EmitBlockStatement(*c.Body) + "\n")
+			finalStmt.WriteString(e.Indent() + "break;\n")
+		}
+
+		if stmt.Default != nil {
+			finalStmt.WriteString(e.Indent() + "default :")
+			finalStmt.WriteString(e.EmitBlockStatement(*stmt.Default.Body))
+		}
+
+		finalStmt.WriteString("}")
+
+	case ast.BreakStatement:
+		finalStmt.WriteString(e.Indent() + "break;")
+
+	case ast.ContinueStatement:
+		finalStmt.WriteString(e.Indent() + "continue;")
+
 	case ast.ExpressionStatement:
 		finalStmt.WriteString(e.Indent() + e.EmitExpression(stmt.Value) + ";")
 
@@ -694,7 +819,7 @@ func (e *Emitter) EmitConstDeclaration(decl ast.ConstDeclaration) string {
 }
 
 func (e *Emitter) Emit() []byte {
-
+	e.indentOn = true
 	var fwdDecls strings.Builder
 	for _, decl := range e.File.Declarations {
 
@@ -732,7 +857,8 @@ func (e *Emitter) Emit() []byte {
 	// so programs without traps keep byte-identical output.
 	var runtime strings.Builder
 	if len(e.usedHelpers) > 0 || len(e.usedDivHelpers) > 0 ||
-		len(e.usedShiftHelpers) > 0 || len(e.usedArithHelpers) > 0 {
+		len(e.usedShiftHelpers) > 0 || len(e.usedArithHelpers) > 0 ||
+		len(e.usedIncDecHelpers) > 0 {
 		includes += "#include <stdio.h>\n#include <stdlib.h>\n"
 		runtime.WriteString("\n" + deltaPanicDef + "\n")
 
@@ -776,6 +902,16 @@ func (e *Emitter) Emit() []byte {
 		for _, name := range arithNames {
 			ah := e.usedArithHelpers[name]
 			runtime.WriteString("\n" + arithHelperBody(ah.Op, ah.Type) + "\n")
+		}
+
+		incDecNames := make([]string, 0, len(e.usedIncDecHelpers))
+		for name := range e.usedIncDecHelpers {
+			incDecNames = append(incDecNames, name)
+		}
+		sort.Strings(incDecNames)
+		for _, name := range incDecNames {
+			ih := e.usedIncDecHelpers[name]
+			runtime.WriteString("\n" + incDecHelperBody(ih.Op, ih.Type) + "\n")
 		}
 	}
 

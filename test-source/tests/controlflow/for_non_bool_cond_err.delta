@@ -1,0 +1,5 @@
+function main(): int32 {
+    for (let i: int32 = 0; i; i++) {
+    }
+    return 0;
+}

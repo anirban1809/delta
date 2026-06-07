@@ -179,6 +179,52 @@ func formatStatement(out *strings.Builder, statement Statement, depth int) {
 		formatExpression(out, statement.Condition, depth+2)
 		writeLine(out, depth+1, "Body")
 		formatBlockStatement(out, &statement.Body, depth+2)
+	case ForStatement:
+		writeLine(out, depth, "ForStatement")
+		if statement.Init != nil {
+			writeLine(out, depth+1, "Init")
+			formatStatement(out, statement.Init, depth+2)
+		}
+		writeLine(out, depth+1, "Cond")
+		formatExpression(out, statement.Cond, depth+2)
+		if statement.Step != nil {
+			writeLine(out, depth+1, "Step")
+			formatExpression(out, statement.Step, depth+2)
+		}
+		if statement.Body != nil {
+			writeLine(out, depth+1, "Body")
+			formatBlockStatement(out, statement.Body, depth+2)
+		}
+	case BreakStatement:
+		writeLine(out, depth, "BreakStatement")
+	case ContinueStatement:
+		writeLine(out, depth, "ContinueStatement")
+	case SwitchStatement:
+		writeLine(out, depth, "SwitchStatement")
+		writeLine(out, depth+1, "Scrutinee")
+		formatExpression(out, statement.Scrutinee, depth+2)
+		for index, caseClause := range statement.Cases {
+			if caseClause == nil {
+				continue
+			}
+			writeLine(out, depth+1, "Case %d", index)
+			writeLine(out, depth+2, "Labels")
+			for labelIndex, label := range caseClause.Labels {
+				writeLine(out, depth+3, "Label %d", labelIndex)
+				formatExpression(out, label, depth+4)
+			}
+			if caseClause.Body != nil {
+				writeLine(out, depth+2, "Body")
+				formatBlockStatement(out, caseClause.Body, depth+3)
+			}
+		}
+		if statement.Default != nil {
+			writeLine(out, depth+1, "Default")
+			if statement.Default.Body != nil {
+				writeLine(out, depth+2, "Body")
+				formatBlockStatement(out, statement.Default.Body, depth+3)
+			}
+		}
 	default:
 		writeLine(out, depth, "UnknownStatement")
 	}

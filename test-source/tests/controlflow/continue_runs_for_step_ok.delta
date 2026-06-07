@@ -1,0 +1,9 @@
+function main(): int32 {
+    let iterations: int32 = 0;
+    for (let i: int32 = 0; i < 5; i++) {
+        iterations++;
+        continue;
+    }
+    if (iterations != 5) { return 1; }
+    return 0;
+}

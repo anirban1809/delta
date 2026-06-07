@@ -1,0 +1,5 @@
+function main(): int32 {
+    for (const i: int32 = 0; i < 5; i++) {
+    }
+    return 0;
+}

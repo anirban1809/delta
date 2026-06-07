@@ -1,0 +1,14 @@
+function vowel(c: char): int32 {
+    switch (c) {
+        case 'a', 'e', 'i', 'o', 'u': { return 0; }
+        default:                       { return 1; }
+    }
+}
+
+function main(): int32 {
+    if (vowel('a') != 0) { return 1; }
+    if (vowel('e') != 0) { return 2; }
+    if (vowel('u') != 0) { return 3; }
+    if (vowel('z') != 1) { return 4; }
+    return 0;
+}

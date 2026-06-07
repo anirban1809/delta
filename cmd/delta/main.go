@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"delta/internal/ast"
 	"delta/internal/codegen"
 	"delta/internal/diagnostics"
@@ -17,9 +18,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 const testsRoot = "test-source/tests"
+
+// trapRunTimeout caps how long a compiled trap-test binary may run before the
+// harness kills it and records a failure. A program that neither traps nor
+// exits cleanly (e.g. an infinite loop) would otherwise hang the whole suite.
+const trapRunTimeout = 10 * time.Second
 
 func main() {
 	if len(os.Args) < 2 {
@@ -52,6 +59,7 @@ type compileResult struct {
 	Conversions map[ast.Position]semantics.ConversionInfo
 	Divisions   map[ast.Position]semantics.Type
 	Shifts      map[ast.Position]semantics.Type
+	IncDecs     map[ast.Position]semantics.Type
 	SourcePath  string
 }
 
@@ -92,6 +100,7 @@ func compile(sourcePath string) (*compileResult, error) {
 		Conversions: analyzer.Conversions,
 		Divisions:   analyzer.Divisions,
 		Shifts:      analyzer.Shifts,
+		IncDecs:     analyzer.IncDecs,
 		SourcePath:  sourcePath,
 	}, nil
 }
@@ -132,13 +141,44 @@ func runDumpAST(args []string) {
 //  2. C codegen via codegen.Emit
 //  3. write build/c/<basename>.c
 //  4. invoke clang to produce build/<basename>
+//
+// Flags short-circuit the pipeline at an earlier stage and print that stage's
+// output instead of building a binary:
+//
+//	--tokens  stop after tokenization and print the token stream
+//	--ast     stop after parsing and print the formatted AST
+//	--sema    stop after semantic analysis and print the formatted AST
+//
+// When more than one is given, the earliest stage wins. With no flag, the
+// full build (codegen + clang) runs.
 func runBuild(args []string) {
-	if len(args) < 1 {
+	var onlyTokens, onlyAST, onlySema bool
+	sourcePath := ""
+	for _, arg := range args {
+		switch arg {
+		case "--tokens":
+			onlyTokens = true
+		case "--ast":
+			onlyAST = true
+		case "--sema":
+			onlySema = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				fmt.Fprintf(os.Stderr, "unknown flag: %s\n", arg)
+				os.Exit(2)
+			}
+			if sourcePath != "" {
+				fmt.Fprintf(os.Stderr, "multiple file paths given: %s and %s\n", sourcePath, arg)
+				os.Exit(2)
+			}
+			sourcePath = arg
+		}
+	}
+
+	if sourcePath == "" {
 		fmt.Fprintln(os.Stderr, "missing file path")
 		os.Exit(2)
 	}
-
-	sourcePath := args[0]
 	if filepath.Ext(sourcePath) != ".delta" {
 		fmt.Fprintln(os.Stderr, "invalid extension: must be .delta")
 		os.Exit(2)
@@ -148,6 +188,48 @@ func runBuild(args []string) {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
+	}
+
+	// --tokens: stop after tokenization and print the token stream.
+	if onlyTokens {
+		bag := &diagnostics.ErrorBag{File: sourcePath, Source: string(contents)}
+		tokens, _ := tokenizer.Tokenize(string(contents), bag)
+		if len(bag.Errors) > 0 {
+			printErrorBag(bag)
+			os.Exit(1)
+		}
+		printTokens(tokens)
+		return
+	}
+
+	// --ast: stop after parsing and print the formatted AST.
+	if onlyAST {
+		bag := &diagnostics.ErrorBag{File: sourcePath, Source: string(contents)}
+		tokens, _ := tokenizer.Tokenize(string(contents), bag)
+		if len(bag.Errors) > 0 {
+			printErrorBag(bag)
+			os.Exit(1)
+		}
+		parser := ast.Parser{Tokens: tokens, ErrorBag: bag}
+		file := parser.Parse()
+		if len(bag.Errors) > 0 {
+			printErrorBag(bag)
+			os.Exit(1)
+		}
+		fmt.Println(ast.FormatAST(file))
+		return
+	}
+
+	// --sema: run the full front-end (lex + parse + semantics) and stop,
+	// printing diagnostics on failure or the formatted AST on success.
+	if onlySema {
+		result := pipeline.Compile(sourcePath, contents)
+		if len(result.ErrorBag.Errors) > 0 {
+			printErrorBag(result.ErrorBag)
+			os.Exit(1)
+		}
+		fmt.Println(ast.FormatAST(result.File))
+		return
 	}
 
 	// 1. Front-end.
@@ -167,6 +249,7 @@ func runBuild(args []string) {
 		Conversions:  result.Conversions,
 		Divisions:    result.Divisions,
 		Shifts:       result.Shifts,
+		IncDecs:      result.IncDecs,
 		SourcePath:   sourcePath,
 	}
 
@@ -584,6 +667,7 @@ func runCodegenMatch(
 		Conversions:  result.Conversions,
 		Divisions:    result.Divisions,
 		Shifts:       result.Shifts,
+		IncDecs:      result.IncDecs,
 		SourcePath:   sourcePath,
 	}
 
@@ -639,6 +723,7 @@ func runTrapTest(
 		Conversions:  result.Conversions,
 		Divisions:    result.Divisions,
 		Shifts:       result.Shifts,
+		IncDecs:      result.IncDecs,
 		SourcePath:   sourcePath,
 	}
 
@@ -686,11 +771,26 @@ func runTrapTest(
 		)
 	}
 
-	run := exec.Command(binaryPath)
+	ctx, cancel := context.WithTimeout(context.Background(), trapRunTimeout)
+	defer cancel()
+
+	run := exec.CommandContext(ctx, binaryPath)
 	var stderr strings.Builder
 	run.Stderr = &stderr
 	runErr := run.Run()
 	panicMsg := strings.TrimSpace(stderr.String())
+
+	// A timeout means the program neither trapped nor exited on its own. The
+	// killed process surfaces as an *exec.ExitError, so this check must come
+	// before the exit-error branch below — otherwise a hang masquerades as a
+	// successful trap.
+	if ctx.Err() == context.DeadlineExceeded {
+		return false, fmt.Sprintf(
+			"trap binary timed out after %s (neither trapped nor exited)\n  stderr: %s",
+			trapRunTimeout,
+			panicMsg,
+		)
+	}
 
 	if runErr == nil {
 		return false, "expected a runtime trap (non-zero exit), but the program exited 0\n  stderr: " + panicMsg
@@ -836,6 +936,14 @@ func firstLineDiff(expected, actual string) string {
 		)
 	}
 	return "no byte-level diff (possible normalization bug)"
+}
+
+// printErrorBag prints every diagnostic in bag to stdout, one formatted
+// message per line — the same rendering `delta build` uses on failure.
+func printErrorBag(bag *diagnostics.ErrorBag) {
+	for _, e := range bag.Errors {
+		fmt.Println(e.GetFormattedMessage())
+	}
 }
 
 func printTokens(tokens []token.Token) {

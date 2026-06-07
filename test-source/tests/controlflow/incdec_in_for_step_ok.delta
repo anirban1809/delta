@@ -1,0 +1,8 @@
+function main(): int32 {
+    let count: int32 = 0;
+    for (let i: int32 = 0; i < 5; i++) {
+        count = count + 1;
+    }
+    if (count != 5) { return 1; }
+    return 0;
+}

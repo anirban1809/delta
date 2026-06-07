@@ -1,6 +1,6 @@
 # Delta Compiler Status
 
-Date: 2026-06-03
+Date: 2026-06-07
 
 This document describes the current implementation status of the Delta compiler
 against the design in `docs/main-spec.md` and `docs/spec-sections/`. It is a
@@ -40,18 +40,28 @@ Implemented command path:
    in place for inspection.
 6. `delta dump-ast` runs the front end and prints the formatted AST on
    success (the old `delta build` behavior).
+7. `delta build` also accepts stage-stopping debug flags that print an
+   earlier stage's output instead of building a binary: `--tokens` (token
+   stream), `--ast` (parsed AST), and `--sema` (full front end, then the
+   formatted AST). The earliest requested stage wins.
 
 The project now covers stages 1–3, 5, and 6 of the planned pipeline from
 Section 2:
 
 1. lex
 2. parse
-3. semantic analysis: name resolution, scope rules, and v0 type checking
-   (operator typing, call arity and argument types, return arity and types,
-   assignment compatibility, condition typing). Definite assignment, return
-   coverage, and cross-scope shadowing are still pending.
-5. C code generation (single-TU; see "Codegen Status" below for the
-   covered surface)
+3. semantic analysis: name resolution, scope rules, and type checking over
+   the full primitive numeric set (operator typing, call arity and argument
+   types, numeric `T(x)` conversions, return arity and types, assignment
+   compatibility, condition typing), plus the Phase B control-flow checks:
+   definite-assignment (no read before assignment), return-coverage on
+   non-`void` functions, and cross-scope shadowing rejection. These flow
+   checks are AST-walk heuristics, not a control-flow graph — the CFG +
+   reusable dataflow framework sketched in the Phase B plan was not built
+   (see "Semantic Analysis Status" and "Deviations From The Phase B Plan").
+5. C code generation (single-TU, with trapping runtime helpers for checked
+   conversions and arithmetic; see "Codegen Status" below for the covered
+   surface)
 6. Clang invocation (single-call compile + link to `build/<basename>`)
 
 The remaining planned stages are not implemented yet:
@@ -82,15 +92,25 @@ Not implemented yet:
 Implemented token categories:
 
 - Identifiers.
-- Integer literals.
+- Integer literals, including `0x` hex, `0b` binary, and `0o` octal prefixes,
+  all accepting `_` digit separators (e.g. `0xFF_FF`, `1_000_000`).
+- Floating-point literals: decimal-point form (`3.14`) and scientific form
+  (`2.5e1`, `1e10`, `1.5e-3`).
 - Boolean literals: `true`, `false`.
 - String literals using plain double quotes.
-- Character literals using single quotes.
-- Keywords: `function`, `return`, `const`, `let`, `if`, `else`, `while`.
+- Character literals using single quotes (with `\n`, `\t`, `\xNN`, `\u{...}`
+  escapes).
+- Keywords: `function`, `return`, `const`, `let`, `if`, `else`, `while`,
+  `for`, `switch`, `case`, `default`, `break`, `continue`.
 - Delimiters: `(`, `)`, `{`, `}`, `:`, `;`, `,`.
-- Arithmetic operators: `+`, `-`, `*`, `/`.
+- Arithmetic operators: `+`, `-`, `*`, `/`, `%`.
+- Bitwise operators: `&`, `|`, `^`, `~`, `<<`, `>>` (a lone `&` is bitwise-and;
+  `&&` remains logical-and).
 - Comparison operators: `<`, `<=`, `>`, `>=`, `==`, `!=`.
-- Assignment operator: `=`.
+- Assignment operators: `=`, and the compound forms `+=`, `-=`, `*=`.
+- Increment / decrement operators: `++`, `--` (lexed with lookahead so `++`
+  and `--` are distinguished from `+`/`+=` and `-`/`-=`; only the postfix
+  forms are accepted by the parser).
 - Logical operators: `!`, `&&`, `||`.
 - Error type separator: `|`.
 - Line comments (`//`) and block comments (`/* ... */`). Comments are
@@ -99,14 +119,13 @@ Implemented token categories:
 
 Not implemented yet:
 
-- Floating-point literals.
-- Numeric literal prefixes and separators.
 - Template string literals.
 - Raw string literals.
 - Import/export/decorator/extern tokens.
 - Type declaration, class, enum, interface, borrow, move, clone, heap, and error
   handling tokens.
-- Compound assignment operators such as `+=`.
+- Remaining compound assignment operators (`/=`, `%=`, `&=`, `|=`, `^=`,
+  `<<=`, `>>=`).
 
 ### Top-Level Declarations
 
@@ -161,10 +180,22 @@ Implemented inside function and control-flow blocks:
 
 - `return` statements.
 - Local `const` and `let` variable declarations.
-- Assignment statements.
-- Expression statements.
+- Assignment statements, including compound `+=`, `-=`, `*=` (which lower to
+  overflow-checked helper calls; see "Codegen Status").
+- Expression statements (including postfix `i++;` / `i--;` as statements).
 - `if` / `else` statements.
 - `while` statements.
+- `for` statements: the C-style counted form `for (init; cond; step) { ... }`.
+  `init` is a `let`/`const` declaration or empty (an expression-statement
+  init such as `for (i = 0; ...)` is **not** accepted — see the deviation
+  note below); `cond` is an optional `bool` expression (empty means loop
+  forever); `step` is an optional expression evaluated for effect.
+- `switch` statements: value `switch (expr) { case L1, L2: { ... } default:
+  { ... } }` over an integer or `char` scrutinee, with multi-label cases,
+  required braced case bodies, no fall-through, and a required `default`.
+- `break` and `continue` statements (rejected outside a loop).
+- Local `let name: T;` declarations **without** an initializer (the binding's
+  type comes from the annotation and definite-assignment tracks first use).
 
 Aligned with the design:
 
@@ -175,18 +206,22 @@ Aligned with the design:
 
 Not implemented yet:
 
-- `for` loops.
-- `for...of` loops.
-- `switch`.
+- `for...of` loops (deferred until the iterator protocol and collection types
+  land; see the Phase B plan's out-of-scope table).
+- Prefix `++i` / `--i` (only the postfix forms are implemented).
+- `switch type` (variant dispatch), and `switch` over strings, enums, or
+  floats.
+- Range case labels (`case 1..10:`) and const-expression case labels.
 - `check` blocks.
-- `panic`, `process.exit`, and `unreachable` intrinsics.
+- `panic`, `process.exit`, and `unreachable` intrinsics (the Phase B "stretch"
+  goal; the trap runtime exists but is not yet user-callable, and no
+  divergence concept feeds return-coverage).
 - Multi-return destructuring.
-- Definite-assignment analysis.
-- Shadowing across nested scopes (currently only same-scope duplicates are
-  rejected; nested shadowing per §3.4 is not yet enforced).
-- Enforcement that `const` always has an initializer and `let` without an
-  initializer must have a type. The current parser only supports initialized
-  variable declarations.
+- Scoping `for`-`init` bindings to the loop: the induction variable is
+  currently declared in the enclosing block scope, so it remains visible
+  after the loop (a known deviation from §3.4 / Phase B Decision 1).
+- Enforcement that `const` always has an initializer (only `let` may now omit
+  one).
 
 Aligned with the design:
 
@@ -199,18 +234,31 @@ Aligned with the design:
 
 Implemented:
 
-- Integer literals.
+- Integer literals (decimal, hex, binary, octal).
+- Floating-point literals.
 - Boolean literals.
 - String literals.
 - Character literals.
 - Identifiers.
 - Parenthesized expressions.
-- Unary expressions: `!expr`, `-expr`.
+- Unary expressions: `!expr`, `-expr`, `~expr`.
+- Postfix increment / decrement: `i++`, `i--` on a mutable integer binding.
+  The operand must be an identifier resolving to a `let` of integer type;
+  the expression yields the pre-update value and the step traps on overflow
+  (lowered through the Phase A-style overflow helpers; see "Codegen Status").
 - Binary expressions:
-  - multiplicative: `*`, `/`
+  - multiplicative: `*`, `/`, `%`
   - additive: `+`, `-`
+  - shift: `<<`, `>>`
+  - bitwise: `&`, `^`, `|`
   - comparison and equality: `<`, `<=`, `>`, `>=`, `==`, `!=`
   - logical: `&&`, `||`
+
+  These are parsed at standard C precedence (`* / %` > `+ -` > `<< >>` >
+  relational > equality > `&` > `^` > `|` > `&&` > `||`).
+- Numeric conversion expressions such as `int32(x)`, `uint8(n)`, `float64(i)`,
+  and `char(codepoint)` (parsed as calls, recognized as conversions by the
+  analyzer).
 - Function call expressions:
 
   ```delta
@@ -224,8 +272,6 @@ Implemented:
 
 Not implemented yet:
 
-- Floating-point literals.
-- Cast expressions such as `int32(x)`.
 - `as result`.
 - `move`, `clone`, `borrowed`, and `mod borrowed` expressions.
 - Member access.
@@ -251,17 +297,29 @@ The AST currently separates declarations, statements, and expressions:
 - `ReturnStatement`
   - stores `Values []Expression` (supports multi-expression returns)
 - `Comment` (preserved at file and block scope; skipped by the analyzer)
-- `VariableDeclarationStatement`
+- `VariableDeclarationStatement` (the `Value` expression is now optional, so
+  `let name: T;` parses with `Value == nil`)
 - `ExpressionStatement`
-- `AssignmentStatement`
+- `AssignmentStatement` (carries an `Operator` field: `""` for plain `=`, or
+  `"+"`/`"-"`/`"*"` for the compound forms)
 - `IfStatement`
 - `WhileStatement`
+- `ForStatement` (`Init`, `Cond`, `Step`, `Body`; any of `Init`/`Cond`/`Step`
+  may be empty)
+- `SwitchStatement` (`Scrutinee`, `Cases []*SwitchCase`, and a separate
+  `Default *SwitchCase`)
+- `SwitchCase` (a plain struct, not a `Statement`: `Labels []Expression` and a
+  braced `Body`)
+- `BreakStatement`
+- `ContinueStatement`
 - `IntegerLiteral`
+- `FloatLiteral`
 - `BooleanLiteral`
 - `StringLiteral`
 - `CharacterLiteral`
 - `Identifier`
 - `UnaryExpression`
+- `PostfixUnaryExpression` (`Operand` + `Operator` of `"++"` / `"--"`)
 - `BinaryExpression`
 - `FunctionCallExpression`
 
@@ -360,8 +418,13 @@ Implemented (name resolution and scope):
 - Each symbol carries a `Display` string used for editor hover (e.g.
   `const counter: int32`, `let x: bool`, `param a: int32`,
   `function add(int32, int32) -> int32 | IOError`).
-- Same-scope duplicate-identifier rejection for functions, file consts,
-  parameters, and locals.
+- Duplicate-identifier rejection for functions, file consts, parameters, and
+  locals. For local `let`/`const` this check walks the whole scope chain
+  (`FindSymbol`), so it now also rejects a binding that shadows a
+  visible outer-scope name (cross-scope shadowing per §3.4). The diagnostic
+  is the generic "use of duplicate identifier"; it does not yet cite the
+  original declaration's position or carry the parameter-shadows-file-scope
+  exemption from the Phase B plan.
 - Unknown-identifier detection inside expressions and as assignment targets.
 - Assignment rules:
   - `const` (file or local) cannot be reassigned ("cannot assign to const: x").
@@ -372,28 +435,51 @@ Implemented (name resolution and scope):
   invoking a non-callable symbol is rejected.
 - Function-typed values are not yet supported; expression-shaped callees
   (e.g. `makeAdder()(3)`) parse but are rejected by the analyzer.
-- `if`, `else`, and `while` bodies recurse into nested scopes; condition
-  expressions are analyzed against the enclosing scope.
+- `if`, `else`, `while`, `for`, and `switch`-case bodies recurse into nested
+  scopes; condition / scrutinee expressions are analyzed against the
+  enclosing scope. (`break`/`continue` are validated for "must be inside a
+  loop" in the parser via a loop-depth counter, not in the analyzer.)
 - A `Refs` map records every resolved identifier use-site (keyed by
   `ast.Position`) so the LSP can answer go-to-definition and hover for
   identifier references without re-walking the tree.
 
 Implemented (v0 type checking):
 
-- A small primitive type system: `TypeInt32`, `TypeBool`, `TypeString`,
-  `TypeChar`, `TypeVoid`, plus the sentinels `TypeEmpty` (no annotation)
-  and `TypeInvalid` (poison value used to suppress cascading errors).
-- `TypeOf` computes types for integer/boolean/string/character literals,
-  identifier references, unary expressions, binary expressions, and
-  function-call expressions. Unknown identifiers and unresolved callees
-  return `TypeInvalid` so downstream checks stay quiet.
-- Unary operator typing: `!` requires `bool`; `-` requires `int32`.
-- Binary operator typing:
-  - `+`, `-`, `*`, `/` require `int32` operands and yield `int32`.
-  - `<`, `<=`, `>`, `>=` require `int32` operands and yield `bool`.
-  - `==`, `!=` require matching operand types and only accept `int32` or
-    `bool` operands today; yield `bool`.
+- A full primitive type system: the signed integers `int8`, `int16`,
+  `int32`, `int64`, `intsize`; the unsigned integers `uint8`, `uint16`,
+  `uint32`, `uint64`, `uintsize`; the floats `float32`, `float64`; plus
+  `bool`, `string`, `char`, `void`, and the sentinels `TypeEmpty` (no
+  annotation) and `TypeInvalid` (poison value used to suppress cascading
+  errors). `Type` exposes `IsInteger`, `IsFloat`, `IsSigned`, `IsUnsigned`,
+  and `BitWidth` helpers.
+- `TypeOf` computes types for integer/float/boolean/string/character
+  literals, identifier references, unary expressions, binary expressions,
+  and function-call/conversion expressions. Integer literals default to
+  `int32` and float literals to `float64`, but a literal operand coerces to
+  the other operand's (or the annotated binding's) type, so
+  `let x: uint8 = 5` and `a + 1` type-check against `a`'s type.
+- Unary operator typing: `!` requires `bool`; `-` requires a numeric
+  (integer or float) operand; `~` requires an integer operand.
+- Binary operator typing (operands must share a kind; integer literals
+  coerce as above):
+  - `+`, `-`, `*`, `/` require matching numeric operands and yield that type.
+  - `%` is integer-only (C has no float `%`) and yields the operand type.
+  - `<<`, `>>` require integer operands and yield the left operand's type;
+    the count need not share that type.
+  - `&`, `^`, `|` are integer-only and yield the operand type.
+  - `<`, `<=`, `>`, `>=` accept matching numeric or `char` operands and
+    yield `bool` (`char` compares by code point).
+  - `==`, `!=` require matching operand types and accept numeric, `bool`, or
+    `char` operands; yield `bool`.
   - `&&`, `||` require `bool` operands and yield `bool`.
+- Numeric `T(x)` conversions (`ClassifyConversion`): int→int that widens
+  with the same signedness is free; any narrowing or sign change traps;
+  float→int traps (NaN/range); int→float and float→float are free; int→char
+  traps (the value must be a valid Unicode scalar). Forbidden conversions
+  (e.g. from `bool`) are a compile error. Resolved conversions are recorded
+  by position in the analyzer's `Conversions` map, and integer `/`/`%` and
+  `<<`/`>>` are recorded in `Divisions`/`Shifts`, so codegen can lower the
+  trapping forms without re-running inference.
 - Function call type checking:
   - Resolves the callee symbol, rejects non-identifier and non-function
     callees.
@@ -417,19 +503,60 @@ Implemented (v0 type checking):
   not resolve to known primitives are rejected before the body is analyzed
   (`unknown identifier <Type>`).
 
+Implemented (control flow & flow analysis, Phase B):
+
+- `for` typing: the `init` declaration is analyzed and registered, an empty
+  `init` is tolerated, `cond` (when present) must type as `bool`, the `step`
+  is analyzed for effect, and the body is analyzed in a nested scope. A
+  `const` induction variable that the loop would mutate is rejected.
+- `switch` typing: the scrutinee must be an integer type or `char` (`bool`,
+  float, and other types are rejected with type-specific diagnostics); each
+  case label must type-check against the scrutinee (bare integer literals
+  coerce to the scrutinee's integer type, negative/`char` labels do not);
+  duplicate case labels across the whole switch are rejected. `default` is
+  required, but that requirement is currently enforced in the **parser**
+  (`missing default case`) rather than the analyzer.
+- Postfix `++` / `--` typing: the operand must be an identifier bound to a
+  mutable (`let`) integer; `const`, non-integer, and unknown operands are
+  rejected. Each occurrence is recorded in the analyzer's `IncDecs` map so
+  codegen can lower the overflow-trapping form.
+- Definite-assignment: an uninitialized `let name: T;` is tracked through a
+  per-scope assignment list; reading it before an assignment is rejected
+  ("`x` is uninitialized"). Assignments in an enclosing scope are visible to
+  nested reads. `if`/`else` joins via intersection (with branches that always
+  `return` contributing nothing to the join). Assignments made *only* inside a
+  loop body do not escape to the enclosing scope, so a read after the loop is
+  correctly treated as possibly-unassigned.
+- Return-coverage: a non-`void` function whose body is not guaranteed to hit
+  a `return` is rejected ("all paths must return a value"). `if`/`else`
+  (both branches return), `switch` (every case **and** `default` return), and
+  `for` bodies feed this check.
+
+These flow checks are **AST-walk heuristics**, not the per-function CFG +
+reusable dataflow framework described in the Phase B plan. There is no
+`internal/semantics/cfg.go` or `dataflow.go`; definite-assignment is a
+per-`Scope` `assignments` list plus an `if`/`else` intersection join, and
+return-coverage is the structural `blockReturns`/`statementReturns` walk.
+This is enough for the Phase B fixture surface but is not a sound general
+dataflow (e.g. `for`-body return-coverage assumes the loop runs at least
+once, and there is no divergence/`panic` edge). See "Deviations From The
+Phase B Plan" below.
+
 Not implemented yet (semantics):
 
-- Definite-assignment analysis.
-- Return-coverage analysis (every non-void path must end in a `return`).
-- Cross-scope shadowing rejection (§3.4 — both inner-scope and same-scope
-  shadowing should be rejected; only same-scope duplicates are caught today).
+- A control-flow graph and a reusable dataflow framework (the planned
+  `cfg.go` / `dataflow.go`); the current flow checks are AST-walk heuristics.
+- The parameter-shadows-file-scope exemption, and shadowing/duplicate
+  diagnostics that cite the original declaration's position.
+- A divergence concept (`panic`/`process.exit`/`unreachable`) so
+  return-coverage can accept diverging paths.
 - Validation of declared error types on function signatures (the parser
   surfaces them; the analyzer currently treats them as unresolved primitives
   unless they happen to match a known type).
 - Tracking and validating callable expressions (function values, member
   callees, returned functions).
-- Equality on `string` / `char`; ordering on non-`int32` types.
-- Floating-point typing.
+- Equality and ordering on `string` (numeric/`bool`/`char` equality and
+  numeric/`char` ordering are implemented).
 - Bidirectional inference (annotations are currently informational; the
   initializer's inferred type is what the binding actually gets when a
   non-empty annotation is supplied — this is a known gap and needs a real
@@ -444,14 +571,19 @@ AST and emits a single C translation unit. It is paired with
 `internal/toolchain/` for clang location and `cmd/delta` for the
 write-and-invoke step.
 
-Implemented (verified by 17 golden-file fixtures under
-`test-source/tests/codegen/`):
+Implemented (exercised by 17 golden-file fixtures under
+`test-source/tests/codegen/`, the 23-case `test-source/tests/primitives/`
+suite, and the 61-case `test-source/tests/controlflow/` suite — the latter
+two run `pass`/`fail`/`trap` verbs end-to-end through clang. Suites are
+auto-discovered by `delta test` from any `test-source/tests/<dir>/tests.json`):
 
 - Single-file lowering to `build/c/<basename>.c`, then clang invocation
   to produce `build/<basename>`. Generated `.c` is preserved on failure.
-- Type mapping: `int32 → int32_t`, `bool → bool` (via `<stdbool.h>`),
-  `void → void`, `char → char`. Every TU opens with `#include <stdint.h>`
-  and `#include <stdbool.h>`.
+- Type mapping: the signed integers to `int8_t`…`int64_t` (and `intsize →
+  intptr_t`), the unsigned integers to `uint8_t`…`uint64_t` (and `uintsize →
+  uintptr_t`), `float32 → float`, `float64 → double`, `bool → bool` (via
+  `<stdbool.h>`), `void → void`, `char → char`. Every TU opens with
+  `#include <stdint.h>` and `#include <stdbool.h>`.
 - Function lowering: forward declarations for every function are emitted
   in source order at the top of the TU; bodies follow with named
   parameters (no unnamed `int32_t f(int32_t)` style).
@@ -461,18 +593,51 @@ Implemented (verified by 17 golden-file fixtures under
   `main`.
 - File-scope `const` lowers to `static const T name = expr;` between the
   forward decls and the bodies.
-- Statements: `return` (with and without value), `let`, local `const`
-  (lowered as `const T x = expr;`), assignment, `if`/`else`, `while`,
+- Statements: `return` (with and without value), `let` (including the
+  initializer-less `let name: T;`, lowered to an uninitialized `T name;`),
+  local `const` (lowered as `const T x = expr;`), assignment, `if`/`else`,
+  `while`, `for`, `switch`, `break`, `continue`,
   function-call-as-statement (`ExpressionStatement`), and block
   statements with brace wrapping regardless of statement count.
-- Expressions: integer literals, boolean literals, identifiers,
-  unary `-` and `!`, binary arithmetic (`+`, `-`, `*`, `/`), comparison
-  (`<`, `<=`, `>`, `>=`, `==`, `!=`), logical (`&&`, `||`), and function
-  calls.
-- Precedence-aware re-parenthesization for binary expressions: parens are
-  re-emitted around an operand only when the natural C reading would
-  re-group differently than the AST demands (covers `(x + offset) *
-  scale` and rejects redundant parens on cases like `a - b - c`).
+  - `for` lowers to a native C `for (init; cond; step) { body }` (empty
+    `init`/`cond`/`step` slots are emitted as empty), so a Delta `continue`
+    naturally runs the C `for`-step.
+  - `switch` lowers to a native C `switch` with each Delta case rendered as
+    one or more C `case L:` labels sharing a block, a synthesized `break;`
+    after each case body to suppress C fall-through, and the Delta `default`
+    as C `default:`.
+  - `break` / `continue` lower to plain C `break;` / `continue;`.
+- Expressions: integer, float, boolean, and character literals (char
+  literals are re-quoted as C char constants); identifiers; unary `-`, `!`,
+  and `~`; postfix `++` / `--`; binary arithmetic (`+`, `-`, `*`, `/`, `%`),
+  bitwise (`&`, `^`, `|`), shift (`<<`, `>>`), comparison, logical, and
+  function calls.
+- Checked conversions and arithmetic lower to a shared `delta_panic`
+  trap routine plus `static inline` helper functions, emitted into the TU
+  preamble only when used (with `<stdio.h>`/`<stdlib.h>` pulled in then):
+  - Numeric `T(x)` conversions: free conversions become a plain C cast;
+    trapping ones call a range-checked helper that panics on out-of-range
+    (narrowing/sign-flip), NaN or out-of-range float→int, or an invalid
+    Unicode scalar for int→char.
+  - Integer `/` and `%` route through a divisor-checked helper that panics
+    on division by zero.
+  - `<<` and `>>` route through a helper that panics when the shift count
+    is negative or `>=` the operand's bit width.
+  - Compound `+=`, `-=`, `*=` lower to `x = delta_rt_<op>_<type>(x, e, …)`,
+    an overflow-checked helper built on clang's `__builtin_*_overflow`.
+  - Postfix `i++` / `i--` lower to `delta_rt_postinc_<type>(&i, …)` /
+    `delta_rt_postdec_<type>(&i, …)` helpers (also built on
+    `__builtin_*_overflow`) that take the operand by pointer, trap on
+    overflow at the type boundary, and return the pre-update value so the
+    postfix value semantics hold even when the result is used. Driven by the
+    analyzer's `IncDecs` map.
+  - The build uses `-fwrapv` and no `-ffast-math`, so these checks (e.g.
+    the `v != v` NaN test) are not optimized away.
+- Precedence-aware re-parenthesization for infix binary expressions: parens
+  are re-emitted around an operand only when the natural C reading would
+  re-group differently than the AST demands. (Helper-lowered operators —
+  division, shift, compound assignment — emit as self-delimiting calls and
+  need no parens.)
 - Comments in Delta source are dropped from the emitted C.
 
 Pending (planned in `docs/plans/c-codegen-v0.md`):
@@ -481,8 +646,8 @@ Pending (planned in `docs/plans/c-codegen-v0.md`):
   return value is plumbed through `codegen.Emit` but unused — errors
   from `cType` and `buildSignature` go to `println` instead.
 - "Fail-closed" guards on out-of-scope constructs (multi-return
-  signatures, error-typed signatures, `string`/`char` types in user
-  positions). Today these would silently produce broken C if reached.
+  signatures, error-typed signatures, `string` types in user positions).
+  Today these would silently produce broken C if reached.
 - Entry-point validation (no `main`, `main` with params, `main` with
   non-`int32` return) at the codegen boundary.
 - `#line N "src.delta"` directives at statement boundaries
@@ -492,6 +657,48 @@ Pending (planned in `docs/plans/c-codegen-v0.md`):
 
 See the "Notes" subsection under "Phase 7: Generate C For The Current
 Subset" further down for additional design notes.
+
+## Deviations From The Phase B Plan
+
+The control-flow surface described above is implemented and exercised by the
+`test-source/tests/controlflow/` suite, but the implementation took several
+shortcuts relative to `docs/plans/goal-v0.5/phase-b-control-flow.md`. These
+are tracked here so the gaps are not mistaken for finished work:
+
+- **No CFG / dataflow framework.** The plan's central deliverable — a
+  per-function control-flow graph in `internal/semantics/cfg.go` plus a
+  reusable forward-dataflow framework in `dataflow.go` — was not built.
+  Definite-assignment is a per-`Scope` assignment list with an `if`/`else`
+  intersection join, and return-coverage is the structural
+  `blockReturns`/`statementReturns` AST walk. Phase C and Phase F were
+  meant to layer on this CFG; that infrastructure still has to be written.
+- **`break`/`continue` are not transparent to `switch`** (plan Decisions 7
+  and 8). Codegen lowers a Delta `switch` to a native C `switch` and a Delta
+  `break` to a literal C `break;`. A `break` inside a `switch` nested in a
+  loop therefore exits the *switch*, not the loop, contrary to the plan's
+  "transparent switch" rule (which called for a `goto __delta_loop_exit_N;`
+  rewrite). `continue` happens to behave correctly because C's `continue`
+  is not captured by `switch`.
+- **`for`-`init` only accepts a declaration.** The parser's `init` slot is a
+  `let`/`const` declaration or empty; an expression-statement init
+  (`for (i = 0; …)`) is not parsed. The plan allowed both.
+- **`for`-`init` bindings are not loop-scoped.** The induction variable is
+  declared in the enclosing block scope rather than a dedicated loop scope,
+  so it stays visible after the loop (plan Decision 1 / §3.4 wanted it
+  released at loop exit).
+- **`switch` `default`-required is enforced in the parser**, not the analyzer
+  (the plan wanted a no-`default` switch to parse so the analyzer could emit
+  a position-rich diagnostic).
+- **`break`/`continue` "outside a loop" is a parser check** (a loop-depth
+  counter), not an analyzer/CFG check.
+- **`panic` / `process.exit` / `unreachable` not exposed.** The Phase B
+  stretch goal is unimplemented; there is no divergence edge, so
+  return-coverage cannot yet accept paths that end in a `panic`.
+- **Phase 7 codegen hygiene still pending.** `codegen.Emit` does not yet
+  thread `*diagnostics.ErrorBag` (errors still go to `println`), and there
+  are no fail-closed guards for multi-return / error-typed signatures or
+  `string`/`char` in user positions. The plan slated this work for Phase B;
+  it remains open (see "Codegen Status → Pending").
 
 ## Editor Integration
 
@@ -572,12 +779,15 @@ The current implementation enforces a first slice of semantic rules: it knows
 whether a name exists, whether a `const` (file, local, or parameter) is being
 reassigned, whether a same-scope identifier was already declared, whether a
 call target is callable with the right number and types of arguments, whether
-operator operand types are compatible, whether an `if`/`while` condition is
-`bool`, whether an assignment's value type matches its target, and whether a
-`return` statement matches the enclosing function's declared return-type list.
-It does not yet know whether a variable is definitely assigned before use, or
-whether a function returns on every required path. Cross-scope shadowing
-(§3.4) is also not yet rejected.
+operator operand types are compatible, whether an `if`/`while`/`for` condition
+or a `switch` scrutinee has a legal type, whether an assignment's value type
+matches its target, and whether a `return` statement matches the enclosing
+function's declared return-type list. As of Phase B it also rejects reading a
+`let` before it is definitely assigned, a non-`void` function that may fall off
+its end without returning, and a binding that shadows a visible outer-scope
+name (§3.4). These last three are AST-walk heuristics rather than a CFG-based
+dataflow, with the limitations noted under "Semantic Analysis Status" and
+"Deviations From The Phase B Plan".
 
 ## Pending Work By Design Area
 
@@ -606,9 +816,6 @@ Done:
 
 Pending:
 
-- Comments.
-- Floating-point literals.
-- More complete numeric literal support.
 - Template string literals.
 - Raw string literals.
 - Type declarations.
@@ -634,12 +841,16 @@ Implemented (v0):
 - `let` mutation allowed; assignments validated against symbol kind and
   binding type.
 - Function callee must resolve to a `SymbolFunction`.
-- Primitive type system (`int32`, `bool`, `string`, `char`, `void`) with
-  `TypeInvalid` cascade suppression.
-- Literal type assignment (`int32` for integers, `bool` for booleans,
-  `string`, `char`).
-- Operator type rules for unary `!`/`-`, arithmetic, comparison,
-  equality, and logical operators.
+- Full primitive type system (signed/unsigned `int8`…`int64`/`intsize` and
+  `uint8`…`uint64`/`uintsize`, `float32`/`float64`, `bool`, `string`,
+  `char`, `void`) with `TypeInvalid` cascade suppression.
+- Literal type assignment (`int32` for integers, `float64` for floats,
+  `bool`, `string`, `char`) with literal-to-annotation coercion.
+- Operator type rules for unary `!`/`-`/`~`, arithmetic (incl. `%`),
+  bitwise, shift, comparison (incl. `char`), equality, and logical
+  operators.
+- Numeric `T(x)` conversion classification (free vs. trapping) for
+  int↔int, float→int, int→float, float→float, and int→char.
 - Function call arity and per-argument type checks against recorded
   `FunctionSignature`s.
 - Return arity and per-value type validation against declared return-type
@@ -649,19 +860,24 @@ Implemented (v0):
 - Function-signature parameter and return type names validated against
   the primitive set before body analysis.
 - Per-symbol `Display` strings ready for LSP hover.
+- Control flow (Phase B): `for`, `switch`/`case`/`default`, `break`/
+  `continue`, and postfix `++`/`--` typing; AST-walk definite-assignment,
+  return-coverage, and cross-scope shadowing rejection.
 
 Pending:
 
-- Cross-scope shadowing rejection (§3.4).
-- Definite-assignment analysis.
-- Return-coverage analysis on non-void functions.
+- A real control-flow graph + reusable dataflow framework to replace the
+  AST-walk flow heuristics (needed before Phase C/F layer on).
+- A divergence concept (`panic`/`process.exit`/`unreachable`) feeding
+  return-coverage.
+- Scoping `for`-`init` bindings to the loop (today they leak into the
+  enclosing scope).
 - One-level bidirectional type inference (annotation-driven typing of
   initializers).
-- Float typing and a wider primitive set.
 - Validation of declared function error types and any fallible-call
   semantics.
 - Support for function-typed values as callees.
-- Equality/ordering rules for non-numeric types.
+- Equality/ordering rules for `string`.
 - A materialized typed AST distinct from the parser's untyped one.
 
 ### Safety Model
@@ -724,12 +940,13 @@ feature.
 
 Tasks:
 
-1. Add comments.
+1. Done: add comments.
 2. Done: add plain string literals.
 3. Done: add character literals.
-4. Add floating-point literals if needed for the next examples.
-5. Add missing primitive type names as ordinary identifiers or as dedicated type
-   tokens, then choose one consistent approach.
+4. Done: add floating-point literals (and hex/binary/octal integer literals
+   with `_` separators).
+5. Done: primitive type names are handled as identifiers in type positions and
+   resolved by the analyzer against the full primitive set.
 6. Partially done: illegal-character and parser EOF errors now use structured
    diagnostics.
 7. Pending: decide when to implement template and raw string forms.
@@ -777,8 +994,9 @@ Tasks:
 Status: mostly complete for the current expression and statement subset.
 Error-type validation and annotation-driven inference remain open.
 
-Goal: support a small typed language with `int32`, `bool`, `string`, `char`,
-`void`, and multi-return function signatures.
+Goal: support a typed language over the full primitive set (the signed and
+unsigned integer widths, `float32`/`float64`, `bool`, `string`, `char`,
+`void`), checked numeric conversions, and multi-return function signatures.
 
 Tasks:
 
@@ -800,15 +1018,22 @@ Tasks:
 
 ### Phase 6: Add Definite Assignment And Control Flow Checks
 
+Status: mostly complete (delivered as part of the goal-v0.5 **Phase B**
+work), with the caveat that the checks are AST-walk heuristics rather than a
+CFG-based dataflow.
+
 Goal: enforce the basic safety rules from Sections 3 and 11.
 
 Tasks:
 
-1. Support `let name: Type;` without initializer.
-2. Track definitely assigned bindings across blocks.
-3. Reject reads before assignment.
-4. Reject partial initialization once object/member syntax exists.
-5. Validate return coverage for non-void functions.
+1. Done: support `let name: Type;` without initializer.
+2. Done: track definitely assigned bindings across blocks (per-scope
+   assignment list + `if`/`else` intersection join).
+3. Done: reject reads before assignment.
+4. Pending: reject partial initialization once object/member syntax exists.
+5. Done: validate return coverage for non-void functions (structural
+   `blockReturns` walk; does not yet account for divergence/`panic` or
+   loop-execution uncertainty).
 
 ### Phase 7: Generate C For The Current Subset
 
@@ -909,20 +1134,31 @@ The previous milestone was:
 > types, declared error types, `int32`, `bool`, and `void`, then generate C and
 > compile it.
 
-That milestone is now substantially reached: `delta build hello.delta`
-produces a runnable executable, all six pipeline stages from tokenize
-through clang link are wired, and the codegen test suite confirms the
-emitter agrees with the spec on a representative slice of programs.
+That milestone is reached, and the work has since been extended into the
+**Phase A (primitive types)** slice of the `docs/plans/goal-v0.5/` plan:
+the full signed/unsigned integer set, `float32`/`float64`, and `char`
+flow end-to-end through tokenize → parse → type-check → C → clang, with
+checked numeric conversions and arithmetic lowered to trapping runtime
+helpers. This is verified by the 23-case `test-source/tests/primitives/`
+suite (`pass`/`fail`/`trap`), which all passes.
 
-The next milestone is to harden codegen from "happy path works" to
-"safe on the entire analyzer-accepted surface":
+The **Phase B (control flow)** slice has since largely landed: C-style
+`for`, value `switch`/`case`/`default`, `break`/`continue`, postfix
+`++`/`--`, the initializer-less `let name: T;`, and AST-walk
+definite-assignment, return-coverage, and cross-scope shadowing checks now
+flow end-to-end through tokenize → parse → analyze → C → clang, with a
+61-case `test-source/tests/controlflow/` suite. What remains open within
+Phase B is summarized in "Deviations From The Phase B Plan" above; the
+largest items are the real CFG + dataflow framework (the current flow checks
+are heuristics), the transparent-`switch` `break`/`continue` rewrite, the
+`panic`/divergence stretch goal, and `for`-`init` loop scoping.
 
-> Populate `*ErrorBag` from `codegen.Emit`, add fail-closed guards for
-> the out-of-scope constructs the analyzer happens to accept
-> (multi-return, error-typed signatures, `string`/`char` in user
-> positions), validate the entry-point shape at the codegen boundary,
-> and add the negative `expect: "build_fail"` test verb and fixtures.
-
-After that, the larger sections of the design (definite assignment,
-return coverage, ownership and lifetimes, modules) can be incorporated
-one pass at a time without restarting the compiler.
+Cross-cutting codegen hardening also remains open and can land alongside
+the phase work: populate `*ErrorBag` from `codegen.Emit` (today emitter
+errors go to `println`), add fail-closed guards and entry-point
+validation at the codegen boundary, and add a negative
+`expect: "build_fail"` test verb. After that, the next milestone is
+**Phase C (the error model)** — `check` blocks, `as result`, and
+fallible-flow analysis — followed by the larger sections of the design
+(ownership and lifetimes, modules), incorporated one pass at a time
+following phases C–J without restarting the compiler.

@@ -22,6 +22,12 @@ const (
 	Keyword_If
 	Keyword_Else
 	Keyword_While
+	Keyword_For
+	Keyword_Switch
+	Keyword_Continue
+	Keyword_Case
+	Keyword_Default
+	Keyword_Break
 
 	Type_Int32
 
@@ -56,6 +62,8 @@ const (
 	Symbol_PlusEquals
 	Symbol_MinusEquals
 	Symbol_AsteriskEquals
+	Symbol_Increment
+	Symbol_Decrement
 )
 
 type Token struct {
@@ -101,6 +109,18 @@ func (k Kind) String() string {
 		return "else"
 	case Keyword_While:
 		return "while"
+	case Keyword_For:
+		return "for"
+	case Keyword_Switch:
+		return "switch"
+	case Keyword_Case:
+		return "case"
+	case Keyword_Default:
+		return "default"
+	case Keyword_Continue:
+		return "contnue"
+	case Keyword_Break:
+		return "break"
 	// case Type_Int32:
 	// 	return "int32"
 	case Symbol_LeftParen:
@@ -165,6 +185,10 @@ func (k Kind) String() string {
 		return "-="
 	case Symbol_AsteriskEquals:
 		return "*="
+	case Symbol_Increment:
+		return "++"
+	case Symbol_Decrement:
+		return "--"
 	default:
 		return "unknown"
 	}
@@ -186,10 +210,22 @@ func LookupIdent(s string) Kind {
 		return Keyword_Else
 	case "while":
 		return Keyword_While
+	case "for":
+		return Keyword_For
 	case "true":
 		return Kind_BooleanLiteral
 	case "false":
 		return Kind_BooleanLiteral
+	case "switch":
+		return Keyword_Switch
+	case "case":
+		return Keyword_Case
+	case "default":
+		return Keyword_Default
+	case "continue":
+		return Keyword_Continue
+	case "break":
+		return Keyword_Break
 	default:
 		return Kind_Identifier
 	}
