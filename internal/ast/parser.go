@@ -126,6 +126,10 @@ func (p *Parser) ParseComment() Comment {
 func (p *Parser) ParsePrimaryExpression() (Expression, bool) {
 	p.skipComments()
 
+	if p.Current().Kind == token.Symbol_LeftBrace {
+		return p.ParseObjectLiteralExpression()
+	}
+
 	if p.Current().Kind == token.Kind_StringLiteral {
 		tok := p.Advance()
 		return StringLiteral{Position: posOf(tok), Value: tok.Lexeme}, true
@@ -172,6 +176,68 @@ func (p *Parser) ParsePrimaryExpression() (Expression, bool) {
 	current := p.Current()
 	p.addError(current.Line, current.Column, "invalid expression")
 	return nil, false
+}
+
+func (p *Parser) ParseObjectLiteralExpression() (Expression, bool) {
+	open := p.Advance()
+	elements := []ObjectLiteralElement{}
+
+	p.skipComments()
+	for p.Current().Kind != token.Symbol_RightBrace {
+		if p.Current().Kind == token.Kind_EOF {
+			p.addError(open.Line, open.Column, "unterminated object literal")
+			return nil, false
+		}
+
+		if p.Current().Kind == token.Symbol_Ellipsis {
+			spread := p.Advance()
+			source, ok := p.ParseExpression()
+			if !ok {
+				return nil, false
+			}
+			elements = append(elements, SpreadElement{
+				Position: posOf(spread),
+				Source:   source,
+			})
+		} else {
+			name, ok := p.Expect(token.Kind_Identifier, "field name expected")
+			if !ok {
+				return nil, false
+			}
+			if _, ok := p.Expect(token.Symbol_Colon, "symbol : expected"); !ok {
+				return nil, false
+			}
+			value, ok := p.ParseExpression()
+			if !ok {
+				return nil, false
+			}
+			elements = append(elements, FieldInit{
+				Position: posOf(name),
+				Name:     name.Lexeme,
+				Value:    value,
+			})
+		}
+
+		p.skipComments()
+		if p.Current().Kind == token.Symbol_RightBrace {
+			break
+		}
+		if _, ok := p.Expect(token.Symbol_Comma, "symbol , expected"); !ok {
+			return nil, false
+		}
+		p.skipComments()
+		if p.Current().Kind == token.Symbol_RightBrace {
+			break
+		}
+	}
+
+	if _, ok := p.Expect(token.Symbol_RightBrace, "symbol } expected"); !ok {
+		return nil, false
+	}
+	return ObjectLiteralExpression{
+		Position: posOf(open),
+		Elements: elements,
+	}, true
 }
 
 func (p *Parser) ParseUnaryExpression() (Expression, bool) {
@@ -463,20 +529,44 @@ func (p *Parser) ParsePostfixExpression() (Expression, bool) {
 		return nil, false
 	}
 
-	p.skipComments()
-	switch p.Current().Kind {
-	case token.Symbol_LeftParen:
-		return p.ParseFunctionCallExpression(expr)
-	//parse index [] and member expressions
-	case token.Symbol_Increment, token.Symbol_Decrement:
-		return PostfixUnaryExpression{
-			Position: expr.Pos(),
-			Operand:  expr,
-			Operator: p.Advance().Lexeme,
-		}, true
+	for {
+		p.skipComments()
+		switch p.Current().Kind {
+		case token.Symbol_LeftParen:
+			expr, ok = p.ParseFunctionCallExpression(expr)
+			if !ok {
+				return nil, false
+			}
+		case token.Symbol_Dot:
+			expr, ok = p.ParseMemberAccessExpression(expr)
+			if !ok {
+				return nil, false
+			}
+		case token.Symbol_Increment, token.Symbol_Decrement:
+			return PostfixUnaryExpression{
+				Position: expr.Pos(),
+				Operand:  expr,
+				Operator: p.Advance().Lexeme,
+			}, true
+		default:
+			return expr, true
+		}
 	}
+}
 
-	return expr, true
+func (p *Parser) ParseMemberAccessExpression(
+	receiver Expression,
+) (Expression, bool) {
+	p.Advance() // consume dot
+	member, ok := p.Expect(token.Kind_Identifier, "member name expected")
+	if !ok {
+		return nil, false
+	}
+	return MemberAccessExpression{
+		Position: posOf(member),
+		Receiver: receiver,
+		Member:   member.Lexeme,
+	}, true
 }
 
 func (p *Parser) ParseFunctionCallExpression(
@@ -566,6 +656,33 @@ func (p *Parser) ParseReturnStatement() (ReturnStatement, bool) {
 	return ReturnStatement{Position: posOf(keyword), Values: values}, true
 }
 
+func (p *Parser) ParseTypeReference() (TypeReference, bool) {
+	p.skipComments()
+	if p.Current().Kind == token.Symbol_LeftBrace {
+		current := p.Current()
+		p.addError(
+			current.Line,
+			current.Column,
+			"anonymous object types are not allowed here (§8.3)",
+		)
+		return TypeReference{}, false
+	}
+
+	typeIdentifier, ok := p.Expect(
+		token.Kind_Identifier,
+		"type identifier expected",
+	)
+	if !ok {
+		return TypeReference{}, false
+	}
+	return TypeReference{
+		Name: Identifier{
+			Position: posOf(typeIdentifier),
+			Name:     typeIdentifier.Lexeme,
+		},
+	}, true
+}
+
 func (p *Parser) ParseVarDeclStatement() (VariableDeclarationStatement, bool) {
 	modifier := p.Advance() //consume const/let  keyword
 
@@ -578,16 +695,11 @@ func (p *Parser) ParseVarDeclStatement() (VariableDeclarationStatement, bool) {
 	p.skipComments()
 	if p.Current().Kind == token.Symbol_Colon {
 		p.Advance() // consume colon
-		typeIdentifier, ok := p.Expect(
-			token.Kind_Identifier,
-			"type identifier expected",
-		)
+		parsedType, ok := p.ParseTypeReference()
 		if !ok {
 			return VariableDeclarationStatement{}, false
 		}
-		typeReference = TypeReference{
-			Name: Identifier{Name: typeIdentifier.Lexeme},
-		}
+		typeReference = parsedType
 	}
 
 	if p.Current().Kind == token.Symbol_Semicolon {
@@ -642,7 +754,19 @@ func (p *Parser) ParseExpressionStatement() (ExpressionStatement, bool) {
 }
 
 func (p *Parser) ParseAssignmentStatement() (AssignmentStatement, bool) {
-	target := p.Advance() // consume identifier
+	target := p.Advance() // consume root identifier
+	root := Identifier{Position: posOf(target), Name: target.Lexeme}
+	var targetExpression Expression = root
+
+	p.skipComments()
+	for p.Current().Kind == token.Symbol_Dot {
+		var ok bool
+		targetExpression, ok = p.ParseMemberAccessExpression(targetExpression)
+		if !ok {
+			return AssignmentStatement{}, false
+		}
+		p.skipComments()
+	}
 
 	// The assignment operator is either plain `=` or a compound form
 	// (`+=`, `-=`, `*=`); the latter records the arithmetic operator.
@@ -671,10 +795,11 @@ func (p *Parser) ParseAssignmentStatement() (AssignmentStatement, bool) {
 	}
 
 	return AssignmentStatement{
-		Position: posOf(target),
-		Target:   Identifier{Position: posOf(target), Name: target.Lexeme},
-		Operator: operator,
-		Value:    value,
+		Position:         posOf(target),
+		Target:           root,
+		TargetExpression: targetExpression,
+		Operator:         operator,
+		Value:            value,
 	}, true
 }
 
@@ -1024,8 +1149,35 @@ func (p *Parser) ParseBlockStatement() (BlockStatement, bool) {
 			continue
 		}
 
-		if p.Current().Kind == token.Kind_Identifier &&
-			isAssignmentOperator(p.Peek().Kind) {
+		assignmentStart := false
+		if p.Current().Kind == token.Kind_Identifier {
+			index := p.Position + 1
+			for index < len(p.Tokens) &&
+				isCommentKind(p.Tokens[index].Kind) {
+				index++
+			}
+			for index < len(p.Tokens) &&
+				p.Tokens[index].Kind == token.Symbol_Dot {
+				index++
+				for index < len(p.Tokens) &&
+					isCommentKind(p.Tokens[index].Kind) {
+					index++
+				}
+				if index >= len(p.Tokens) ||
+					p.Tokens[index].Kind != token.Kind_Identifier {
+					break
+				}
+				index++
+				for index < len(p.Tokens) &&
+					isCommentKind(p.Tokens[index].Kind) {
+					index++
+				}
+			}
+			assignmentStart = index < len(p.Tokens) &&
+				isAssignmentOperator(p.Tokens[index].Kind)
+		}
+
+		if assignmentStart {
 			identStmt, ok := p.ParseAssignmentStatement()
 			if !ok {
 				p.synchronizeStatement(start)
@@ -1101,7 +1253,7 @@ func (p *Parser) ParseFunctionParameter() (FunctionParameter, bool) {
 	if _, ok := p.Expect(token.Symbol_Colon, "Symbol : expected"); !ok {
 		return FunctionParameter{}, false
 	}
-	paramType, ok := p.Expect(token.Kind_Identifier, "identifier expected")
+	paramType, ok := p.ParseTypeReference()
 	if !ok {
 		return FunctionParameter{}, false
 	}
@@ -1112,12 +1264,7 @@ func (p *Parser) ParseFunctionParameter() (FunctionParameter, bool) {
 			Position: posOf(paramName),
 			Name:     paramName.Lexeme,
 		},
-		Type: TypeReference{
-			Name: Identifier{
-				Position: posOf(paramType),
-				Name:     paramType.Lexeme,
-			},
-		},
+		Type: paramType,
 	}, true
 }
 
@@ -1182,65 +1329,41 @@ func (p *Parser) ParseFunctionDeclaration() (FunctionDeclaration, bool) {
 
 	if p.Current().Kind == token.Symbol_Colon {
 		p.Advance() //consume colon
-		returnTypeToken, ok := p.Expect(
-			token.Kind_Identifier,
-			"identifier expected",
-		)
+		returnType, ok := p.ParseTypeReference()
 		if !ok {
 			return FunctionDeclaration{}, false
 		}
-		returns = append(
-			returns,
-			TypeReference{Name: Identifier{Name: returnTypeToken.Lexeme}},
-		)
+		returns = append(returns, returnType)
 
 		p.skipComments()
 		for p.Current().Kind == token.Symbol_Comma {
 			p.Advance() // consume comma
-			returnTypeToken, ok := p.Expect(
-				token.Kind_Identifier,
-				"identifier expected",
-			)
+			returnType, ok := p.ParseTypeReference()
 			if !ok {
 				return FunctionDeclaration{}, false
 			}
-			returns = append(
-				returns,
-				TypeReference{Name: Identifier{Name: returnTypeToken.Lexeme}},
-			)
+			returns = append(returns, returnType)
 			p.skipComments()
 		}
 
 		p.skipComments()
 		if p.Current().Kind == token.Symbol_Pipe {
 			p.Advance() //consume | symbol
-			errorType, ok := p.Expect(
-				token.Kind_Identifier,
-				"identifier expected",
-			)
+			errorType, ok := p.ParseTypeReference()
 			if !ok {
 				return FunctionDeclaration{}, false
 			}
 
-			errors = append(
-				errors,
-				TypeReference{Name: Identifier{Name: errorType.Lexeme}},
-			)
+			errors = append(errors, errorType)
 
 			p.skipComments()
 			for p.Current().Kind == token.Symbol_Comma {
 				p.Advance() // consume comma
-				errorType, ok := p.Expect(
-					token.Kind_Identifier,
-					"identifier expected",
-				)
+				errorType, ok := p.ParseTypeReference()
 				if !ok {
 					return FunctionDeclaration{}, false
 				}
-				errors = append(
-					errors,
-					TypeReference{Name: Identifier{Name: errorType.Lexeme}},
-				)
+				errors = append(errors, errorType)
 				p.skipComments()
 			}
 		}
@@ -1281,6 +1404,271 @@ func (p *Parser) ParseConstDeclaration() (ConstDeclaration, bool) {
 	}, true
 }
 
+func (p *Parser) ParseRecordTypeBody() (TypeRHS, bool) {
+	open, ok := p.Expect(token.Symbol_LeftBrace, "symbol { expected")
+	if !ok {
+		return nil, false
+	}
+
+	var operands []CompositionOperand
+	var fields []RecordField
+	hasSpread := false
+
+	p.skipComments()
+	for p.Current().Kind != token.Symbol_RightBrace {
+		if p.Current().Kind == token.Kind_EOF {
+			p.addError(open.Line, open.Column, "unterminated record type")
+			return nil, false
+		}
+
+		if p.Current().Kind == token.Symbol_Ellipsis {
+			hasSpread = true
+			if len(fields) > 0 {
+				inline := RecordRHS{
+					Position: fields[0].Position,
+					Fields:   append([]RecordField(nil), fields...),
+				}
+				operands = append(operands, CompositionOperand{
+					Position: inline.Position,
+					Inline:   &inline,
+				})
+				fields = nil
+			}
+			spread := p.Advance()
+			target, ok := p.ParseTypeReference()
+			if !ok {
+				return nil, false
+			}
+			if _, ok := p.Expect(token.Symbol_Semicolon, "symbol ; expected"); !ok {
+				return nil, false
+			}
+			targetCopy := target
+			operands = append(operands, CompositionOperand{
+				Position: posOf(spread),
+				Named:    &targetCopy,
+			})
+			p.skipComments()
+			continue
+		}
+
+		if p.Current().Kind == token.Kind_Identifier &&
+			(p.Current().Lexeme == "public" ||
+				p.Current().Lexeme == "private") &&
+			p.Peek().Kind == token.Kind_Identifier {
+			current := p.Current()
+			p.addError(
+				current.Line,
+				current.Column,
+				"field visibility is not allowed in record types (§8.5)",
+			)
+			return nil, false
+		}
+
+		name, ok := p.Expect(token.Kind_Identifier, "field name expected")
+		if !ok {
+			return nil, false
+		}
+		p.skipComments()
+		if p.Current().Kind == token.Symbol_LeftParen {
+			p.addError(
+				name.Line,
+				name.Column,
+				"methods are not allowed in record types (§8.5)",
+			)
+			return nil, false
+		}
+		if _, ok := p.Expect(token.Symbol_Colon, "symbol : expected"); !ok {
+			return nil, false
+		}
+		fieldType, ok := p.ParseTypeReference()
+		if !ok {
+			return nil, false
+		}
+		p.skipComments()
+		if p.Current().Kind == token.Symbol_Equals {
+			p.addError(
+				p.Current().Line,
+				p.Current().Column,
+				"field defaults are not allowed in record types (§8.11)",
+			)
+			return nil, false
+		}
+		if _, ok := p.Expect(token.Symbol_Semicolon, "symbol ; expected"); !ok {
+			return nil, false
+		}
+		fields = append(fields, RecordField{
+			Position: posOf(name),
+			Name: Identifier{
+				Position: posOf(name),
+				Name:     name.Lexeme,
+			},
+			Type: fieldType,
+		})
+		p.skipComments()
+	}
+
+	if _, ok := p.Expect(token.Symbol_RightBrace, "symbol } expected"); !ok {
+		return nil, false
+	}
+
+	if !hasSpread {
+		return RecordRHS{
+			Position: posOf(open),
+			Fields:   fields,
+		}, true
+	}
+
+	if len(fields) > 0 {
+		inline := RecordRHS{
+			Position: fields[0].Position,
+			Fields:   append([]RecordField(nil), fields...),
+		}
+		operands = append(operands, CompositionOperand{
+			Position: inline.Position,
+			Inline:   &inline,
+		})
+	}
+	return CompositionRHS{
+		Position: posOf(open),
+		Operands: operands,
+		Style:    SpreadForm,
+	}, true
+}
+
+func (p *Parser) ParseTypeRHS() (TypeRHS, bool) {
+	p.skipComments()
+	if p.Current().Kind == token.Symbol_LeftParen {
+		current := p.Current()
+		p.addError(
+			current.Line,
+			current.Column,
+			"parentheses in type RHS are not supported (§8.13)",
+		)
+		return nil, false
+	}
+
+	var first TypeRHS
+	switch p.Current().Kind {
+	case token.Kind_Identifier:
+		target, ok := p.ParseTypeReference()
+		if !ok {
+			return nil, false
+		}
+		first = AliasRHS{Position: target.Name.Position, Target: target}
+	case token.Symbol_LeftBrace:
+		var ok bool
+		first, ok = p.ParseRecordTypeBody()
+		if !ok {
+			return nil, false
+		}
+	default:
+		current := p.Current()
+		p.addError(current.Line, current.Column, "type RHS expected")
+		return nil, false
+	}
+
+	p.skipComments()
+	if p.Current().Kind != token.Symbol_Ampersand {
+		return first, true
+	}
+
+	var operands []CompositionOperand
+	switch first := first.(type) {
+	case AliasRHS:
+		target := first.Target
+		operands = append(operands, CompositionOperand{
+			Position: target.Name.Position,
+			Named:    &target,
+		})
+	case RecordRHS:
+		inline := first
+		operands = append(operands, CompositionOperand{
+			Position: inline.Position,
+			Inline:   &inline,
+		})
+	case CompositionRHS:
+		operands = append(operands, first.Operands...)
+	}
+
+	for p.Current().Kind == token.Symbol_Ampersand {
+		p.Advance()
+		p.skipComments()
+
+		switch p.Current().Kind {
+		case token.Kind_Identifier:
+			target, ok := p.ParseTypeReference()
+			if !ok {
+				return nil, false
+			}
+			targetCopy := target
+			operands = append(operands, CompositionOperand{
+				Position: target.Name.Position,
+				Named:    &targetCopy,
+			})
+		case token.Symbol_LeftBrace:
+			rhs, ok := p.ParseRecordTypeBody()
+			if !ok {
+				return nil, false
+			}
+			switch rhs := rhs.(type) {
+			case RecordRHS:
+				inline := rhs
+				operands = append(operands, CompositionOperand{
+					Position: inline.Position,
+					Inline:   &inline,
+				})
+			case CompositionRHS:
+				operands = append(operands, rhs.Operands...)
+			}
+		case token.Symbol_LeftParen:
+			current := p.Current()
+			p.addError(
+				current.Line,
+				current.Column,
+				"parentheses in type RHS are not supported (§8.13)",
+			)
+			return nil, false
+		default:
+			current := p.Current()
+			p.addError(current.Line, current.Column, "composition operand expected")
+			return nil, false
+		}
+		p.skipComments()
+	}
+
+	return CompositionRHS{
+		Position: first.Pos(),
+		Operands: operands,
+		Style:    IntersectionForm,
+	}, true
+}
+
+func (p *Parser) ParseTypeDeclaration() (TypeDeclaration, bool) {
+	keyword := p.Advance()
+	name, ok := p.Expect(token.Kind_Identifier, "type name expected")
+	if !ok {
+		return TypeDeclaration{}, false
+	}
+	if _, ok := p.Expect(token.Symbol_Equals, "symbol = expected"); !ok {
+		return TypeDeclaration{}, false
+	}
+	rhs, ok := p.ParseTypeRHS()
+	if !ok {
+		return TypeDeclaration{}, false
+	}
+	if _, ok := p.Expect(token.Symbol_Semicolon, "symbol ; expected"); !ok {
+		return TypeDeclaration{}, false
+	}
+	return TypeDeclaration{
+		Position: posOf(keyword),
+		Name: Identifier{
+			Position: posOf(name),
+			Name:     name.Lexeme,
+		},
+		RHS: rhs,
+	}, true
+}
+
 func (p *Parser) ParseDeclaration() (Declaration, bool) {
 	if isCommentKind(p.Current().Kind) {
 		return p.ParseComment(), true
@@ -1293,6 +1681,14 @@ func (p *Parser) ParseDeclaration() (Declaration, bool) {
 			return nil, false
 		}
 
+		return declaration, true
+	}
+
+	if p.Current().Kind == token.Keyword_Type {
+		declaration, ok := p.ParseTypeDeclaration()
+		if !ok {
+			return nil, false
+		}
 		return declaration, true
 	}
 
@@ -1330,6 +1726,7 @@ func (p *Parser) synchronizeDeclaration(start int) {
 		switch p.Current().Kind {
 		case token.Keyword_Function,
 			token.Keyword_Const,
+			token.Keyword_Type,
 			token.Kind_LineComment,
 			token.Kind_BlockComment:
 			return

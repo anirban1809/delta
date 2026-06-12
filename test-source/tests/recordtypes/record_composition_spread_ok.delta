@@ -1,0 +1,11 @@
+type Animal = { species: int32; age: int32; };
+type AnimalAlias = Animal;
+type Dog    = { ...AnimalAlias; goodBoy: bool; };
+
+function main(): int32 {
+    const d: Dog = { species: 1, age: 3, goodBoy: true };
+    if (d.species != 1) { return 1; }
+    if (d.age != 3)     { return 2; }
+    if (!d.goodBoy)     { return 3; }
+    return 0;
+}

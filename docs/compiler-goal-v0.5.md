@@ -11,7 +11,7 @@ A user can write a **multi-file** Delta project that:
 
 1. Splits across modules using `import` and `export`, with at least one user module and one standard library module.
 2. Defines classes with private state and public methods.
-3. Mutates instances through `mod borrowed` references and reads them through `borrowed` references.
+3. Mutates instances through `edit &` references and reads them through `&` references.
 4. Transfers ownership with `move` and copies cloneable state with `clone`.
 5. Performs trapping numeric computation across the full primitive type set from §5–§6.
 6. Recovers from fallible operations with `as result` and `check`.
@@ -23,8 +23,8 @@ A user can write a **multi-file** Delta project that:
 - Return coverage on non-`void` functions.
 - Cross-scope shadowing rejection.
 - Move-state tracking (no use-after-move; no conditional moves).
-- Borrow exclusivity at call sites.
-- Class capability rules (`const` binding cannot call `mod` methods).
+- Reference exclusivity at call sites.
+- Class capability rules (`const` binding cannot call `edit` methods).
 - Import/export visibility (a non-`export` declaration is invisible to importers).
 
 This is the smallest milestone past the v0 baseline that commits the compiler to Delta's safety identity *and* establishes the module system the rest of the spec depends on. It excludes the full string family, generics, interfaces, decorators, tagged unions, arrays, and slices — those are later milestones.
@@ -47,7 +47,7 @@ export class Counter {
         return this.value;
     }
 
-    public mod add(delta: int64): void | OverflowError {
+    public edit add(delta: int64): void | OverflowError {
         this.value = this.value + delta as result;
         check result {
             return error as OverflowError { };
@@ -64,7 +64,7 @@ export class Counter {
 import { Counter } from "./counter";
 import { info } from "std/log";
 
-function bump(c: mod borrowed Counter, amount: int64): void | OverflowError {
+function bump(c: edit &Counter, amount: int64): void | OverflowError {
     c.add(amount) as result;
     check result {
         return error as OverflowError { };
@@ -72,7 +72,7 @@ function bump(c: mod borrowed Counter, amount: int64): void | OverflowError {
     return;
 }
 
-function readSum(a: borrowed Counter, b: borrowed Counter): int64 {
+function readSum(a: &Counter, b: &Counter): int64 {
     return a.get() + b.get();
 }
 
@@ -84,16 +84,16 @@ function main(): int32 {
     let a = Counter.new(10);
     let b = Counter.new(20);
 
-    bump(mod borrowed a, 5) as result;
+    bump(edit &a, 5) as result;
     check result {
         return 1;
     }
-    bump(mod borrowed a, 7) as result;
+    bump(edit &a, 7) as result;
     check result {
         return 1;
     }
 
-    const total = readSum(borrowed a, borrowed b);
+    const total = readSum(&a, &b);
     info("total", total);
 
     const finalValue = consume(move a);
@@ -185,8 +185,8 @@ The full feature surface required for the acceptance program, grouped by spec se
 - Class literal `Name { field: value; ... }` legal **only inside the class body** (§9).
 - Static functions: `public static name(...)` for construction and utilities.
 - Instance methods with implicit `this`.
-- `mod` method marker for mutating receivers.
-- Method dispatch rules: a `const` binding may only call non-`mod` methods; a `let` binding or a `mod borrowed` reference may call both.
+- `edit` method marker for mutating receivers.
+- Method dispatch rules: a `const` binding may only call non-`edit` methods; a `let` binding or an `edit &` reference may call both.
 - Recursive read-only-ness of `const` bindings through fields, per §11.
 - Single namespace per class — no name collision between fields and methods; overloading within methods is allowed.
 - Automatic field disposal at scope exit, emitted by the compiler.
@@ -207,15 +207,15 @@ The full feature surface required for the acceptance program, grouped by spec se
 - Disposal of `const`-bound owned values at scope exit, emitted by the compiler.
 - Excluded from v0.5: user-supplied `uses Cloneable` and `uses Disposable` hooks.
 
-### Phase G — Safe borrows (§12)
+### Phase G — Safe references (§12)
 
-- `borrowed T` and `mod borrowed T` parameter types.
-- `borrowed x` and `mod borrowed x` at call sites — named storage paths only (binding or `binding.field` chain). No temporaries, no expressions.
-- Capability rule: a `const` binding produces `borrowed` only; a `let` binding produces both.
-- Root-based exclusivity check across a single call's argument list: many `borrowed` references or one `mod borrowed` reference on overlapping roots, never both.
-- Method dispatch through borrows respects capability — `borrowed Counter` cannot call `mod` methods.
-- Borrows cannot satisfy by-value parameters.
-- Borrows cannot escape: no returning them, no storing them in fields, no binding them to outer-scope `let`s.
+- `&T` and `edit &T` parameter types.
+- `&x` and `edit &x` at call sites — named storage paths only (binding or `binding.field` chain). No temporaries, no expressions.
+- Capability rule: a `const` binding produces `&` only; a `let` binding produces both.
+- Root-based exclusivity check across a single call's argument list: many `&` references or one `edit &` reference on overlapping roots, never both.
+- Method dispatch through references respects capability — `&Counter` cannot call `edit` methods.
+- References cannot satisfy by-value parameters.
+- References cannot escape: no returning them, no storing them in fields, no binding them to outer-scope `let`s.
 
 ### Phase H — `heap T` indirection (§8, §9, §13) — narrow slice
 
@@ -284,18 +284,18 @@ Phases **I (modules), D (extern), J (std/log), A, B, C, E** — roughly in that 
 - The full primitive type surface is type-checked and lowered correctly.
 - Definite assignment, return coverage, and shadowing are enforced.
 - Fallible signatures and `check` / `as result` are end-to-end, including the tagged-result C lowering.
-- Classes work as inline value types with public/private members, static functions, and `mod` methods.
+- Classes work as inline value types with public/private members, static functions, and `edit` methods.
 - `extern "c"` allows declaring C functions for use by stdlib and (where needed) user code.
 
-The intentionally-unsound gap at the end of v0.5a: passing a class by value emits a plain struct copy. There is no `move`, no `clone`, no borrow checker yet, so the compiler does not stop you from using a "moved-from" binding. v0.5b closes this gap.
+The intentionally-unsound gap at the end of v0.5a: passing a class by value emits a plain struct copy. There is no `move`, no `clone`, no reference checker yet, so the compiler does not stop you from using a "moved-from" binding. v0.5b closes this gap.
 
-### v0.5b — Ownership, borrows, heap indirection
+### v0.5b — Ownership, references, heap indirection
 
 Phases **F, G, H**. At the end of v0.5b:
 
 - Move state is tracked per binding; use-after-move is a compile error.
 - `move x` and `clone x` are the only ways to transfer or duplicate move-only values.
-- `borrowed` and `mod borrowed` parameters work, with root-based exclusivity at call sites.
+- `&` and `edit &` parameters work, with root-based exclusivity at call sites.
 - `heap T` enables owning indirection with automatic disposal.
 - The struct-copy hole from v0.5a becomes a compile error and is replaced by the real ownership story.
 
@@ -315,8 +315,8 @@ The goal is reached when, on a clean checkout, with `main.delta` and `counter.de
 
    and exits with status `0`.
 3. A variant of the program that reads `a` after `consume(move a)` fails `delta build` with a diagnostic that names the moved binding and points at both the `move` site and the use site.
-4. A variant that calls `c.add(...)` through a `borrowed Counter` (instead of `mod borrowed Counter`) fails with a capability diagnostic.
-5. A variant that passes `mod borrowed a` and `borrowed a` to the same call fails with a borrow-exclusivity diagnostic.
+4. A variant that calls `c.add(...)` through a `&Counter` (instead of `edit &Counter`) fails with a capability diagnostic.
+5. A variant that passes `edit &a` and `&a` to the same call fails with a reference-exclusivity diagnostic.
 6. A variant that omits `check` on a fallible call fails with an unhandled-fallible diagnostic.
 7. A variant that imports a symbol `counter.delta` does **not** `export` fails with a visibility diagnostic.
 8. A variant that creates an import cycle between two user modules fails with a diagnostic naming the cycle path.

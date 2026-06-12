@@ -1,0 +1,6 @@
+type Animal = { species: int32; age: int32; };
+type Bad    = { ...Animal; age: int32; };
+
+function main(): int32 {
+    return 0;
+}

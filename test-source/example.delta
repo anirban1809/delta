@@ -1,4 +1,4 @@
-function gcd(a: int64, b: int64): int64 {
+function gcd(a: int32, b: int32): int64 {
     let x: int64;
     let y: int64;
     if (a < b) { x = b; y = a; } else { x = a; y = b; }
@@ -11,8 +11,8 @@ function gcd(a: int64, b: int64): int64 {
 }
 
 function main():int32 {
-    if (gcd(int64(48),int64(48))!=0) {
-
+    if (gcd(48, 48) == 0) {
+        return 1;
     }
     return 0;
 }

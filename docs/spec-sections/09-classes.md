@@ -37,7 +37,7 @@ class Counter {
     return this.value;
   }
 
-  public mod increment(): void {
+  public edit increment(): void {
     this.value += 1;
   }
 }
@@ -163,7 +163,7 @@ class Vec2 {
     };
   }
 
-  public static copyOf(v: borrowed Vec2): Vec2 {
+  public static copyOf(v: &Vec2): Vec2 {
     return Vec2 { ...v };      // ERROR - no class-literal spread in MVP
   }
 }
@@ -262,13 +262,13 @@ class Counter {
     return Counter { value };
   }
 
-  public static sameValue(a: borrowed Counter, b: borrowed Counter): bool {
+  public static sameValue(a: &Counter, b: &Counter): bool {
     return a.value == b.value; // OK - same class private access
   }
 }
 
 class Thief {
-  public static steal(c: borrowed Counter): int32 {
+  public static steal(c: &Counter): int32 {
     return c.value;            // ERROR - private field of another class
   }
 }
@@ -305,36 +305,36 @@ class BadParser {
 
 ---
 
-### 9.5 Instance Methods and `mod`
+### 9.5 Instance Methods and `edit`
 
 **Proposal.** Instance methods use an implicit `this` receiver. The receiver is not written in the parameter list.
 
-A method that mutates the receiver is marked with the `mod` keyword. A method must be `mod` if it:
+A method that mutates the receiver is marked with the `edit` keyword. A method must be `edit` if it:
 
 - directly assigns to a field of `this`,
-- calls another `mod` method on `this`,
-- calls a `mod` method on a field of `this`.
+- calls another `edit` method on `this`,
+- calls an `edit` method on a field of `this`.
 
-Non-`mod` methods cannot mutate through `this`; the compiler enforces this. Methods are callable according to the receiver capability:
+Non-`edit` methods cannot mutate through `this`; the compiler enforces this. Methods are callable according to the receiver capability:
 
-| Receiver | Can call `mod`? | Can call non-`mod`? |
+| Receiver | Can call `edit`? | Can call non-`edit`? |
 |---|---:|---:|
 | `let c` | Yes | Yes |
 | `const c` | No | Yes |
 | `let h: heap T` | Yes | Yes |
 | `const h: heap T` | No | Yes |
-| `mod borrowed Counter` | Yes | Yes |
-| `borrowed Counter` | No | Yes |
+| `edit &Counter` | Yes | Yes |
+| `&Counter` | No | Yes |
 
-A mutable borrow is written `mod borrowed T`; a plain `borrowed T` is read-only (the `readonly` keyword does not exist — read-only is the unmarked default; [§8.8](#88-borrows-on-type-values-borrowed-t)). The `heap T` indirection is **transparent** for method calls: a heap-allocated instance has exactly the same capability as an inline one, determined by the binding (`let` vs `const`) or borrow form. Auto-deref ([§8.7](#87-recursion-and-indirection-heap-t)) means `h.increment()` on a `let h: heap Counter` calls `increment` on the pointed-to value with no explicit dereference.
+A mutable reference is written `edit &T`; a plain `&T` is read-only (the `readonly` keyword does not exist — read-only is the unmarked default; [§8.8](#88-references-on-type-values)). The `heap T` indirection is **transparent** for method calls: a heap-allocated instance has exactly the same capability as an inline one, determined by the binding (`let` vs `const`) or reference form. Auto-deref ([§8.7](#87-recursion-and-indirection-heap-t)) means `h.increment()` on a `let h: heap Counter` calls `increment` on the pointed-to value with no explicit dereference.
 
 Methods are not first-class values in MVP. They may only be called through an instance. Instance methods and static functions use the same overload rules as ordinary functions.
 
-**Reason.** `mod` makes mutation part of the method signature. A reader can see whether a method may change the instance without inspecting the body, and `const` / read-only `borrowed` receivers have a clear call matrix.
+**Reason.** `edit` makes mutation part of the method signature. A reader can see whether a method may change the instance without inspecting the body, and `const` / read-only `&` receivers have a clear call matrix.
 
 The transitive rule prevents mutation from hiding behind helper methods or field methods. If `Logger.rotate()` mutates `this.file`, it is a mutating operation on `Logger`, even if the assignment happens through a field method.
 
-First-class method values are deferred because they raise receiver-capture questions: does `c.get` copy, move, or borrow `c`? How long does a captured mutable receiver live? Those questions belong to the closure/lifetime design, not MVP class semantics.
+First-class method values are deferred because they raise receiver-capture questions: does `c.get` copy, move, or reference `c`? How long does a captured mutable receiver live? Those questions belong to the closure/lifetime design, not MVP class semantics.
 
 **Examples.**
 ```ts
@@ -349,11 +349,11 @@ class Counter {
     return this.value;
   }
 
-  public mod increment(): void {
+  public edit increment(): void {
     this.value += 1;
   }
 
-  public mod add(amount: int32): void {
+  public edit add(amount: int32): void {
     this.increment();
     this.value += amount;
   }
@@ -365,7 +365,7 @@ const n = c.get();           // OK
 
 const frozen = Counter.create(0);
 frozen.get();                // OK
-frozen.increment();          // ERROR - `mod` method on const receiver
+frozen.increment();          // ERROR - `edit` method on const receiver
 ```
 
 ```ts
@@ -373,7 +373,7 @@ class BadCounter {
   private value: int32;
 
   public reset(): void {
-    this.value = 0;          // ERROR - method must be marked `mod`
+    this.value = 0;          // ERROR - method must be marked `edit`
   }
 }
 ```
@@ -383,7 +383,7 @@ const getter = Counter.get;  // ERROR - methods are not values in MVP
 const bound = c.get;         // ERROR - no bound method values in MVP
 ```
 
-**Conclusion.** `mod` is the class mutation marker. Receiver capability controls which methods may be called. Methods are not first-class in MVP.
+**Conclusion.** `edit` is the class mutation marker. Receiver capability controls which methods may be called. Methods are not first-class in MVP.
 
 ---
 
@@ -398,7 +398,7 @@ const bound = c.get;         // ERROR - no bound method values in MVP
 - Derivation succeeds only if every stored field is Copyable.
 - `heap T` is never Copyable.
 - A class that uses `Disposable` cannot use `Copyable`.
-- `mod` methods do not block `Copyable`.
+- `edit` methods do not block `Copyable`.
 - User-defined custom copy implementations are not supported in MVP.
 
 There are exactly two value-level operations on bindings, and **there is no `copy` operator**:
@@ -410,7 +410,7 @@ A standalone `copy x` operator is **not** part of the language: for Copyable val
 
 **Deep copy** is always explicit and goes through the `clone` operator ([§14.4](#144-the-clone-operator)), never through assignment. `clone x` allocates, so it is fallible and consumed with `as result`. Deep copy is **auto-derived markerlessly** for every cloneable class — one that is not `Disposable` and whose every field is copyable or cloneable ([§14.1](#141-the-copyability-classifier)). A class may declare `uses Cloneable` to supply *custom* clone behavior through a recognized `clone()` hook; the marker is optional and only customizes the otherwise-derived behavior. A resource-owning class is `Disposable` and therefore never cloneable: a class holding a `File` offers no clone, which is exactly what prevents duplicating the underlying OS handle.
 
-`return` is an ownership-transfer boundary. Returning an owned local binding or by-value parameter transfers it to the caller without requiring explicit `move`, including for non-Copyable classes. This implicit return transfer does not apply to fields, indexes, borrowed values, globals, or captured variables.
+`return` is an ownership-transfer boundary. Returning an owned local binding or by-value parameter transfers it to the caller without requiring explicit `move`, including for non-Copyable classes. This implicit return transfer does not apply to fields, indexes, referenced values, globals, or captured variables.
 
 **Reason.** The compiler cannot infer class copyability from field structure alone. A `File` may contain only an `int32` descriptor, but fieldwise copying it would duplicate ownership of an OS resource. Therefore classes must be move-only unless the author explicitly asks for fieldwise copy derivation.
 
@@ -427,7 +427,7 @@ class Counter uses Copyable {
     return Counter { value: start };
   }
 
-  public mod increment(): void {
+  public edit increment(): void {
     this.value += 1;
   }
 }
@@ -468,8 +468,8 @@ function identityFile(file: File): File {
   return file;          // OK - return transfers owned parameter to caller
 }
 
-function bad(file: borrowed File): File {
-  return file;          // ERROR - borrowed value is not owned
+function bad(file: &File): File {
+  return file;          // ERROR - referenced value is not owned
 }
 ```
 
@@ -515,7 +515,7 @@ A value's lifetime ends at the close of its enclosing scope; there is no early-d
 
 Disposal is driven by definite-assignment state: a binding is disposed at scope exit only on paths where it is definitely initialized and has not been moved out of. A `let value: T;` that is conditionally assigned ([§9.2](#92-controlled-construction)) is therefore disposed only on the paths where it actually holds a value — the same liveness tracking that already exempts moved-from bindings.
 
-**Reason.** Cleanup is ownership consumption, not ordinary mutation. Treating `dispose()` as a normal `mod` method creates a tension with `const` and invites manual double-dispose errors. Making it compiler-recognized keeps cleanup deterministic while removing direct user misuse. Note this means `const` restricts *mutation*, not *destruction*: a `const` value still has its lifetime end and is still disposed at that point — `const` prevents you from changing the value, not from the compiler reclaiming it when its ownership ends.
+**Reason.** Cleanup is ownership consumption, not ordinary mutation. Treating `dispose()` as a normal `edit` method creates a tension with `const` and invites manual double-dispose errors. Making it compiler-recognized keeps cleanup deterministic while removing direct user misuse. Note this means `const` restricts *mutation*, not *destruction*: a `const` value still has its lifetime end and is still disposed at that point — `const` prevents you from changing the value, not from the compiler reclaiming it when its ownership ends.
 
 Automatic field disposal after the custom hook prevents both missed cleanup and double cleanup. The class body handles resources not otherwise modeled as fields; field ownership remains compiler-managed.
 
@@ -548,7 +548,7 @@ class Logger uses Disposable {
   private file: File;
   private buffer: Buffer;
 
-  public mod rotate(next: File): void {
+  public edit rotate(next: File): void {
     this.file = move next;   // old file is disposed/replaced automatically
   }
 
@@ -584,11 +584,11 @@ check result { return 1; }
 
 ### 9.8 Field Mutation and Replacement
 
-**Proposal.** Field assignment is allowed through mutable receiver capability: a `let` binding, a `mod borrowed T`, or inside a `mod` method on `this`. Field assignment follows normal Copyable-or-explicit-move rules.
+**Proposal.** Field assignment is allowed through mutable receiver capability: a `let` binding, an `edit &T`, or inside an `edit` method on `this`. Field assignment follows normal Copyable-or-explicit-move rules.
 
 Replacing a field automatically disposes/drops the old value before installing the new value. The field is never user-observable as uninitialized.
 
-Moving a non-Copyable field out of a class value is not supported in MVP, even inside `mod` methods. Public non-Copyable fields may be read-borrowed, mutably borrowed when the receiver is mutable, and replaced, but not extracted by value.
+Moving a non-Copyable field out of a class value is not supported in MVP, even inside `edit` methods. Public non-Copyable fields may be read-referenced, mutably referenced when the receiver is mutable, and replaced, but not extracted by value.
 
 **Reason.** Assignment should own replacement cleanup. Requiring users to manually clean the old value before every field assignment would create missed-cleanup and double-cleanup bugs.
 
@@ -599,7 +599,7 @@ Forbidding field moves keeps class instances from entering partially invalid sta
 class Session {
   private file: File;
 
-  public mod replaceFile(next: File): void {
+  public edit replaceFile(next: File): void {
     this.file = next;       // ERROR - File is not Copyable
     this.file = move next;  // OK - old file disposed, new file installed
   }
@@ -610,7 +610,7 @@ class Session {
 class Socket {
   private handle: FileDescriptor;
 
-  public mod intoRawFd(): FileDescriptor {
+  public edit intoRawFd(): FileDescriptor {
     return this.handle;     // ERROR - cannot move out of class field in MVP
   }
 }
@@ -626,7 +626,7 @@ class Wrapper {
 }
 
 let w = Wrapper.create(move file);
-inspect(borrowed w.file);  // OK
+inspect(&w.file);  // OK
 const f = w.file;                    // ERROR - would move non-Copyable field out
 w.file = move otherFile;             // OK if `w` is mutable; old field disposed/replaced
 ```
@@ -639,7 +639,7 @@ w.file = move otherFile;             // OK if `w` is mutable; old field disposed
 
 **Proposal.** Classes do not support `==` or `!=` in MVP, even if they use `Copyable` and all fields support equality. `Copyable` does not imply equality.
 
-Class authors may expose equality as ordinary methods. Storage identity uses the existing `same(...)` intrinsic on indirected forms: `borrowed T`, `mod borrowed T`, and `heap T`. Inline class values cannot be passed directly to `same(...)`.
+Class authors may expose equality as ordinary methods. Storage identity uses the existing `same(...)` intrinsic on indirected forms: `&T`, `edit &T`, and `heap T`. Inline class values cannot be passed directly to `same(...)`.
 
 **Reason.** Fieldwise equality is appropriate for transparent `type` records. Classes hide invariants and may represent resources, handles, caches, or semantic identities whose equality is not their field tuple. Therefore equality is an API decision, not a compiler-derived operator.
 
@@ -654,7 +654,7 @@ class Counter uses Copyable {
     return Counter { value };
   }
 
-  public equals(other: borrowed Counter): bool {
+  public equals(other: &Counter): bool {
     return this.value == other.value;
   }
 }
@@ -663,13 +663,13 @@ let a = Counter.create(1);
 let b = Counter.create(1);
 
 const bad = a == b;                     // ERROR - no `==` on class values
-const ok = a.equals(borrowed b); // OK
+const ok = a.equals(&b); // OK
 ```
 
 ```ts
 same(a, b);                             // ERROR - inline values have no storage identity
-same(borrowed a, borrowed a);           // true
-same(borrowed a, borrowed b);           // false
+same(&a, &a);           // true
+same(&a, &b);           // false
 ```
 
 **Conclusion.** Classes have no equality operators in MVP. Use methods for semantic equality and `same(...)` for explicit storage identity.
@@ -751,7 +751,7 @@ The following are deliberately out of scope, either deferred to a later section 
 - **Consuming `this` methods** — out of scope for MVP.
 - **First-class method values** — out of scope for MVP.
 - **Class equality operators** — out of scope for MVP.
-- **Borrowed return values from class methods** — deferred to the lifetime design in [§12](#12-safe-borrows-borrowed-mod-borrowed).
+- **Referenced return values from class methods** — deferred to the lifetime design in [§12](#12-safe-references).
 - **Interior mutability** — deferred. Patterns like caches, memoization, `Cell<T>`, atomics, and mutex-backed mutation are not specified here.
 - **General trait grammar and trait composition** — deferred to the future trait/interface section. Section 9 only relies on the compiler-recognized `Copyable`, `Disposable`, and `View of S` markers.
 
@@ -762,11 +762,11 @@ The following are deliberately out of scope, either deferred to a later section 
 This section requires coordinated edits elsewhere in the spec:
 
 - **§8.7, §8.13, §36** — use `heap T` consistently for owning heap indirection.
-- **§8.10** — confirm `same(...)` applies to borrowed and heap class values under the same indirection rules as other nominal values.
-- **§11** — class `mod` callability should be referenced from the `const` / `let` mutability model.
-- **§12 / §14** — account for explicit `move`, the `clone` operator (no `copy` operator), markerless-derived `Cloneable` with an optional custom `clone()` hook, class move-only defaults, the `borrowed` / `mod borrowed` borrow forms, and deferred borrowed returns.
+- **§8.10** — confirm `same(...)` applies to referenced and heap class values under the same indirection rules as other nominal values.
+- **§11** — class `edit` callability should be referenced from the `const` / `let` mutability model.
+- **§12 / §14** — account for explicit `move`, the `clone` operator (no `copy` operator), markerless-derived `Cloneable` with an optional custom `clone()` hook, class move-only defaults, the `&` / `edit &` reference forms, and deferred referenced returns.
 - **§29** — tagged unions may include class variants; construction uses already-constructed variant values.
 - **§30** — variant dispatch is `switch type` (the `match` keyword is removed); its narrowing/exhaustiveness details belong to the tagged-union control-flow section, not to classes.
 - **§33 / §34** — `using` and `defer` are removed; disposal is automatic and implicit for every owned value (LIFO), with `Disposable` as the optional custom-hook marker. Lifetime narrowing is by function extraction; arbitrary cleanup uses a `Disposable` guard value.
 - **§36** — user-visible heap indirection is `heap T`.
-- **§52** — MVP scope includes classes with static construction functions, private-by-default members, `mod` methods, compiler-derived `Copyable`, markerless-derived `Cloneable` (with optional custom `clone()` hook), compiler-recognized `Disposable`, explicit class move and `clone` semantics, and no inheritance or constructors.
+- **§52** — MVP scope includes classes with static construction functions, private-by-default members, `edit` methods, compiler-derived `Copyable`, markerless-derived `Cloneable` (with optional custom `clone()` hook), compiler-recognized `Disposable`, explicit class move and `clone` semantics, and no inheritance or constructors.

@@ -1,247 +1,391 @@
 ## 14. Ownership & Move Semantics
 
-Section 14 is the home section for Delta's ownership model: how values are classified as copyable, cloneable, or move-only; the three non-overlapping duplication operations (plain assignment, `move`, `clone`) and the deliberate absence of a `copy` operator; the operand grammar of `move` and `clone`; how move state flows through branches, loops, and revival; why partial moves out of aggregates are forbidden; how `return` acts as the one implicit transfer boundary; and how ownership interacts with the pending state of fallible results. The recurring principles are **duplication is never silent and never half-done** (every owned duplication is either a visible `clone`, or it is a plain copy the compiler has proven costs nothing), **ownership has exactly one owner** (a moved-from binding is dead until revived, and is never disposed twice), and **the compiler proves move state, it never guesses** (no drop flags, no conditional-move bookkeeping — a binding's state at any point is statically known on every path). Each sub-feature below follows the Proposal / Reason / Examples / Conclusion structure.
+Section 14 is the home section for Delta's ownership model: how values are classified as copyable, cloneable, or unique; the three non-overlapping ways to obtain another usable value (`assignment`, `move`, `clone`); how generic tier bounds determine body discipline; how move state flows through branches, loops, and revival; why partial moves out of aggregates are forbidden; how `return` acts as the one implicit transfer boundary; and how ownership interacts with pending fallible results. The recurring principles are **duplication is never hidden for owned resources**, **ownership has exactly one owner**, and **the compiler proves move state statically**.
 
 ---
 
-### 14.1 The Copyability Classifier
+### 14.1 The Ownership Tier Classifier
 
-**Proposal.** Every type falls into exactly one of three tiers, derived bottom-up from its structure:
+**Proposal.** Every type falls into exactly one of three ownership tiers:
 
-- **Copyable** — duplicated by plain assignment and by-value passing, at zero cost. The copyable base set is: all primitive numeric types, `bool`, `char`, enums ([§28](#28-enums)), the `Wrap<T>` / `Saturate<T>` tags ([§5.6](#56-wrapt-and-saturatet-type-tags)), and all view types (`stringview`, `cstringview`, `Slice<T>`, any class marked `uses View of S`). An aggregate — a `type` record, a fixed array `T[N]`, or a tagged union — is copyable **iff every field, element, and variant is copyable**. A class is **never** copyable by structure; it is copyable only if it explicitly declares `uses Copyable` ([§9.6](#96-copy-and-move-semantics)).
-- **Cloneable** — not copyable, but deep-copyable via the explicit `clone` operator ([§14.4](#144-the-clone-operator)). A type is cloneable iff it is **not `Disposable`** and **every field is copyable or cloneable**. `heap T` is cloneable iff `T` is copyable or cloneable. `string`, `cstring`, `Array<T>`, `Buffer`, `StringBuilder` and similar std owned types are cloneable. Derivation is **markerless** for both `type` records and classes; `uses Cloneable` is an *optional* opt-in that supplies custom clone behavior ([§14.4](#144-the-clone-operator)), never a requirement for clone to exist.
-- **Move-only, non-cloneable** — anything `Disposable`, or any aggregate containing a `Disposable` (or otherwise non-cloneable) field. These values can be `move`d but never duplicated. `File`, a `Logger` that owns a `File`, an arena, a lock guard — all live here.
+- **Copyable** - duplicated by plain assignment and by-value passing. Copying has no ownership effect on the source.
+- **Cloneable** - not copyable, but explicitly duplicable with `clone`. Cloning may allocate.
+- **Unique** - neither copyable nor cloneable. A unique value can only be moved or referenced.
 
-The classifier is recursive with the base set as its fixed point; the three tiers partition every type.
+Only `unique` is explicitly declared, with `unique class Name`. Copyability and cloneability are structurally inferred from fields for every other type. There is no `uses Copyable` or `uses Cloneable` ownership marker in this model.
 
-**Reason.** The split is driven by *cost and safety visibility*. Copyable values cost nothing to duplicate, so plain assignment may do it silently. Cloneable values cost an allocation, so duplication must be the visible, fallible `clone` operator — never silent. Move-only-non-cloneable values cannot be safely duplicated at all: duplicating a `File` would create two owners of one OS handle and double-close it.
+The classifier is recursive:
 
-The Disposable exclusion is the load-bearing safety rule. It is what lets clone derivation be markerless without reintroducing the resource-duplication bug that makes `Copyable` opt-in for classes ([§9.6](#96-copy-and-move-semantics)): a type that owns a resource must mark `uses Disposable` to release it, and `Disposable` is excluded from cloneable, so resource owners are never cloneable. The residual sharp edge — a class that hides an *untracked* resource in a bare copyable field without marking `Disposable` would be silently cloneable — is accepted, with the standing guidance "model every owned resource as `Disposable`."
+- The copyable base set includes primitive numeric types, `bool`, `char`, enums, the `Wrap<T>` / `Saturate<T>` tags, read-only references (`&T`), and view values such as `Slice<T>`, `stringview`, and `cstringview`.
+- A `type` record, fixed array, tagged union, or non-unique class is copyable iff every stored field, element, or variant payload is copyable.
+- A type is cloneable iff it is not copyable, is not unique, and every stored field, element, or variant payload is copyable or cloneable.
+- `heap T` is cloneable iff `T` is copyable or cloneable. It is never copyable, because copying the heap handle would duplicate ownership of one allocation.
+- A `unique class` is unique. Any aggregate containing a unique field is unique by structure.
+- A stored mutable reference (`edit &T`) is a unique capability. Any aggregate containing one is unique; a class containing one must be declared `unique class`.
 
-The asymmetry between `Copyable` (opt-in for classes) and `Cloneable` (markerless for classes) is principled, not an oversight: `Copyable` enables *implicit* duplication through ordinary assignment, which is accident-prone and therefore gated behind an explicit opt-in to protect invariants; `clone` is *always explicit* at the call site and can never fire by accident, and its one dangerous case is already excluded by the Disposable rule — so it needs no gate.
+`dispose()` is permitted only on `unique class`. Writing a `dispose()` hook on a non-unique class is a compile error. A unique class may omit `dispose()` if it has no custom cleanup beyond field disposal.
+
+**Reason.** The split is about visibility of duplication and cleanup. Copyable values can be duplicated silently because no ownership is duplicated. Cloneable values own resources that can be independently duplicated, but that duplication is visible at the call site through `clone`. Unique values represent resources or capabilities that cannot be duplicated safely.
+
+Making only `unique` explicit puts the burden on the dangerous case. A class with only copyable fields is copyable by structure. A class with cloneable owned fields is cloneable by structure. A class that owns a non-duplicable resource says so up front with `unique class`.
 
 **Examples.**
 ```ts
-// copyable — every field copyable
-type Vec3 = { x: float32; y: float32; z: float32; };     // copyable
-type Span = { text: stringview; len: uintsize; };        // copyable (view + primitive)
+// copyable - every field is copyable
+type Vec3 = { x: float32; y: float32; z: float32; };
+type Span = { text: stringview; len: uintsize; };
 
-// cloneable — not copyable, but no resource and all fields copyable/cloneable
-type Doc = { title: string; body: string; };             // cloneable (owns strings)
-type Tree = { value: int32; left: heap Tree; right: heap Tree; };  // cloneable
+class Counter {
+  private value: int32;
+}
+// Counter is copyable by structure.
 
-// move-only, non-cloneable — owns a resource
-class File uses Disposable { /* ... */ }                  // not cloneable (Disposable)
-type Session = { conn: File; id: uint64; };               // not cloneable (field `conn` is Disposable)
+// cloneable - owns cloneable storage
+type Doc = { title: string; body: string; };
+class Buffer {
+  private bytes: Array<uint8>;
+}
+// Doc and Buffer are cloneable by structure.
 
-// classes: copyable only by opt-in; cloneable markerlessly when qualified
-class Counter uses Copyable { private value: int32; }     // copyable
-class Buffer { private bytes: Array<uint8>; }             // cloneable (markerless), not copyable
+// unique - explicitly non-duplicable
+unique class File {
+  private fd: FileDescriptor;
+
+  dispose(): void {
+    os.close(this.fd);
+  }
+}
+
+type Session = { conn: File; id: uint64; };
+// Session is unique because it contains File.
 ```
 
-**Conclusion.** Three tiers — copyable, cloneable, move-only-non-cloneable — derived bottom-up. Copyable base set is fixed; aggregates inherit the weakest tier of their parts; classes are copyable only via `uses Copyable` but cloneable markerlessly when not `Disposable` and every field is copyable/cloneable.
+Invalid `dispose()`:
+```ts
+class BadCounter {
+  private value: int32;
+
+  dispose(): void { }                 // ERROR - dispose requires unique class
+}
+```
+
+Mutable reference field:
+```ts
+@lifetime(db)
+unique class Transaction {
+  private db: edit &Database;
+  private committed: bool;
+
+  dispose(): void {
+    if (!this.committed) {
+      this.db.rollbackRaw();
+    }
+  }
+}
+```
+
+Generic tier bounds are also part of the ownership classifier:
+
+- `<T>` accepts only copyable `T`.
+- `<clone T>` accepts only cloneable `T`.
+- `<unique T>` accepts only unique `T`.
+
+The bound determines body discipline directly. Signatures do not change per instantiation.
+
+```ts
+function copyTwice<T>(x: T): Pair<T> {
+  return { left: x, right: x };        // OK - T is copyable
+}
+
+function snapshot<clone T>(x: T): T {
+  return clone x;                      // OK - explicit duplicate, aborts on OOM
+}
+
+function consumeUnique<unique T>(x: T): void {
+  sink(move x);                        // OK - explicit transfer
+}
+```
+
+For `<clone T>`, bare reuse is forbidden; the body must choose `&x`, `move x`, or `clone x` / `clone x as result`. There is no last-use-is-implicit-move exception:
+
+```ts
+function bad<clone T>(x: T): void {
+  sink(x);                             // ERROR - cloneable bare-pass forbidden
+}
+
+function ok<clone T>(x: T): void {
+  sink(clone x);                       // OK - duplicate, aborts on OOM
+  inspect(&x);                         // OK - reference
+  sink(move x);                        // OK - transfer
+}
+```
+
+For `<unique T>`, bare reuse is also forbidden; the body may use `&x` or `move x`, but never `clone x`. A `<unique T>` body has access to unique-tier semantics: values are automatically disposed at ownership end, can satisfy APIs that require unique resources, and still cannot call `dispose()` manually.
+
+```ts
+function badUnique<unique T>(x: T): void {
+  sink(x);                             // ERROR - unique bare-pass forbidden
+  sink(clone x);                       // ERROR - unique values cannot clone
+}
+
+function okUnique<unique T>(x: T): void {
+  inspect(&x);                         // OK
+  sink(move x);                        // OK
+}
+```
+
+Container declarations are tier-specific. `Array<T>`, `Array<clone T>`, and `Array<unique T>` are separate standard-library declarations. There is no tier-polymorphic `<any T>` escape hatch in MVP.
+
+**Conclusion.** Delta has three tiers: copyable, cloneable, and unique. Only `unique class` is explicit. Copyability and cloneability are inferred structurally, and generic bounds choose one tier at a time.
 
 ---
 
 ### 14.2 Three Operations, No `copy` Operator
 
-**Proposal.** There are exactly three ways to get a second usable value or binding from an existing one, and they do not overlap:
+**Proposal.** There are exactly three ways to obtain another usable value or binding from an existing one:
 
-- **Plain assignment / by-value passing** (`let b = a;`, `f(a)`) **copies** when `a`'s type is copyable, and is a **compile error** when `a`'s type is move-only (cloneable or non-cloneable). Assignment never moves implicitly and never deep-copies implicitly.
-- **`move x`** transfers ownership of an owned value; the source binding becomes invalid ([§14.3](#143-the-move-operator)).
-- **`clone x`** produces an independent deep copy of a copyable-or-cloneable value; it allocates and is therefore fallible, consumed with `as result` ([§14.4](#144-the-clone-operator)).
+- **Plain assignment / by-value passing** copies only copyable values.
+- **`move x`** transfers ownership of a cloneable or unique value; the source becomes moved-from.
+- **`clone x`** duplicates a copyable or cloneable value. For cloneable values this is a deep duplicate; for copyable values it is redundant and warns.
 
-There is **no `copy` operator** and no `copy` keyword. For copyable values, plain assignment already produces an independent copy; for owned values, duplication is never a trivial bitwise act, so it is the explicit `clone`.
+There is no `copy` operator and no `copy` keyword.
 
-**Reason.** A `copy x` operator would carry no meaning that assignment does not already provide for copyable values, and for owned values it would either be a footgun (silently shallow-copying a heap owner) or a redundant spelling of `clone`. Collapsing to three non-overlapping operations — assignment copies, `move` transfers, `clone` deep-copies — leaves no redundant keyword and one obvious choice at every site.
+For cloneable and unique values, bare assignment and bare by-value passing are compile errors. The call site must spell the chosen ownership action:
+
+```ts
+g(b);                                 // ERROR - cloneable bare-pass forbidden
+g(move b);                            // OK - transfer
+g(&b);                                // OK - reference
+g(clone b);                           // OK - duplicate, aborts on OOM
+g(clone b as result);                 // OK - recoverable clone
+check result { return; }
+```
+
+For unique values:
+
+```ts
+use(file);                            // ERROR - unique bare-pass forbidden
+use(clone file);                      // ERROR - unique values cannot clone
+use(&file);                           // OK - reference
+use(move file);                       // OK - transfer
+```
+
+**Reason.** Assignment should never hide ownership transfer or heap allocation. Copyable values are the only values cheap and safe enough for silent duplication. Cloneable values can be duplicated, but only with visible `clone`. Unique values cannot be duplicated at all.
 
 **Examples.**
 ```ts
 let v: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
-let w = v;                          // OK — copy (Vec3 is copyable)
+let w = v;                            // OK - Vec3 is copyable
 
-let d: Doc = makeDoc();
-let e = d;                          // ERROR — Doc is move-only; assignment cannot copy it
-let e = clone d as result;          // OK — explicit deep copy (fallible)
-check result { return 1; }
-let g = move d;                     // OK — ownership transfer; `d` invalid afterward
+let doc = makeDoc();                  // Doc is cloneable
+let doc2 = doc;                       // ERROR - cloneable assignment forbidden
+let doc2 = clone doc;                 // OK - duplicate, aborts on OOM
+let doc3 = move doc;                  // OK - ownership transfer
 ```
 
-**Conclusion.** Assignment copies copyable values, `move` transfers ownership, `clone` deep-copies owned values. No `copy` operator exists.
+```ts
+let file = File.open(path) as result;
+check result { return; }
+
+let file2 = file;                     // ERROR - File is unique
+let file2 = clone file;               // ERROR - File is unique
+let file2 = move file;                // OK
+```
+
+**Conclusion.** Assignment copies only copyable values. `move` transfers ownership. `clone` explicitly duplicates cloneable values. No `copy` operator exists.
 
 ---
 
 ### 14.3 The `move` Operator
 
-**Proposal.** `move x` transfers ownership of the value bound to `x`. After the move, `x` is **moved-from**: reading, mutating, borrowing, moving, or cloning it is a compile error until it is revived ([§14.6](#146-revival-by-reassignment)). Use-after-move is always a compile error, never a runtime check.
+**Proposal.** `move x` transfers ownership of a live owned binding. After the move, `x` is moved-from: reading, mutating, referencing, moving, or cloning it is a compile error until it is revived ([§14.6](#146-revival-by-reassignment)).
 
-The operand of `move` is restricted to a **live, owned binding referenced by its whole name** — a local `let` binding or an owned by-value parameter. The following are rejected:
+The operand of `move` is restricted to a live owned binding referenced by its whole name: a local `let` binding or an owned by-value parameter. The following are rejected:
 
-- `move x.field` — partial move out of an aggregate ([§14.8](#148-no-partial-moves-out-of-aggregates)).
-- `move arr[i]` — indexed element.
-- `move makeFile()` — a temporary; the call result is already yours, nothing owns it.
-- `move constX` — `const` is non-consuming ([§11.1](#111-binding-capabilities)).
-- `move borrowedX` — a borrow does not own its referent ([§12.8](#128-borrowed-values-are-not-owned-values)).
+- `move x.field` - partial move out of an aggregate ([§14.8](#148-no-partial-moves-out-of-aggregates)).
+- `move arr[i]` - indexed element.
+- `move makeFile()` - a temporary; the call result is already yours.
+- `move constX` - `const` is non-consuming.
 
-The operand must also be **live** (definitely initialized and not already moved-from) on every path reaching the `move`, under the same definite-assignment tracking that governs disposal and reads ([§11.5](#115-whole-value-initialization-only)).
+`move` on a copyable value is permitted but redundant. It acts as a copy and emits a warning; the source remains live.
 
-**Reason.** Keyword-prefix `move` makes ownership transfer visible at the start of the expression, where review cannot skim past it. Restricting the operand to a whole named binding mirrors the borrow-operand rule ([§12.5](#125-borrow-operands-and-addressability)): if a value's ownership is transferred, the source shows exactly which named storage is being emptied. Temporaries are excluded because there is nothing to invalidate; `const` and borrows because they do not own.
+`move` never converts a reference into ownership of its referent. A value of type `&T` is a non-owning reference value. Moving or copying that value only moves or copies the reference itself; it never moves the `T`.
+
+**Reason.** Keyword-prefix `move` makes transfer visible. Restricting the operand to a whole owned binding keeps move state simple: a binding is either live, moved-from, or absent. Partial moves would make aggregate values half-alive.
 
 **Examples.**
 ```ts
 let f = File.open("a.txt") as result;
 check result { return 1; }
 
-consume(move f);                    // ownership transferred
-console.writeLine(f.path);          // ERROR — use after move
+consume(move f);                      // ownership transferred
+inspect(&f);                          // ERROR - use after move
 
 let pair: Pair = makePair();
-consume(move pair.left);            // ERROR — partial move out of aggregate
-consume(move makeFile());           // ERROR — temporary has no owning binding
+consume(move pair.left);              // ERROR - partial move out of aggregate
+consume(move makeFile());             // ERROR - temporary has no owning binding
 
-function archive(doc: Doc): void {  // owned by-value parameter
-  store(move doc);                  // OK — params are owned bindings
+function archive(doc: Doc): void {    // owned by-value parameter
+  store(move doc);                    // OK
 }
 ```
 
-**Conclusion.** `move x` transfers ownership and invalidates the source. Operand is a live, owned binding (local or by-value parameter), whole-name only. Use-after-move is a compile error.
+Copyable redundancy:
+```ts
+let v: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
+let w = move v;                       // WARNING - move redundant; Vec3 is copyable
+print(v);                             // OK - v stayed live
+```
+
+**Conclusion.** `move x` transfers ownership from a whole live owned binding. It invalidates cloneable and unique sources, warns on copyable sources, and never moves out of fields, elements, temporaries, or references.
 
 ---
 
 ### 14.4 The `clone` Operator
 
-**Proposal.** `clone x` produces an independent deep copy of a copyable-or-cloneable value. Because cloning allocates, it is a **fallible expression**: `clone x` has type `T | AllocError`, and like every fallible expression it must be handled — bound with `as result` and resolved by `check`, or discarded with `ignore` ([§26](#26-explicit-error-ignoring-ignore)). A bare unhandled `clone x;` is the compile error **"Fallible expression must be handled."** As a prefix operator, `clone x as result` parses as `(clone x) as result`.
+**Proposal.** `clone x` produces an independent duplicate of a copyable or cloneable value. For cloneable values, it performs a recursive deep clone. For copyable values, it is redundant and emits a warning.
 
-The operand of `clone` is any **readable** path — broader than `move`, because `clone` only reads its source and never invalidates it:
+Allocation failure policy:
 
-- a binding, whether `const` or `let`;
-- an owned by-value parameter, or a `borrowed` / `mod borrowed` parameter;
-- field paths through any of the above (`clone doc.title`), with `heap T` auto-deref;
-- a temporary is still rejected (`clone makeDoc()`) — bind it first, for the same readability reason borrows reject temporaries ([§12.5](#125-borrow-operands-and-addressability)).
+- Bare `clone x` aborts on allocation failure. It does not add `AllocError` to the surrounding function signature and does not require `as result`.
+- `clone x as result` opts into recoverable allocation failure. The result is consumed with `check result`, `forward result`, or another ordinary result-handling form.
 
-**Derivation and customization.** Clone is auto-derived markerlessly for every cloneable type. Derived clone is **recursive**: copyable fields are copied, cloneable fields are recursively cloned, and a `heap T` field allocates a fresh box around a cloned `T`. A class may declare `uses Cloneable` to supply **custom** clone behavior through a compiler-recognized `clone()` hook (signature `clone(): Self | <Error>`); user code never calls the hook directly — the `clone x` operator dispatches to it, exactly as disposal dispatches to `dispose()` ([§9.7](#97-disposal-and-disposable)). The `uses Cloneable` marker is mutually exclusive with `uses Disposable` and is never required for clone to exist on a qualifying type.
+The old rule "fallible expression must be handled" does not apply to bare `clone`. Clone follows the same policy as bounds and overflow checks: panic/abort by default, recoverable when explicitly requested.
 
-**Transactional cleanup.** Derived clone is **transactional**: if a per-field clone fails partway through, every field already cloned is disposed (reverse declaration order, LIFO) before the `AllocError` is returned. The partially-built value never becomes visible; the caller's `check` sees a clean failure with nothing leaked. A custom `uses Cloneable` hook is responsible for its own cleanup; the derived path is transactional by construction.
+The operand of `clone` is any readable path:
 
-`clone` on a copyable value is a redundant-clone **warning** (use plain assignment instead). `clone` on a non-cloneable type is a hard **error** naming the field that blocks cloneability (e.g. "type `Session` is not cloneable: field `conn: File` is `Disposable`").
+- a `const` or `let` binding,
+- an owned by-value parameter,
+- a reference parameter (`&T` or `edit &T`), cloning the referent,
+- field paths through any of the above, with `heap T` auto-deref.
 
-**Reason.** A `clone` operator (rather than a `.clone()` method) gives clean symmetry with `move`: the two ways to derive another value from `x` are `move x` (transfer) and `clone x` (duplicate), both prefix, both reading as exactly what they do. Fallibility is mandatory because the allocation can fail, and routing it through the existing `as result` machinery means readers who learned error handling for I/O get clone-failure handling for free. The broad readable-operand grammar reflects that clone is a pure read of its source — the most common case is `clone` of a `borrowed` parameter (`snapshot(doc: borrowed Document)` → `clone doc`), which a move-style restriction would wrongly forbid. Transactional cleanup is what keeps a failed clone from being a leak channel.
+Temporaries are rejected for readability: bind the value first.
+
+Derived clone is structural and recursive. Copyable fields are copied, cloneable fields are recursively cloned, and `heap T` fields allocate fresh boxes around cloned `T` values. Clone is transactional on the recoverable `as result` path: if a per-field clone fails, already-created cloned fields are disposed before `AllocError` is returned. On the bare path, allocation failure aborts and no partially-built value becomes visible.
+
+There is no `uses Cloneable` marker in this model. Cloneability is inferred from fields.
+
+**Reason.** `clone` is the visible operation for duplicating owned data. Making bare clone abort-on-OOM optimizes the common systems-programming path: most application code treats allocation failure like other local deterministic traps. Arena, embedded, or service code that needs graceful exhaustion handling can opt into `clone x as result`.
+
+The broad readable operand grammar matters because cloning reads; it does not consume. Cloning through a reference is the common shape for snapshot APIs.
 
 **Examples.**
 ```ts
-// deep copy of an owned value — fallible
 let original = string.from("hello") as result;
 check result { return 1; }
-let dup = clone original as result;
-check result { return 1; }
-// `original` still valid; `dup` is an independent buffer
 
-// clone through a borrowed parameter (the common case)
-function snapshot(doc: borrowed Document): Document | AllocError {
+let dup = clone original;             // OK - aborts on OOM
+log(original);                        // OK - original remains live
+log(dup);
+```
+
+Recoverable clone:
+```ts
+let dup = clone original as result;
+check result {
+  return error as AllocError {
+    code: "alloc.clone",
+    message: result.error.message,
+  };
+}
+```
+
+Forwarding recoverable allocation failure:
+```ts
+function duplicateDoc(doc: &Document): Document | AllocError {
   const copy = clone doc as result;
-  check result { return error as AllocError { code: "alloc.clone", message: result.error.message }; }
+  forward result;
   return copy;
 }
-
-// field-path clone with as result
-const titleCopy = clone doc.title as result;
-check result { return 1; }
-
-// unhandled clone — error
-clone original;                     // ERROR — "Fallible expression must be handled"
-
-// redundant / impossible clones
-const w = clone v as result;        // WARNING — Vec3 is copyable; use assignment
-const s = clone session as result;  // ERROR — Session is not cloneable (field `conn: File` is Disposable)
 ```
 
+Cloning through a reference:
 ```ts
-// custom clone via uses Cloneable
-class RingBuffer uses Cloneable {
-  private data: Array<uint8>;
-  private head: uintsize;
-
-  clone(): RingBuffer | AllocError {
-    const copied = clone this.data as result;   // hook is responsible for its own cleanup
-    check result { return error as AllocError { code: "alloc.clone", message: result.error.message }; }
-    return RingBuffer { data: move copied, head: this.head };
-  }
+function snapshot(doc: &Document): Document {
+  return clone doc;                    // OK - clone the referenced document
 }
-
-let rb2 = clone rb as result;       // operator dispatches to the custom hook
-check result { return 1; }
 ```
 
-**Conclusion.** `clone x` is the fallible deep-copy operator. Auto-derived markerlessly and recursively for cloneable types, customizable via the `uses Cloneable` `clone()` hook, transactional on partial failure. Operand is any readable path; copyable clone warns, non-cloneable clone errors.
+Field-path clone:
+```ts
+const titleCopy = clone doc.title;     // OK if doc.title is cloneable
+```
+
+Redundant and impossible clones:
+```ts
+const w = clone v;                     // WARNING - Vec3 is copyable; use assignment
+const f2 = clone file;                 // ERROR - File is unique
+```
+
+**Conclusion.** `clone x` is explicit duplication. Bare clone aborts on allocation failure; `clone x as result` opts into recovery. Cloneability is structural, recursive, and unavailable for unique values.
 
 ---
 
 ### 14.5 Move State at Control-Flow Joins
 
-**Proposal.** A binding's move state is tracked per path. At a control-flow merge, a binding is **moved-from** if it is moved on **any** path reaching the merge. Consequently:
+**Proposal.** A binding's move state is tracked per path. At a control-flow merge, a binding is moved-from if it is moved on any path reaching the merge. Consequently:
 
-- A use of the binding after the merge must be statically safe on **all** reaching paths; reading a binding that was moved on some path is a compile error.
-- Moving a binding on **some-but-not-all** paths that reach the merge is itself a compile error. Code must move the binding on **every** reaching path or **none** — there is no conditional-move bookkeeping and no runtime drop flag.
-- The exception: a path that **diverges** before the merge (`return`, `panic`, `break`, `continue`, `process.exit`, `unreachable` — the terminators of [§6.9](#69-exit-path-terminators)) does not reach the merge, so a `move` on a diverging path is fine. The rule is "every path that *reaches the merge* agrees on the binding's state."
+- A use of the binding after the merge must be statically safe on all reaching paths.
+- Moving a binding on some-but-not-all paths that reach a merge is a compile error.
+- A path that diverges before the merge (`return`, `panic`, `break`, `continue`, `process.exit`, `unreachable`) does not reach the merge, so a move on that path is fine.
 
-**Reason.** Forbidding conditional moves removes the need for drop flags — hidden per-binding booleans that track at runtime whether a value still needs disposal. That machinery is a classic source of subtle codegen bugs and makes disposal non-obvious. Requiring agreement at the merge keeps a binding's state statically known everywhere, which is what makes use-after-move and double-dispose pure compile-time properties. The divergence exception costs nothing — a returning branch never rejoins, so its move cannot reach later code.
+**Reason.** This removes runtime drop flags. The compiler always knows whether a binding is live or moved-from at every program point.
 
 **Examples.**
 ```ts
-// moved on some-but-not-all paths reaching the merge — error
 let f = File.open("a.txt") as result;
 check result { return 1; }
+
 if (cond) {
   consume(move f);
 }
-log(f.path);                        // ERROR — `f` may have been moved
+inspect(&f);                          // ERROR - f may have been moved
 
-// moved on a diverging path — OK (never reaches the merge)
 if (cond) {
   consume(move f);
-  return 0;                         // diverges
+  return 0;                           // diverges
 }
-log(f.path);                        // OK — only the non-moved path reaches here
+inspect(&f);                          // OK - only non-moved path reaches here
 
-// moved on every reaching path — OK (binding is uniformly dead after)
 if (cond) { consume(move f); }
 else      { archive(move f); }
-log(f.path);                        // ERROR — moved on both paths, uniformly moved-from
+inspect(&f);                          // ERROR - moved on all reaching paths
 ```
 
-**Conclusion.** Moved-on-any-path means moved-from at the merge. Conditional moves (some-but-not-all reaching paths) are a compile error; move on all reaching paths or none. Diverging paths are exempt. No drop flags.
+**Conclusion.** Move state is path-sensitive and statically known at merges. Conditional moves that rejoin are rejected; diverging paths are exempt. No drop flags.
 
 ---
 
 ### 14.6 Revival by Reassignment
 
-**Proposal.** A moved-from binding may be **revived** by whole-value assignment, after which it is fully live again — readable, mutable, borrowable, movable, clonable. Revival uses the same machinery as initializing a `let x: T;` declared without an initializer ([§11.5](#115-whole-value-initialization-only)). Partial revival through a field (`f.field = ...`) is forbidden; only whole-value assignment revives.
+**Proposal.** A moved-from `let` binding may be revived by whole-value assignment. After revival, it is fully live again: readable, mutable, referenceable, movable, and clonable. Partial revival through a field is forbidden.
 
-`const` bindings cannot be revived because they cannot be moved-from in the first place (moving from `const` is forbidden, [§11.3](#113-methods-copying-cloning-and-moving)).
+`const` bindings cannot be revived because they cannot be moved from.
 
-**Reason.** Without revival, every consume-then-reuse pattern would force the author to invent fresh names (`f2`, `f3`), which reads as accidental duplication. Allowing revival by whole-value assignment keeps the name stable while preserving the "a binding is either uninitialized/moved-from or holds a complete value" invariant — the same state machine §11.5 already enforces. Partial revival is excluded for the same reason partial initialization is: it would create half-valid values.
+**Reason.** Revival keeps consume-then-reuse patterns ergonomic without weakening the complete-value invariant. A binding is absent, moved-from, or holds a complete value; it is never half-valid.
 
 **Examples.**
 ```ts
 let f = File.open("a.txt") as result;
 check result { return 1; }
 
-consume(move f);                    // `f` now moved-from
-f.close();                          // ERROR — moved-from binding
-f = File.open("b.txt") as result;  // revival by whole-value assignment
+consume(move f);                      // f is moved-from
+inspect(&f);                          // ERROR
+
+f = File.open("b.txt") as result;     // revival by whole-value assignment
 check result { return 1; }
-f.close();                          // OK — `f` is live again
+inspect(&f);                          // OK
 ```
 
-**Conclusion.** Whole-value assignment revives a moved-from binding. Partial revival is forbidden; `const` bindings are never moved-from and so never revived.
+**Conclusion.** Whole-value assignment revives a moved-from `let` binding. Partial revival is forbidden.
 
 ---
 
 ### 14.7 Moves in Loops
 
-**Proposal.** A loop back-edge is treated as a control-flow merge ([§14.5](#145-move-state-at-control-flow-joins)). For a binding declared **outside** the loop, moving it in the loop body and not reviving it before the next iteration reaches the use is a compile error ("`x` moved in a previous iteration"). A binding declared **inside** the loop body is fresh on each iteration, so moving it is always legal.
+**Proposal.** A loop back-edge is treated as a control-flow merge. For a binding declared outside the loop, moving it in the loop body and not reviving it before the next iteration reaches a use is a compile error. A binding declared inside the loop body is fresh on each iteration, so moving it is legal.
 
-**Reason.** The back-edge carries "moved on the previous iteration" to the top of the next one, so iteration 2 would otherwise read a moved-from value. Treating the back-edge as a merge reuses the §14.5 analysis with no new machinery. Inner-declared bindings escape the rule naturally: each iteration constructs them anew, so there is no carried-over moved-from state.
+**Reason.** The next iteration would otherwise observe a moved-from outer binding. Inner bindings do not have carried-over state.
 
 **Examples.**
 ```ts
@@ -249,120 +393,132 @@ let f = File.open("log.txt") as result;
 check result { return 1; }
 
 for (const path of paths) {
-  consume(move f);                  // ERROR — `f` moved in a previous iteration
+  consume(move f);                    // ERROR - f moved in a previous iteration
 }
 
 for (const path of paths) {
   const item = build(path) as result;  // fresh each iteration
   check result { continue; }
-  consume(move item);               // OK — inner binding, fresh per iteration
+  consume(move item);                 // OK
 }
 
 for (const path of paths) {
-  consume(move f);                  // moved...
-  f = File.open(path) as result;    // ...then revived before the back-edge
+  consume(move f);
+  f = File.open(path) as result;      // revived before back-edge
   check result { break; }
-}                                   // OK — revived each iteration
+}
 ```
 
-**Conclusion.** Outer-binding moves in a loop require revival before the next iteration; inner-binding moves are always fine.
+**Conclusion.** Outer-binding moves in a loop require revival before the next iteration; inner-binding moves are fresh per iteration.
 
 ---
 
 ### 14.8 No Partial Moves Out of Aggregates
 
-**Proposal.** Moving a single field, element, or subobject out of an aggregate is forbidden, uniformly for both `type` records and classes. `move x.field`, `move arr[i]`, and moving out through a borrow ([§12.6](#126-mutation-replacement-and-moving)) are all compile errors. A binding is moved as a **whole** or not at all. To extract one owned field, either `clone` it (if cloneable) or `move` the whole aggregate into a function that consumes it.
+**Proposal.** Moving a field, element, or subobject out of an aggregate is forbidden. `move x.field`, `move arr[i]`, and moving out through a reference are compile errors. A binding is moved as a whole or not at all. To extract one owned field, either clone it if cloneable or move the whole aggregate into a consuming helper.
 
-**Reason.** A partial move would leave the aggregate in a half-alive state — one field dead, the rest live — and force the compiler to track which fields remain initialized across every subsequent operation, plus which still need disposal. That per-field liveness bookkeeping is exactly the complexity §9.8 already declines for classes; applying the same rule to records keeps the model uniform and keeps every aggregate value either whole or wholly moved.
+**Reason.** A partial move would leave an aggregate half-alive and force per-field move/disposal tracking. Delta keeps aggregate state whole.
 
 **Examples.**
 ```ts
 type Pair = { left: Buffer; right: Buffer; };
 let pair: Pair = makePair();
 
-consume(move pair.left);            // ERROR — partial move out of aggregate
-const l = clone pair.left as result;  // OK — clone the field instead
-check result { return 1; }
+consume(move pair.left);              // ERROR - partial move out of aggregate
+const l = clone pair.left;            // OK if Buffer is cloneable
 
-consume(move pair);                 // OK — whole-aggregate move
+consume(move pair);                   // OK - whole aggregate move
 ```
 
-**Conclusion.** No partial moves. Move the whole aggregate, or `clone` the field you need.
+**Conclusion.** No partial moves. Move the whole aggregate, or clone the field you need.
 
 ---
 
 ### 14.9 Return as the Implicit Transfer Boundary
 
-**Proposal.** `return` is the **one** place where ownership transfers without an explicit `move`. Returning an owned local binding or an owned by-value parameter transfers it to the caller, including for move-only types. This implicit transfer applies **only** to owned locals and by-value parameters; it does **not** apply to fields, indexed elements, borrowed values, globals, or captured variables — returning any of those by value is a compile error (a borrowed value is not owned; a field would be a partial move).
+**Proposal.** `return` is the one place where ownership transfers without explicit `move`. Returning an owned local binding or owned by-value parameter transfers it to the caller, including cloneable and unique values. This implicit transfer applies only to owned locals and by-value parameters. It does not apply to fields, indexed elements, references, globals, or captured variables.
 
-A returned copyable value is simply copied out; a returned move-only value is transferred.
+A returned copyable value is copied.
 
-**Reason.** `return` already leaves the current ownership context, so transferring an owned local to the caller is unsurprising there — requiring `return move x` would be noise at the one site where the transfer is implied by the control flow itself. The exclusions preserve the other invariants: fields can't be partially moved ([§14.8](#148-no-partial-moves-out-of-aggregates)), borrows aren't owned ([§12.8](#128-borrowed-values-are-not-owned-values)), and views freshly derived from local/borrowed storage can't escape ([§13.6](#136-fresh-derived-view-lifetimes)).
+**Reason.** `return` already exits the current ownership context, so transfer is expected there. The exclusions preserve the no-partial-move and no-reference-to-owned-value invariants.
 
 **Examples.**
 ```ts
 function identity(file: File): File {
-  return file;                      // OK — owned by-value parameter transfers to caller
+  return file;                        // OK - owned parameter transfers out
 }
 
 function makeDoc(): Doc {
   const d = buildDoc();
-  return d;                         // OK — owned local transfers out
+  return d;                           // OK - owned local transfers out
 }
 
 function leakField(box: FileBox): File {
-  return box.file;                  // ERROR — would be a partial move out of `box`
+  return box.file;                    // ERROR - partial move out of box
 }
 
-function leakBorrow(file: borrowed File): File {
-  return file;                      // ERROR — borrowed value is not owned
+function leakRef(file: &File): File {
+  return file;                        // ERROR - reference is not ownership
 }
 ```
 
-**Conclusion.** `return` transfers owned locals and by-value parameters implicitly. Fields, borrows, indexed elements, globals, and captures are excluded.
+**Conclusion.** `return` transfers owned locals and by-value parameters implicitly. Fields, references, indexed elements, globals, and captures are excluded.
 
 ---
 
 ### 14.10 Ownership of Pending Fallible Values
 
-**Proposal.** A binding produced by a fallible call and bound with `as result` is **pending** until its `check` block has run ([§22](#22-consuming-fallible-calls-as-result)). A pending binding cannot be read, mutated, borrowed, **moved**, or **cloned**. `move r` or `clone r` on a still-pending `r` is a compile error ("`r` is unchecked"). After the `check` block exits, the success value is a normal owned binding and `move` / `clone` work.
+**Proposal.** A binding produced by a fallible call and bound with `as result` is pending until its `check` block has run. A pending binding cannot be read, mutated, referenced, moved, or cloned. After the `check` block exits, the success value is a normal owned binding.
 
-**Reason.** A pending value may actually be in the error state; consuming it before the error path is handled would transfer or duplicate a value that does not validly exist. Gating `move` and `clone` behind the same `check` that gates ordinary reads keeps the rule uniform — there is exactly one point at which a fallible result becomes a usable owned value, and every ownership operation respects it.
+This rule applies to `clone x as result` as well. The clone result is pending until checked. Bare `clone x` does not create a pending result because it aborts on allocation failure.
+
+**Reason.** A pending value may actually be in the error state. Ownership operations must wait until the value exists.
 
 **Examples.**
 ```ts
 const f = File.open(p) as result;
-consume(move f);                    // ERROR — `f` is unchecked
+consume(move f);                      // ERROR - f is unchecked
+inspect(&f);                          // ERROR - f is unchecked
 check result { return 1; }
-consume(move f);                    // OK — `f` is a normal owned binding after the check
+consume(move f);                      // OK
 ```
 
-**Conclusion.** Pending fallible results cannot be moved or cloned until `check` has run; afterward they behave as ordinary owned bindings.
+Recoverable clone result:
+```ts
+const copy = clone doc as result;
+inspect(&copy);                       // ERROR - copy is unchecked
+check result { return 1; }
+inspect(&copy);                       // OK
+```
+
+**Conclusion.** Pending fallible results cannot participate in ownership or reference operations until `check` has run. Bare clone is not pending; recoverable clone is.
 
 ---
 
 ### 14.11 Redundant-Operation Diagnostics
 
-**Proposal.** The two ownership operators emit diagnostics when applied to a value whose tier makes them pointless or impossible:
+**Proposal.** Ownership operators emit diagnostics when a tier makes the operation pointless or impossible:
 
-- **`move` on a copyable value** is a **warning**, not an error. Semantically it acts as a copy: the source stays live (a copyable value has no moved-from state to enter). The warning reads "`move` is redundant here; `T` is copyable."
-- **`clone` on a copyable value** is a **warning**: "redundant `clone`; `T` is copyable — use assignment."
-- **`clone` on a non-cloneable type** is a hard **error** naming the blocking field or marker (`Disposable`, or a non-cloneable field).
+- `move` on a copyable value is a warning. It acts as a copy and leaves the source live.
+- `clone` on a copyable value is a warning. Use assignment instead.
+- `clone` on a unique value is a hard error.
+- Bare assignment or by-value passing of cloneable or unique values is a hard error.
 
-**Reason.** Copyable types have no moved-from state, so `move` on them cannot mean what it means for owned types; rather than silently diverging the semantics, the operator degrades to a copy and the compiler flags the redundancy. Keeping these as warnings (not errors) avoids breaking generic-shaped code that may be instantiated at both copyable and move-only types, while still steering authors toward plain assignment.
+**Reason.** Diagnostics should teach the tier model at the exact site where the author chose the wrong operation.
 
 **Examples.**
 ```ts
 let v: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
-let w = move v;                     // WARNING — move redundant; Vec3 is copyable; `v` stays live
-let u = clone v as result;          // WARNING — clone redundant; use assignment
-check result { return 1; }
+let w = move v;                       // WARNING - move redundant; v stays live
+let u = clone v;                      // WARNING - clone redundant; use assignment
 
 let s: Session = makeSession();
-let c = clone s as result;          // ERROR — Session not cloneable (field `conn: File` is Disposable)
+let c = clone s;                      // ERROR - Session is unique
+use(s);                               // ERROR - unique bare-pass forbidden
+use(move s);                          // OK
 ```
 
-**Conclusion.** `move`/`clone` on copyable values warn (and `move` degrades to a copy); `clone` on a non-cloneable type errors.
+**Conclusion.** Redundant operations on copyable values warn. Impossible duplication of unique values and bare use of non-copyable values error.
 
 ---
 
@@ -370,30 +526,32 @@ let c = clone s as result;          // ERROR — Session not cloneable (field `c
 
 The following are deliberately out of scope for MVP or permanently excluded:
 
-- **A `copy` operator or `copy` keyword** — never. Assignment copies copyable values; `move` transfers; `clone` deep-copies ([§14.2](#142-three-operations-no-copy-operator)).
-- **Drop flags / conditional-disposal bookkeeping** — never. Move state is statically uniform at every merge; conditional moves are a compile error ([§14.5](#145-move-state-at-control-flow-joins)).
-- **Partial moves out of fields, elements, or subobjects** — never. Aggregates move as a whole ([§14.8](#148-no-partial-moves-out-of-aggregates)).
-- **Moving out through a borrow** — out of scope for MVP ([§12.6](#126-mutation-replacement-and-moving)).
-- **Implicit move in assignment or function arguments** — never. `return` is the only implicit transfer ([§14.9](#149-return-as-the-implicit-transfer-boundary)).
-- **A `.clone()` method form** — replaced by the `clone x` operator. There is one duplication spelling, not two.
-- **Custom `Copyable` implementations** — out of scope for MVP; `Copyable` is compiler-derived only ([§9.6](#96-copy-and-move-semantics)).
-- **`uses Cloneable` combined with `uses Disposable`, or cloning any `Disposable` type** — never. Resource owners are not cloneable.
-- **Runtime use-after-move detection** — never. Use-after-move is a pure compile-time error.
-- **Lifetime-tracked borrowed returns and stored borrows** — deferred to the post-MVP lifetime design ([§12.11](#1211-explicit-non-goals-for-section-12)).
+- **A `copy` operator or `copy` keyword** - never.
+- **Implicit move in assignment or function arguments** - never. `return` is the only implicit transfer boundary.
+- **Last-use-is-implicit-move** - never. Cloneable and unique bodies still require explicit `move`.
+- **Drop flags / conditional-disposal bookkeeping** - never. Move state is statically uniform at every merge.
+- **Partial moves out of fields, elements, or subobjects** - never.
+- **A tier-polymorphic `<any T>` generic bound** - out of scope for MVP.
+- **`uses Copyable`, `uses Cloneable`, or `uses Disposable` ownership markers** - replaced by structural copy/clone inference, `unique class`, and `dispose()` only on unique classes.
+- **Custom clone hooks** - out of scope for this ownership model. Clone is structurally derived.
+- **An allocation capability marker for clone** - unnecessary because bare clone aborts on OOM and `clone x as result` opts into recovery.
+- **Runtime use-after-move detection** - never. Use-after-move is a compile-time error.
 
 ---
 
 ### 14.13 Cross-Section Alignment
 
-This section is the home of the ownership model; it is aligned with the following rules elsewhere in the spec:
+This section is aligned with the following rules elsewhere in the spec:
 
-- **§5.6** — `Wrap<T>` / `Saturate<T>` are transparent tags over copyable integers and are themselves copyable.
-- **§6.9 / §6.10** — `clone` joins `move` as a reserved value-level operator keyword; the move-state analysis recognizes the §6.9 terminators as diverging paths.
-- **§7** — `string` / `cstring` are cloneable, move-only owned types; `stringview` / `cstringview` / `Slice<T>` are copyable views. Deep copy is `clone x` (fallible), not a `.clone()` method.
-- **§8.7 / §8.9** — `heap T` is cloneable iff `T` is; derived `clone` parallels derived `==` in being markerless and structural for `type` records.
-- **§9.1 / §9.6 / §9.7** — classes are copyable only via `uses Copyable`, cloneable markerlessly when not `Disposable`, with `uses Cloneable` supplying an optional custom `clone()` hook; `Copyable`, `Cloneable`, and `Disposable` markers are mutually constrained (`Disposable` excludes both `Copyable` and `Cloneable`).
-- **§11** — `const` is read-only and non-consuming (no `move`, no `mod borrowed`), but a non-consuming `clone` of a `const` is allowed; `let` is mutable, movable, and revivable.
-- **§12** — borrows do not own; `move` cannot take a borrow, and `clone` may read through one. Move-plus-borrow of the same root in one call is rejected by §12.4.
-- **§13.5 / §13.6 / §13.8** — single-owner disposal, fresh-derived-view escape, and allocation-failure recovery all build on the move/clone rules here.
+- **§5.6** - `Wrap<T>` / `Saturate<T>` are transparent tags over copyable integers and are themselves copyable.
+- **§6.9 / §6.10** - `clone` and `move` are reserved value-level operators; move-state analysis recognizes diverging terminators.
+- **§7** - `string` / `cstring` are cloneable owned types; `stringview` / `cstringview` / `Slice<T>` are copyable views.
+- **§8.7 / §8.9** - `heap T` is cloneable iff `T` is copyable or cloneable; aggregate clone is structural.
+- **§9** - classes become unique only with `unique class`; `dispose()` is legal only on unique classes.
+- **§11** - `const` is read-only and non-consuming; `let` is movable and revivable.
+- **§12 / §15** - references do not own their referents; `move` cannot turn a reference into owned storage, and `clone` may read through a reference.
+- **§13.5 / §13.8** - single-owner disposal and allocation-failure policy build on the move/clone rules here.
+
+**Conclusion.** Ownership stays single-owner. Copyable values copy, cloneable values duplicate only through visible `clone`, and unique values move only.
 
 ---

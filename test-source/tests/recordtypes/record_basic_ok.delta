@@ -1,0 +1,11 @@
+//type Vec2 = {x: float64; y: float64} // a combination of vec2 and vec3 will be used for composite types
+type Vec3 = { x: float64; y: float64; z: float64; };
+
+function main(): int32 {
+    let v: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
+    v = { x:3.5, y: 2.6, y: 2.0, z: 3.0 };
+    if (v.x != 1.0) { return 1; }
+    if (v.y != 2.0) { return 2; }
+    if (v.z != 3.0) { return 3; }
+    return 0;
+}

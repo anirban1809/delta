@@ -34,8 +34,70 @@ func formatDeclaration(
 		formatConstDeclaration(out, declaration, depth)
 	case *ConstDeclaration:
 		formatConstDeclaration(out, *declaration, depth)
+	case TypeDeclaration:
+		formatTypeDeclaration(out, declaration, depth)
+	case *TypeDeclaration:
+		formatTypeDeclaration(out, *declaration, depth)
 	default:
 		writeLine(out, depth, "UnknownDeclaration")
+	}
+}
+
+func formatTypeDeclaration(
+	out *strings.Builder,
+	declaration TypeDeclaration,
+	depth int,
+) {
+	writeLine(
+		out,
+		depth,
+		"TypeDeclaration name=%q exported=%t",
+		declaration.Name.Name,
+		declaration.Exported,
+	)
+	formatTypeRHS(out, declaration.RHS, depth+1)
+}
+
+func formatTypeRHS(out *strings.Builder, rhs TypeRHS, depth int) {
+	switch rhs := rhs.(type) {
+	case RecordRHS:
+		writeLine(out, depth, "RecordRHS")
+		formatRecordFields(out, rhs.Fields, depth+1)
+	case AliasRHS:
+		writeLine(out, depth, "AliasRHS")
+		writeLine(out, depth+1, "Target")
+		formatExpression(out, rhs.Target.Name, depth+2)
+	case CompositionRHS:
+		style := "spread"
+		if rhs.Style == IntersectionForm {
+			style = "intersection"
+		}
+		writeLine(out, depth, "CompositionRHS style=%q", style)
+		for index, operand := range rhs.Operands {
+			writeLine(out, depth+1, "Operand %d", index)
+			switch {
+			case operand.Named != nil:
+				writeLine(out, depth+2, "Named")
+				formatExpression(out, operand.Named.Name, depth+3)
+			case operand.Inline != nil:
+				writeLine(out, depth+2, "Inline")
+				formatRecordFields(out, operand.Inline.Fields, depth+3)
+			}
+		}
+	default:
+		writeLine(out, depth, "UnknownTypeRHS")
+	}
+}
+
+func formatRecordFields(
+	out *strings.Builder,
+	fields []RecordField,
+	depth int,
+) {
+	for index, field := range fields {
+		writeLine(out, depth, "Field %d name=%q", index, field.Name.Name)
+		writeLine(out, depth+1, "Type")
+		formatExpression(out, field.Type.Name, depth+2)
 	}
 }
 
@@ -160,7 +222,11 @@ func formatStatement(out *strings.Builder, statement Statement, depth int) {
 	case AssignmentStatement:
 		writeLine(out, depth, "AssignmentStatement")
 		writeLine(out, depth+1, "Target")
-		formatExpression(out, statement.Target, depth+2)
+		target := statement.TargetExpression
+		if target == nil {
+			target = statement.Target
+		}
+		formatExpression(out, target, depth+2)
 		writeLine(out, depth+1, "Value")
 		formatExpression(out, statement.Value, depth+2)
 	case IfStatement:
@@ -251,6 +317,22 @@ func formatExpression(out *strings.Builder, expression Expression, depth int) {
 			writeLine(out, depth+2, "Argument %d", index)
 			formatExpression(out, argument, depth+3)
 		}
+	case ObjectLiteralExpression:
+		writeLine(out, depth, "ObjectLiteralExpression")
+		for index, element := range expression.Elements {
+			switch element := element.(type) {
+			case FieldInit:
+				writeLine(out, depth+1, "FieldInit %d name=%q", index, element.Name)
+				formatExpression(out, element.Value, depth+2)
+			case SpreadElement:
+				writeLine(out, depth+1, "SpreadElement %d", index)
+				formatExpression(out, element.Source, depth+2)
+			}
+		}
+	case MemberAccessExpression:
+		writeLine(out, depth, "MemberAccessExpression member=%q", expression.Member)
+		writeLine(out, depth+1, "Receiver")
+		formatExpression(out, expression.Receiver, depth+2)
 	case IntegerLiteral:
 		writeLine(out, depth, "IntegerLiteral value=%q", expression.Value)
 	case FloatLiteral:

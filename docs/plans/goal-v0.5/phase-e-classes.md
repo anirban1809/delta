@@ -3,14 +3,14 @@
 Date drafted: 2026-06-03
 Status: planning, not started.
 Predecessor: Phases **I, D, J, A, B, C** landed. Phase E is the **last** phase of v0.5a.
-Successor: Phase F (ownership) introduces `move` / `clone` and tightens the v0.5a-intentional struct-copy gap. Phase G adds borrows of class instances. Phase H adds `heap T` indirection.
+Successor: Phase F (ownership) introduces `move` / `clone` and tightens the v0.5a-intentional struct-copy gap. Phase G adds references of class instances. Phase H adds `heap T` indirection.
 Spec basis: [spec-sections/09-classes.md](../../spec-sections/09-classes.md), [spec-sections/11-mutability-model.md](../../spec-sections/11-mutability-model.md).
 
 ## Goal
 
-Land classes as inline value types: private-by-default fields, public/private modifiers, class literals (only inside class body), static functions, instance methods with implicit `this`, the `mod` method marker, capability-based dispatch (`const` binding cannot call `mod` methods), single-namespace-per-class, and automatic field disposal at scope exit.
+Land classes as inline value types: private-by-default fields, public/private modifiers, class literals (only inside class body), static functions, instance methods with implicit `this`, the `edit` method marker, capability-based dispatch (`const` binding cannot call `edit` methods), single-namespace-per-class, and automatic field disposal at scope exit.
 
-After Phase E, the acceptance program from the goal doc compiles *except* for the `move`, `borrowed`, and `mod borrowed` parts (those are Phase F/G):
+After Phase E, the acceptance program from the goal doc compiles *except* for the `move`, `&`, and `edit &` parts (those are Phase F/G):
 
 ```delta
 class Counter {
@@ -24,7 +24,7 @@ class Counter {
         return this.value;
     }
 
-    public mod add(delta: int64): void | OverflowError {
+    public edit add(delta: int64): void | OverflowError {
         this.value = this.value + delta as result;
         check result {
             return error as OverflowError { };
@@ -56,9 +56,9 @@ The intentional unsoundness at end of v0.5a: passing a class by value generates 
 - Class literal `Name { field: value, ... }` legal **only inside the class body** (any static function or instance method of the class).
 - Static functions: `public static name(params): RetType { body }`. Construction idiom is `public static new(...) { return ClassName { ... }; }`.
 - Instance methods: `<access> name(params): RetType { body }`. Implicit `this` receiver.
-- `mod` marker: `<access> mod name(params): RetType { body }` declares a mutating method.
+- `edit` marker: `<access> edit name(params): RetType { body }` declares a mutating method.
 - Method dispatch via member access: `instance.method(args)`.
-- Capability rule: `const` binding may not call `mod` methods. `let` binding may call both.
+- Capability rule: `const` binding may not call `edit` methods. `let` binding may call both.
 - Field access: `instance.field`. From outside the class body, only `public` fields are visible.
 - Method-overloading-within-name (same method name, different arity/types) — narrowly: only inside one class, only for methods of the same kind (instance vs static).
 - Single-namespace check: no name collision between fields and methods within a class.
@@ -76,14 +76,14 @@ The intentional unsoundness at end of v0.5a: passing a class by value generates 
 | `uses Disposable` custom dispose | User-supplied dispose hooks. | Post-v0.5. |
 | `uses Copyable` / `uses Cloneable` user-supplied hooks | Auto-derived only in v0.5. | Post-v0.5. |
 | `move x` / `clone x` operators | Phase F. | Phase F. |
-| `borrowed` / `mod borrowed` parameters | Phase G. | Phase G. |
+| `&` / `edit &` parameters | Phase G. | Phase G. |
 | `heap T` indirection | Phase H. | Phase H. |
 | Method calls through interfaces / generic dispatch | Out of v0.5 entirely. | Post-v0.5. |
 | Object literals for non-class types (anonymous structs) | Spec forbids — class literals only. | Never planned. |
 
 ## What's missing today
 
-- No `class`, `static`, `public`, `private`, `mod`, `this` keywords in the tokenizer.
+- No `class`, `static`, `public`, `private`, `edit`, `this` keywords in the tokenizer.
 - No class AST nodes, no member-access expression beyond Phase A's minimal `Type.from(x)`.
 - No object/class literal parsing.
 - No `SymbolClass`, `SymbolMethod`, `SymbolField`, `SymbolStaticFunction`.
@@ -99,8 +99,8 @@ The intentional unsoundness at end of v0.5a: passing a class by value generates 
    - Static function `s`: free C function `delta__<module>__<Class>_static_s` with no `self`.
    - Dispose function: `delta__<module>__<Class>_dispose(delta__<module>__<Class>* self)`. Phase E body is empty (no user dispose hook, no heap fields yet) but the dispose function exists for v0.5b to extend.
 2. **Class literals live inside the class body only.** The analyzer maintains an "enclosing class" stack during type-check; a class literal that names class C may only appear when C is on the stack. Outside the body, the diagnostic is "class literal for `Counter` may only appear inside Counter's class body; use `Counter.new(...)` or another static factory."
-3. **`this` is a context-bound identifier in the analyzer.** Inside instance methods (including `mod` methods), `this` resolves to a synthetic local of type `<Class>` with binding capability matching the method's receiver kind (`const` for non-`mod`, `let` for `mod`). Outside instance methods, `this` is "unknown identifier `this`."
-4. **Capability check at the call site, not at the method definition.** When the analyzer sees `obj.m(...)`, it walks `obj`'s binding kind (or, post-Phase G, the borrow capability) and the method's `mod` flag. Mismatch → "cannot call `mod` method `m` on `const`-bound `obj`."
+3. **`this` is a context-bound identifier in the analyzer.** Inside instance methods (including `edit` methods), `this` resolves to a synthetic local of type `<Class>` with binding capability matching the method's receiver kind (`const` for non-`edit`, `let` for `edit`). Outside instance methods, `this` is "unknown identifier `this`."
+4. **Capability check at the call site, not at the method definition.** When the analyzer sees `obj.m(...)`, it walks `obj`'s binding kind (or, post-Phase G, the reference capability) and the method's `edit` flag. Mismatch → "cannot call `edit` method `m` on `const`-bound `obj`."
 5. **Field/method namespace is shared.** Inside one class, a name belongs either to a field or to a method (possibly an overloaded set), never both. The analyzer rejects collisions at class-registration time.
 6. **Method overloading within a class is supported for instance methods and for static functions, separately.** Two `public get(): int32` declarations collide. Two `public set(x: int32)` and `public set(x: int64)` are distinct overloads, resolved by argument types at the call site. Reuse the same call-resolution machinery the analyzer already uses; the call-site matches arity first, then types. Ambiguity is a structured error.
 7. **Disposal pass.** Codegen gains a scope-exit cleanup hook. For each scope, track owned class-instance bindings in declaration order. At each scope exit (`}` of a block, `return` in the middle, future `break`/`continue`/`panic` divergence), emit dispose calls in reverse declaration order before the actual exit. The dispose function is `delta__<module>__<Class>_dispose`.
@@ -110,7 +110,7 @@ The intentional unsoundness at end of v0.5a: passing a class by value generates 
 
 ## Tokenizer changes
 
-- New reserved keywords: `class`, `static`, `public`, `private`, `mod`, `this`.
+- New reserved keywords: `class`, `static`, `public`, `private`, `edit`, `this`.
 
 ## Parser changes
 
@@ -123,14 +123,14 @@ The intentional unsoundness at end of v0.5a: passing a class by value generates 
       Position Position
   }
   type FieldDeclaration       struct { Access AccessModifier; Name string; Type TypeReference; Position Position }
-  type MethodDeclaration      struct { Access AccessModifier; Mod bool; Name string; Params []FunctionParameter; ReturnTypes []TypeReference; ErrorTypes []TypeReference; Body *BlockStatement; Position Position }
-  type StaticFunctionDeclaration struct { /* same as MethodDeclaration minus Mod */ }
+  type MethodDeclaration      struct { Access AccessModifier; Edit bool; Name string; Params []FunctionParameter; ReturnTypes []TypeReference; ErrorTypes []TypeReference; Body *BlockStatement; Position Position }
+  type StaticFunctionDeclaration struct { /* same as MethodDeclaration minus Edit */ }
   type ClassLiteralExpression struct { ClassName string; Fields []FieldInitializer; Position Position }
   type FieldInitializer       struct { Name string; Value Expression; Position Position }
   type ThisExpression         struct { Position Position }
   ```
 - `MemberAccessExpression { Receiver Expression; Member string; Position Position }` — generalizes Phase A's `Type.from` path. The parser produces it for any `expr.identifier` shape. The analyzer interprets it.
-- Class-member parsing: inside a `class { ... }` body, the parser dispatches on the first non-modifier token (`static` → static function, `mod` → method with mod, otherwise field if followed by `:`, or method if followed by `(`).
+- Class-member parsing: inside a `class { ... }` body, the parser dispatches on the first non-modifier token (`static` → static function, `edit` → method with edit, otherwise field if followed by `:`, or method if followed by `(`).
 
 ## Semantic analyzer changes
 
@@ -143,7 +143,7 @@ The intentional unsoundness at end of v0.5a: passing a class by value generates 
   - Member name resolved in C's scope.
   - Field access: success type is the field's type; access denied if the field is private and the access site isn't inside C's body.
   - Method access: resolved to a `SymbolMethod` (possibly overloaded). The expression's type is "callable bound to receiver"; the actual call-site picks the overload by argument types.
-- **Capability check at call.** Method call `obj.m(args)` — resolve `obj`'s capability (`const`/`let` for owned bindings; later, borrowed-receiver kinds add to the lattice). If method is `mod` and capability is `const`: structured error "cannot call mod method `m` on const-bound receiver."
+- **Capability check at call.** Method call `obj.m(args)` — resolve `obj`'s capability (`const`/`let` for owned bindings; later, referenced-receiver kinds add to the lattice). If method is `edit` and capability is `const`: structured error "cannot call edit method `m` on const-bound receiver."
 - **Static function call.** `ClassName.s(args)` — resolved by looking up `s` in `ClassName`'s static-function scope. Visibility honored (`private static` callable only inside class body).
 - **Single-namespace check.** At class registration, collect field names and method/static-function names. Any cross-kind collision is "name `n` declared as both field and method; choose one."
 - **Equality rejection.** `==`/`!=` with a class operand is a structured error with the fix-suggestion.
@@ -175,8 +175,8 @@ New fixtures under `test-source/tests/codegen/classes/`:
 
 **Basics (5)**
 - `class_basic_ok` — Counter with one private field, new + get, prints value.
-- `class_mod_method_ok` — `mod` method that mutates; `let` binding can call it.
-- `const_to_mod_call_err` — `const a = ...; a.modMethod();` rejected.
+- `class_edit_method_ok` — `edit` method that mutates; `let` binding can call it.
+- `const_to_edit_call_err` — `const a = ...; a.modMethod();` rejected.
 - `private_field_outside_err` — accessing `a.value` outside class body rejected.
 - `static_construction_ok` — class with multiple static factories.
 
@@ -240,4 +240,4 @@ Steps 1–6 are analyzer-heavy. Steps 7–11 are codegen-heavy. Step 11 is the k
 - All earlier-phase fixtures continue to pass.
 - The generated C contains dispose calls at every scope exit for owned class bindings, in reverse declaration order (verified by snapshot test).
 - Phase F can begin: the dispose-call scaffolding is the right place to hook move-state-aware skipping; the class struct + free-function-method layout is the right shape for move/clone codegen.
-- **v0.5a is now complete.** A user can build multi-file projects, use the full primitive numeric surface, classes with capability dispatch, the error model, and `std/log` for output. The remaining v0.5b phases (F, G, H) close the ownership/borrow/heap story.
+- **v0.5a is now complete.** A user can build multi-file projects, use the full primitive numeric surface, classes with capability dispatch, the error model, and `std/log` for output. The remaining v0.5b phases (F, G, H) close the ownership/reference/heap story.

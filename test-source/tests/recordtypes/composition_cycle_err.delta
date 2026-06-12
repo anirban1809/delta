@@ -1,0 +1,6 @@
+type A = { ...B; };
+type B = { ...A; };
+
+function main(): int32 {
+    return 0;
+}

@@ -144,6 +144,43 @@ type FunctionCallExpression struct {
 
 func (FunctionCallExpression) expressionNode() {}
 
+// ObjectLiteralExpression is a shape-only `{ ... }` value. Its nominal type
+// is supplied later by semantic analysis from the surrounding typed context.
+type ObjectLiteralExpression struct {
+	Position
+	Elements []ObjectLiteralElement
+}
+
+func (ObjectLiteralExpression) expressionNode() {}
+
+type ObjectLiteralElement interface {
+	objectLiteralElementNode()
+	Pos() Position
+}
+
+type FieldInit struct {
+	Position
+	Name  string
+	Value Expression
+}
+
+func (FieldInit) objectLiteralElementNode() {}
+
+type SpreadElement struct {
+	Position
+	Source Expression
+}
+
+func (SpreadElement) objectLiteralElementNode() {}
+
+type MemberAccessExpression struct {
+	Position
+	Receiver Expression
+	Member   string
+}
+
+func (MemberAccessExpression) expressionNode() {}
+
 type VariableDeclarationStatement struct {
 	Position
 	Mutable bool
@@ -164,6 +201,9 @@ func (ExpressionStatement) statementNode() {}
 type AssignmentStatement struct {
 	Position
 	Target Identifier
+	// TargetExpression preserves member-access assignment targets while
+	// Target remains available to the existing semantic/codegen phases.
+	TargetExpression Expression
 	// Operator is the compound-assignment arithmetic operator ("+", "-",
 	// "*") for `+=`/`-=`/`*=`, or "" for a plain `=` assignment.
 	Operator string
@@ -208,8 +248,10 @@ type ForStatement struct {
 
 func (ForStatement) statementNode() {}
 
-type BreakStatement struct{ Position }
-type ContinueStatement struct{ Position }
+type (
+	BreakStatement    struct{ Position }
+	ContinueStatement struct{ Position }
+)
 
 func (BreakStatement) statementNode()    {}
 func (ContinueStatement) statementNode() {}
@@ -235,4 +277,59 @@ type SwitchCase struct {
 	Position              // position of `case` or `default`
 	Labels   []Expression // nil iff this case is the Default
 	Body     *BlockStatement
+}
+
+type TypeDeclaration struct {
+	Position
+	Name     Identifier
+	RHS      TypeRHS
+	Exported bool
+}
+
+func (TypeDeclaration) declarationNode() {}
+
+type TypeRHS interface {
+	typeRHSNode()
+	Pos() Position
+}
+
+type RecordRHS struct {
+	Position
+	Fields []RecordField
+}
+
+func (RecordRHS) typeRHSNode() {}
+
+type AliasRHS struct {
+	Position
+	Target TypeReference
+}
+
+func (AliasRHS) typeRHSNode() {}
+
+type CompositionRHS struct {
+	Position
+	Operands []CompositionOperand
+	Style    CompositionStyle
+}
+
+func (CompositionRHS) typeRHSNode() {}
+
+type CompositionStyle int
+
+const (
+	SpreadForm CompositionStyle = iota
+	IntersectionForm
+)
+
+type CompositionOperand struct {
+	Position
+	Named  *TypeReference
+	Inline *RecordRHS
+}
+
+type RecordField struct {
+	Position
+	Name Identifier
+	Type TypeReference
 }

@@ -28,6 +28,7 @@ const (
 	Keyword_Case
 	Keyword_Default
 	Keyword_Break
+	Keyword_Type
 
 	Type_Int32
 
@@ -64,6 +65,9 @@ const (
 	Symbol_AsteriskEquals
 	Symbol_Increment
 	Symbol_Decrement
+	Symbol_Dot
+	Symbol_Range
+	Symbol_Ellipsis
 )
 
 type Token struct {
@@ -121,6 +125,8 @@ func (k Kind) String() string {
 		return "contnue"
 	case Keyword_Break:
 		return "break"
+	case Keyword_Type:
+		return "type"
 	// case Type_Int32:
 	// 	return "int32"
 	case Symbol_LeftParen:
@@ -189,6 +195,12 @@ func (k Kind) String() string {
 		return "++"
 	case Symbol_Decrement:
 		return "--"
+	case Symbol_Dot:
+		return "."
+	case Symbol_Range:
+		return ".."
+	case Symbol_Ellipsis:
+		return "..."
 	default:
 		return "unknown"
 	}
@@ -226,6 +238,8 @@ func LookupIdent(s string) Kind {
 		return Keyword_Continue
 	case "break":
 		return Keyword_Break
+	case "type":
+		return Keyword_Type
 	default:
 		return Kind_Identifier
 	}

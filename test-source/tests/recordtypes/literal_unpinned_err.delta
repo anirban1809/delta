@@ -1,0 +1,4 @@
+function main(): int32 {
+    const v = { x: 1.0, y: 2.0, z: 3.0 };
+    return 0;
+}

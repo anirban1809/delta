@@ -83,7 +83,7 @@ These are the calls I'm making up front so the implementation steps are unambigu
 6. **`char` lowers to `uint32_t`, not `char32_t`.** `<uchar.h>` is C11, well supported, but using `uint32_t` keeps the type-mapping table consistent with the other unsigned integers. Codepoint comparisons are integer comparisons.
 7. **No mixed-type arithmetic, no implicit widening, anywhere.** `int32 + int64` is a hard analyzer error, not a coercion. `int32 + literal_that_fits_int32` is fine because the literal acquires `int32` by context. `float32 + float64` is an error per §5. This is non-negotiable and informs the trap helpers (each is monomorphic in its operand type).
 8. **Float arithmetic does not trap; float-to-int conversion does.** Per §5.10. `+`/`-`/`*`/`/` on floats produce `Inf`/`NaN` per IEEE 754. `int32(my_float)` traps on NaN/Inf/out-of-range. Codegen guards float-to-int with an explicit `isnan(x) || isinf(x) || x < INT32_MIN || x > INT32_MAX` check.
-9. **Modulus follows truncated division.** §3 specifies `%` as truncated-division remainder (sign of result follows dividend). C is already truncated-division on signed `%`, so codegen emits `%` directly with the same trap guards as `/`. No Python-style floor-mod fallback.
+9. **Modulus follows truncated division.** §3 specifies `%` as truncated-division remainder (sign of result follows dividend). C is already truncated-division on signed `%`, so codegen emits `%` directly with the same trap guards as `/`. No Python-style floor-edit fallback.
 10. **Compound assignment is lowered, not de-sugared.** `x += y` lowers to a single C `x += y`, not to `x = x + y`, so x is evaluated once even at the C level. The trap helper is called inline: `x = delta_rt_add_i32(x, y, __FILE__, __LINE__);` — which means compound forms cannot use the literal C `+=` operator and instead must lower to `x = delta_rt_add_i32(x, y, ...);`. So decision (10) actually means: **emit a helper call assigned back to the LHS**, never use C's compound operator at the output. This keeps the trap site uniform regardless of source-level form.
 
 ## Type system changes
@@ -261,7 +261,7 @@ Allowed direction matrix (rows are source, columns are destination; `✓` = allo
       }
       return r;
   }
-  /* ... and so on for sub/mul on every integer type, div/mod with two checks, etc. */
+  /* ... and so on for sub/mul on every integer type, div/edit with two checks, etc. */
   ```
 
   Helpers are emitted only for type/op combinations actually used by the TU — the codegen tracks reachable trap kinds during emission and renders only the helpers needed. (Avoids fifty unused helpers in every output file.)
@@ -273,7 +273,7 @@ Allowed direction matrix (rows are source, columns are destination; `✓` = allo
   | `delta_rt_add_T` | one per integer type | uses `__builtin_add_overflow` |
   | `delta_rt_sub_T` | one per integer type | uses `__builtin_sub_overflow` |
   | `delta_rt_mul_T` | one per integer type | uses `__builtin_mul_overflow` |
-  | `delta_rt_div_T`, `delta_rt_mod_T` | one per integer type | divzero check + (signed only) `int_MIN/-1` check |
+  | `delta_rt_div_T`, `delta_rt_edit_T` | one per integer type | divzero check + (signed only) `int_MIN/-1` check |
   | `delta_rt_neg_T` | one per signed integer type | unary `-`; check `x == INT_MIN` |
   | `delta_rt_shl_T`, `delta_rt_shr_T` | one per integer type | shift-count-OOR check (count vs bit width) |
   | `delta_rt_narrow_S_to_D` | one per allowed (source, destination) pair where narrowing applies | range check |
@@ -337,7 +337,7 @@ Initial fixtures (twenty-three, grouped):
 - `float64_arith_ok.delta`, `float32_to_int_trap_nan.delta`, `float32_to_int_ok.delta`, `float_mixed_precision_err.delta` (compile error).
 
 **Operators (5)**
-- `mod_ok.delta`, `mod_zero_trap.delta`, `bitwise_ops_ok.delta`, `shift_ok.delta`, `shift_oor_trap.delta`.
+- `edit_ok.delta`, `edit_zero_trap.delta`, `bitwise_ops_ok.delta`, `shift_ok.delta`, `shift_oor_trap.delta`.
 
 **Compound assignment (2)**
 - `compound_add_ok.delta`, `compound_mul_overflow_trap.delta`.

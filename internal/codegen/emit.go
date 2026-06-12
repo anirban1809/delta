@@ -44,8 +44,60 @@ type Emitter struct {
 	usedArithHelpers  map[string]divHelper
 	usedIncDecHelpers map[string]divHelper
 
+	// records maps every declared type name — record, composition, or alias —
+	// to its canonical record info. Aliases share the target's *recordInfo, so
+	// nominal identity falls out of pointer identity. Built from the AST's
+	// TypeDeclarations in Emit(); the analyzer has already validated field
+	// sets, collisions, and cycles.
+	records map[string]*recordInfo
+
+	// recordOrder lists canonical records in a dependency-respecting order
+	// (inline record fields before the records that embed them) so struct
+	// definitions can be emitted top-down.
+	recordOrder []*recordInfo
+
+	// usedEqHelpers collects the records compared with == / != during
+	// emission, keyed by helper name, so only those helpers are rendered.
+	usedEqHelpers map[string]*recordInfo
+
+	// funcSigs maps each declared function to its resolved parameter and
+	// return types, so call sites can pin object-literal arguments and
+	// typeOfExpr can type call results.
+	funcSigs map[string]fnSig
+
+	// globalTypes holds file-level const types; localTypes holds the current
+	// function's parameter and local binding types. Both feed typeOfExpr,
+	// codegen's record-aware expression typing.
+	globalTypes map[string]semantics.Type
+	localTypes  map[string]semantics.Type
+
+	// currentReturn is the enclosing function's return type while a body is
+	// being emitted; it pins object literals in return statements.
+	currentReturn semantics.Type
+
 	indent   int
 	indentOn bool
+}
+
+// recordInfo is codegen's resolved view of one nominal record type: its
+// canonical Delta name, the C struct name, and the field list in declaration
+// order (composition operands expanded left to right).
+type recordInfo struct {
+	Name   string
+	CName  string
+	Fields []recordFieldInfo
+}
+
+type recordFieldInfo struct {
+	Name string
+	Type semantics.Type
+}
+
+// fnSig is the resolved signature of a declared function, kept by codegen for
+// expression typing and object-literal pinning at call sites.
+type fnSig struct {
+	Params []semantics.Type
+	Return semantics.Type
 }
 
 // divHelper records an operator + operand type for a runtime arithmetic guard
@@ -91,6 +143,199 @@ func cType(t semantics.Type) (string, error) {
 	}
 
 	return "", errors.New("unsupported type for v0")
+}
+
+// resolveType resolves a source-level type name to a semantics.Type,
+// extending the primitive table with the user-declared records (aliases
+// resolve to their canonical record name).
+func (e *Emitter) resolveType(name string) (semantics.Type, error) {
+	if t, ok := semantics.ResolveTypeName(name); ok {
+		return t, nil
+	}
+	if rec, ok := e.records[name]; ok {
+		return semantics.Type{Name: rec.Name, Kind: semantics.TypeCustom}, nil
+	}
+	return semantics.Type{Kind: semantics.TypeInvalid},
+		fmt.Errorf("unknown type %q", name)
+}
+
+// cTypeOf renders the C type for a semantics.Type, including record types,
+// which cType (primitives only) does not know about.
+func (e *Emitter) cTypeOf(t semantics.Type) (string, error) {
+	if t.Kind == semantics.TypeCustom {
+		if rec, ok := e.records[t.Name]; ok {
+			return rec.CName, nil
+		}
+		return "", fmt.Errorf("unknown record type %q", t.Name)
+	}
+	return cType(t)
+}
+
+// recordOf returns the canonical record behind a type, or nil when the type
+// is not a record.
+func (e *Emitter) recordOf(t semantics.Type) *recordInfo {
+	if t.Kind != semantics.TypeCustom {
+		return nil
+	}
+	return e.records[t.Name]
+}
+
+// buildRecordTable resolves every TypeDeclaration in the file into a
+// recordInfo and fills e.records / e.recordOrder. The semantic pass has
+// already rejected unknown operands, field collisions, and cycles, so
+// resolution here cannot loop and merge order is purely mechanical.
+func (e *Emitter) buildRecordTable() {
+	e.records = map[string]*recordInfo{}
+
+	rhsByName := map[string]ast.TypeRHS{}
+	declOrder := []string{}
+	for _, decl := range e.File.Declarations {
+		if td, ok := decl.(ast.TypeDeclaration); ok {
+			rhsByName[td.Name.Name] = td.RHS
+			declOrder = append(declOrder, td.Name.Name)
+		}
+	}
+
+	var resolve func(name string) *recordInfo
+	resolveFields := func(fields []ast.RecordField) []recordFieldInfo {
+		out := make([]recordFieldInfo, 0, len(fields))
+		for _, f := range fields {
+			ft, ok := semantics.ResolveTypeName(f.Type.Name.Name)
+			if !ok {
+				if dep := resolve(f.Type.Name.Name); dep != nil {
+					ft = semantics.Type{
+						Name: dep.Name,
+						Kind: semantics.TypeCustom,
+					}
+				}
+			}
+			out = append(out, recordFieldInfo{Name: f.Name.Name, Type: ft})
+		}
+		return out
+	}
+
+	resolve = func(name string) *recordInfo {
+		if rec, ok := e.records[name]; ok {
+			return rec
+		}
+		rhs, ok := rhsByName[name]
+		if !ok {
+			return nil
+		}
+		switch rhs := rhs.(type) {
+		case ast.RecordRHS:
+			rec := &recordInfo{Name: name, CName: "delta__" + name}
+			e.records[name] = rec
+			rec.Fields = resolveFields(rhs.Fields)
+			return rec
+		case ast.AliasRHS:
+			rec := resolve(rhs.Target.Name.Name)
+			if rec != nil {
+				e.records[name] = rec
+			}
+			return rec
+		case ast.CompositionRHS:
+			rec := &recordInfo{Name: name, CName: "delta__" + name}
+			e.records[name] = rec
+			for _, op := range rhs.Operands {
+				if op.Inline != nil {
+					rec.Fields = append(
+						rec.Fields, resolveFields(op.Inline.Fields)...)
+				} else if op.Named != nil {
+					if dep := resolve(op.Named.Name.Name); dep != nil {
+						rec.Fields = append(rec.Fields, dep.Fields...)
+					}
+				}
+			}
+			return rec
+		}
+		return nil
+	}
+
+	// Emit canonical structs in dependency order: a record whose field embeds
+	// another record by value needs that struct defined first. The semantic
+	// cycle check guarantees this DFS terminates.
+	emitted := map[*recordInfo]bool{}
+	var visit func(rec *recordInfo)
+	visit = func(rec *recordInfo) {
+		if rec == nil || emitted[rec] {
+			return
+		}
+		emitted[rec] = true
+		for _, f := range rec.Fields {
+			if f.Type.Kind == semantics.TypeCustom {
+				dep := e.records[f.Type.Name]
+				if dep != rec {
+					visit(dep)
+				}
+			}
+		}
+		e.recordOrder = append(e.recordOrder, rec)
+	}
+	for _, name := range declOrder {
+		visit(resolve(name))
+	}
+}
+
+// emitStructDefs renders one typedef struct per canonical record, in
+// dependency order. Aliases emit nothing.
+func (e *Emitter) emitStructDefs() string {
+	var out strings.Builder
+	for _, rec := range e.recordOrder {
+		fmt.Fprintf(&out, "typedef struct %s {\n", rec.CName)
+		for _, f := range rec.Fields {
+			ct, _ := e.cTypeOf(f.Type)
+			fmt.Fprintf(&out, "\t%s %s;\n", ct, f.Name)
+		}
+		fmt.Fprintf(&out, "} %s;\n\n", rec.CName)
+	}
+	return out.String()
+}
+
+func eqHelperName(rec *recordInfo) string {
+	return rec.CName + "_eq"
+}
+
+// requireEqHelper registers a structural-equality helper for a record (and,
+// recursively, for any record-typed fields it compares) and returns the
+// helper's name.
+func (e *Emitter) requireEqHelper(rec *recordInfo) string {
+	name := eqHelperName(rec)
+	if e.usedEqHelpers == nil {
+		e.usedEqHelpers = map[string]*recordInfo{}
+	}
+	if _, ok := e.usedEqHelpers[name]; !ok {
+		e.usedEqHelpers[name] = rec
+		for _, f := range rec.Fields {
+			if dep := e.recordOf(f.Type); dep != nil {
+				e.requireEqHelper(dep)
+			}
+		}
+	}
+	return name
+}
+
+// eqHelperBody renders the compiler-derived structural == for one record:
+// per-field comparison joined with &&, record-typed fields delegating to
+// their own helper.
+func eqHelperBody(rec *recordInfo) string {
+	var conds []string
+	for _, f := range rec.Fields {
+		if f.Type.Kind == semantics.TypeCustom {
+			conds = append(conds, fmt.Sprintf(
+				"delta__%s_eq(a.%s, b.%s)", f.Type.Name, f.Name, f.Name))
+		} else {
+			conds = append(conds, fmt.Sprintf("a.%s == b.%s", f.Name, f.Name))
+		}
+	}
+	body := "true"
+	if len(conds) > 0 {
+		body = strings.Join(conds, " && ")
+	}
+	return fmt.Sprintf(
+		`static inline bool %s(%s a, %s b) {
+	return %s;
+}`, eqHelperName(rec), rec.CName, rec.CName, body)
 }
 
 // deltaPanicDef is the shared trap routine every runtime safety check calls.
@@ -259,6 +504,7 @@ func shiftHelperBody(op string, t semantics.Type) string {
 // an overflow-checked helper call.
 func (e *Emitter) emitCompoundAssign(
 	stmt ast.AssignmentStatement,
+	target string,
 	operandType semantics.Type,
 ) string {
 	helper := arithHelperName(stmt.Operator, operandType)
@@ -269,7 +515,7 @@ func (e *Emitter) emitCompoundAssign(
 
 	return fmt.Sprintf(
 		"%s(%s, %s, %q, %d)",
-		helper, stmt.Target.Name, e.EmitExpression(stmt.Value),
+		helper, target, e.EmitExpression(stmt.Value),
 		e.SourcePath, stmt.Position.Line)
 }
 
@@ -289,11 +535,18 @@ func (e *Emitter) emitIncDec(
 	if e.usedIncDecHelpers == nil {
 		e.usedIncDecHelpers = map[string]divHelper{}
 	}
-	e.usedIncDecHelpers[helper] = divHelper{Op: expr.Operator, Type: operandType}
+	e.usedIncDecHelpers[helper] = divHelper{
+		Op:   expr.Operator,
+		Type: operandType,
+	}
 
 	return fmt.Sprintf(
 		"%s(&%s, %q, %d)",
-		helper, e.EmitExpression(expr.Operand), e.SourcePath, expr.Position.Line)
+		helper,
+		e.EmitExpression(expr.Operand),
+		e.SourcePath,
+		expr.Position.Line,
+	)
 }
 
 // arithHelperBody renders a `static inline` overflow-checked +/-/* used by
@@ -480,6 +733,91 @@ func convHelperBody(from, to semantics.Type) string {
 }`, dt, convHelperName(from, to), st, cond, msg, dt)
 }
 
+// typeOfExpr is codegen's best-effort expression typing, used to decide when
+// record lowering applies (equality helpers, spread expansion, member access).
+// It only needs to be precise for record-bearing expressions; anything it
+// cannot type returns TypeEmpty, which keeps the primitive paths unchanged.
+func (e *Emitter) typeOfExpr(expr ast.Expression) semantics.Type {
+	switch expr := expr.(type) {
+	case ast.Identifier:
+		if t, ok := e.localTypes[expr.Name]; ok {
+			return t
+		}
+		if t, ok := e.globalTypes[expr.Name]; ok {
+			return t
+		}
+	case ast.MemberAccessExpression:
+		if rec := e.recordOf(e.typeOfExpr(expr.Receiver)); rec != nil {
+			for _, f := range rec.Fields {
+				if f.Name == expr.Member {
+					return f.Type
+				}
+			}
+		}
+	case ast.FunctionCallExpression:
+		if callee, ok := expr.Callee.(ast.Identifier); ok {
+			if sig, ok := e.funcSigs[callee.Name]; ok {
+				return sig.Return
+			}
+		}
+	}
+	return semantics.Type{Kind: semantics.TypeEmpty}
+}
+
+// emitObjectLiteral lowers a pinned object literal to a C compound literal.
+// Fields are emitted in the target record's declaration order regardless of
+// source order; spread sources fill every field not explicitly provided with
+// a `(source).field` projection (the analyzer guarantees exact coverage and
+// that spread sources share the target's type).
+func (e *Emitter) emitObjectLiteral(
+	lit ast.ObjectLiteralExpression,
+	rec *recordInfo,
+) string {
+	provided := map[string]string{}
+	for _, element := range lit.Elements {
+		switch element := element.(type) {
+		case ast.FieldInit:
+			var fieldType semantics.Type
+			for _, f := range rec.Fields {
+				if f.Name == element.Name {
+					fieldType = f.Type
+					break
+				}
+			}
+			provided[element.Name] = e.emitPinnedExpression(
+				element.Value, fieldType)
+		case ast.SpreadElement:
+			src := "(" + e.EmitExpression(element.Source) + ")"
+			for _, f := range rec.Fields {
+				if _, ok := provided[f.Name]; !ok {
+					provided[f.Name] = src + "." + f.Name
+				}
+			}
+		}
+	}
+
+	parts := make([]string, 0, len(rec.Fields))
+	for _, f := range rec.Fields {
+		parts = append(parts, fmt.Sprintf(".%s = %s", f.Name, provided[f.Name]))
+	}
+	return fmt.Sprintf("(%s){ %s }", rec.CName, strings.Join(parts, ", "))
+}
+
+// emitPinnedExpression emits an expression under a known expected type, so
+// an object literal in that position lowers against the right record. All
+// other expressions fall through to the ordinary path.
+func (e *Emitter) emitPinnedExpression(
+	expr ast.Expression,
+	expected semantics.Type,
+) string {
+	if lit, ok := expr.(ast.ObjectLiteralExpression); ok {
+		if rec := e.recordOf(expected); rec != nil {
+			return e.emitObjectLiteral(lit, rec)
+		}
+	}
+	return e.EmitExpression(expr)
+}
+
 func (e *Emitter) Indent() string {
 	var indents strings.Builder
 	if e.indentOn {
@@ -492,13 +830,13 @@ func (e *Emitter) Indent() string {
 }
 
 // function f(a: int32, b:int32): int32 {} -> int32_t f(int32_t, int32_t);
-func buildSignature(
+func (e *Emitter) buildSignature(
 	decl ast.FunctionDeclaration,
 ) (string, error) {
 	var pList strings.Builder
 	for i, p := range decl.Parameters {
-		pType, _ := semantics.ResolveTypeName(p.Type.Name.Name)
-		cPtype, err := cType(pType)
+		pType, _ := e.resolveType(p.Type.Name.Name)
+		cPtype, err := e.cTypeOf(pType)
 
 		if err != nil {
 			return "", err
@@ -522,11 +860,32 @@ func buildSignature(
 	if len(decl.ReturnTypes) == 0 {
 		cRetType = "void"
 	} else {
-		retType, _ = semantics.ResolveTypeName(decl.ReturnTypes[0].Name.Name)
-		cRetType, _ = cType(retType)
+		retType, _ = e.resolveType(decl.ReturnTypes[0].Name.Name)
+		cRetType, _ = e.cTypeOf(retType)
 	}
 
 	return fmt.Sprintf("%s %s(%s);", cRetType, fnName, pList.String()), nil
+}
+
+// buildFuncSigs resolves every function declaration's parameter and return
+// types into e.funcSigs for call-site pinning and expression typing.
+func (e *Emitter) buildFuncSigs() {
+	e.funcSigs = map[string]fnSig{}
+	for _, decl := range e.File.Declarations {
+		fn, ok := decl.(ast.FunctionDeclaration)
+		if !ok {
+			continue
+		}
+		sig := fnSig{Return: semantics.Type{Kind: semantics.TypeVoid}}
+		for _, p := range fn.Parameters {
+			pt, _ := e.resolveType(p.Type.Name.Name)
+			sig.Params = append(sig.Params, pt)
+		}
+		if len(fn.ReturnTypes) > 0 {
+			sig.Return, _ = e.resolveType(fn.ReturnTypes[0].Name.Name)
+		}
+		e.funcSigs[fn.Name] = sig
+	}
 }
 
 // binaryPrecedence returns a relative precedence for each binary operator
@@ -608,6 +967,23 @@ func (e *Emitter) EmitExpression(expr ast.Expression) string {
 		if leftType, ok := e.Shifts[expr.Position]; ok {
 			return e.emitShift(expr, leftType)
 		}
+		// Record == / != lowers to the compiler-derived structural-equality
+		// helper; C has no struct comparison operator.
+		if expr.Operator == "==" || expr.Operator == "!=" {
+			if rec := e.recordOf(e.typeOfExpr(expr.Left)); rec != nil {
+				helper := e.requireEqHelper(rec)
+				call := fmt.Sprintf(
+					"%s(%s, %s)",
+					helper,
+					e.EmitExpression(expr.Left),
+					e.EmitExpression(expr.Right),
+				)
+				if expr.Operator == "!=" {
+					return "!" + call
+				}
+				return call
+			}
+		}
 		parentPrec := binaryPrecedence(expr.Operator)
 		left := e.emitOperand(expr.Left, parentPrec, true)
 		right := e.emitOperand(expr.Right, parentPrec, false)
@@ -619,6 +995,12 @@ func (e *Emitter) EmitExpression(expr ast.Expression) string {
 
 	case ast.Identifier:
 		finalExpr.WriteString(expr.Name)
+
+	case ast.MemberAccessExpression:
+		// Record values live inline, so field access is plain C member
+		// access on the receiver value — no deref.
+		finalExpr.WriteString(
+			e.EmitExpression(expr.Receiver) + "." + expr.Member)
 
 	case ast.UnaryExpression:
 		finalExpr.WriteString(expr.Operator + e.EmitExpression(expr.Expression))
@@ -652,8 +1034,15 @@ func (e *Emitter) EmitExpression(expr ast.Expression) string {
 
 		finalExpr.WriteString("(")
 
+		// Object-literal arguments are pinned by the callee's declared
+		// parameter type (analyzer Decision 3); other arguments emit as-is.
+		sig, hasSig := e.funcSigs[fnName]
 		for i, arg := range expr.Arguments {
-			finalExpr.WriteString(e.EmitExpression(arg))
+			if hasSig && i < len(sig.Params) {
+				finalExpr.WriteString(e.emitPinnedExpression(arg, sig.Params[i]))
+			} else {
+				finalExpr.WriteString(e.EmitExpression(arg))
+			}
 			if i < len(expr.Arguments)-1 {
 				finalExpr.WriteString(", ")
 			}
@@ -669,13 +1058,16 @@ func (e *Emitter) EmitStatement(stmt ast.Statement) string {
 	switch stmt := stmt.(type) {
 	case ast.ReturnStatement:
 		if len(stmt.Values) > 0 {
-			expr := e.EmitExpression(stmt.Values[0])
+			expr := e.emitPinnedExpression(stmt.Values[0], e.currentReturn)
 			fmt.Fprintf(&finalStmt, e.Indent()+"return %s;", expr)
 		}
 
 	case ast.VariableDeclarationStatement:
-		vType, _ := semantics.ResolveTypeName(stmt.Type.Name.Name)
-		cVType, _ := cType(vType)
+		vType, _ := e.resolveType(stmt.Type.Name.Name)
+		cVType, _ := e.cTypeOf(vType)
+		if e.localTypes != nil {
+			e.localTypes[stmt.Name] = vType
+		}
 
 		if !stmt.Mutable {
 			finalStmt.WriteString(e.Indent() + "const " + cVType)
@@ -683,8 +1075,15 @@ func (e *Emitter) EmitStatement(stmt ast.Statement) string {
 			finalStmt.WriteString(e.Indent() + cVType)
 		}
 
-		finalStmt.WriteString(" " + stmt.Name + " = ")
-		finalStmt.WriteString(e.EmitExpression(stmt.Value) + ";")
+		finalStmt.WriteString(" " + stmt.Name)
+		// `let v: Vec3;` — a record binding with no initializer is legal;
+		// definite assignment guarantees a whole-value write before any use.
+		if stmt.Value == nil {
+			finalStmt.WriteString(";")
+			break
+		}
+		finalStmt.WriteString(" = ")
+		finalStmt.WriteString(e.emitPinnedExpression(stmt.Value, vType) + ";")
 
 	case ast.WhileStatement:
 		finalStmt.WriteString(e.Indent() + "while (")
@@ -693,20 +1092,35 @@ func (e *Emitter) EmitStatement(stmt ast.Statement) string {
 		finalStmt.WriteString(e.EmitBlockStatement(stmt.Body))
 
 	case ast.AssignmentStatement:
+		// The target may be a plain identifier or a member-access chain
+		// (`dog.age = 4;`); both lower to the same C l-value syntax.
+		target := stmt.Target.Name
+		targetType := e.typeOfExpr(stmt.TargetExpression)
+		if _, isMember := stmt.TargetExpression.(ast.MemberAccessExpression); isMember {
+			target = e.EmitExpression(stmt.TargetExpression)
+		}
 		if stmt.Operator != "" {
 			// Compound `x op= e` lowers to `x = delta_rt_<op>_<type>(x, e, …)`,
 			// an overflow-checked helper. The target type comes from the
-			// resolved symbol recorded by the analyzer.
+			// resolved symbol recorded by the analyzer, falling back to
+			// codegen's own typing for member-access targets.
 			operandType := e.PositionRefs[stmt.Target.Position].Type
-			finalStmt.WriteString(e.Indent() + stmt.Target.Name + " = ")
-			finalStmt.WriteString(e.emitCompoundAssign(stmt, operandType) + ";")
+			if targetType.Kind != semantics.TypeEmpty &&
+				targetType.Kind != semantics.TypeCustom {
+				operandType = targetType
+			}
+			finalStmt.WriteString(e.Indent() + target + " = ")
+			finalStmt.WriteString(
+				e.emitCompoundAssign(stmt, target, operandType) + ";")
 		} else {
-			finalStmt.WriteString(e.Indent() + stmt.Target.Name + " = ")
-			finalStmt.WriteString(e.EmitExpression(stmt.Value) + ";")
+			finalStmt.WriteString(e.Indent() + target + " = ")
+			finalStmt.WriteString(
+				e.emitPinnedExpression(stmt.Value, targetType) + ";")
 		}
 
 	case ast.IfStatement:
-		finalStmt.WriteString(e.Indent() + "if (")
+		finalStmt.WriteString(e.Indent())
+		finalStmt.WriteString("if (")
 		finalStmt.WriteString(e.EmitExpression(stmt.Condition))
 		finalStmt.WriteString(")")
 		finalStmt.WriteString(e.EmitBlockStatement(stmt.ThenBlock))
@@ -717,7 +1131,8 @@ func (e *Emitter) EmitStatement(stmt ast.Statement) string {
 		}
 
 	case ast.ForStatement:
-		finalStmt.WriteString(e.Indent() + "for (")
+		finalStmt.WriteString(e.Indent())
+		finalStmt.WriteString("for (")
 
 		if stmt.Init.(ast.VariableDeclarationStatement).Name == "" {
 			finalStmt.WriteString(";")
@@ -729,7 +1144,9 @@ func (e *Emitter) EmitStatement(stmt ast.Statement) string {
 		if stmt.Cond == nil {
 			finalStmt.WriteString(";")
 		} else {
-			finalStmt.WriteString(" " + e.EmitExpression(stmt.Cond) + "; ")
+			finalStmt.WriteString(" ")
+			finalStmt.WriteString(e.EmitExpression(stmt.Cond))
+			finalStmt.WriteString("; ")
 		}
 
 		if stmt.Step != nil {
@@ -797,10 +1214,22 @@ func (e *Emitter) EmitFunctionDeclaration(
 	fn ast.FunctionDeclaration,
 ) (string, error) {
 	var res strings.Builder
-	sig, err := buildSignature(fn)
+	sig, err := e.buildSignature(fn)
 
 	if err != nil {
 		return "", err
+	}
+
+	// Fresh per-function binding-type table (parameters seed it; locals are
+	// added as their declarations are emitted) and the return type used to
+	// pin `return { ... };` literals.
+	e.localTypes = map[string]semantics.Type{}
+	for _, p := range fn.Parameters {
+		e.localTypes[p.Name.Name], _ = e.resolveType(p.Type.Name.Name)
+	}
+	e.currentReturn = semantics.Type{Kind: semantics.TypeVoid}
+	if len(fn.ReturnTypes) > 0 {
+		e.currentReturn, _ = e.resolveType(fn.ReturnTypes[0].Name.Name)
 	}
 
 	res.WriteString(sig[:len(sig)-1])
@@ -810,22 +1239,38 @@ func (e *Emitter) EmitFunctionDeclaration(
 
 func (e *Emitter) EmitConstDeclaration(decl ast.ConstDeclaration) string {
 	var constDecl strings.Builder
-	vTypeName, _ := semantics.ResolveTypeName(decl.Type.Name.Name)
-	cVType, _ := cType(vTypeName)
+	vType, _ := e.resolveType(decl.Type.Name.Name)
+	cVType, _ := e.cTypeOf(vType)
+	if e.globalTypes == nil {
+		e.globalTypes = map[string]semantics.Type{}
+	}
+	e.globalTypes[decl.Name.Name] = vType
 
 	constDecl.WriteString("static const " + cVType + " " + decl.Name.Name)
-	constDecl.WriteString(" = " + e.EmitExpression(decl.Value) + ";\n")
+	constDecl.WriteString(" = " + e.emitPinnedExpression(decl.Value, vType) + ";\n")
 	return constDecl.String()
 }
 
 func (e *Emitter) Emit() []byte {
 	e.indentOn = true
+
+	// Resolve the record table and function signatures first: forward
+	// declarations, expression typing, and literal pinning all read them.
+	e.buildRecordTable()
+	e.buildFuncSigs()
+	e.globalTypes = map[string]semantics.Type{}
+	for _, decl := range e.File.Declarations {
+		if c, ok := decl.(ast.ConstDeclaration); ok {
+			e.globalTypes[c.Name.Name], _ = e.resolveType(c.Type.Name.Name)
+		}
+	}
+
 	var fwdDecls strings.Builder
 	for _, decl := range e.File.Declarations {
 
 		switch decl := decl.(type) {
 		case ast.FunctionDeclaration:
-			fwdDecl, err := buildSignature(decl)
+			fwdDecl, err := e.buildSignature(decl)
 			if err != nil {
 				println(err.Error())
 			}
@@ -915,13 +1360,30 @@ func (e *Emitter) Emit() []byte {
 		}
 	}
 
+	// Struct typedefs come right after the runtime preamble; the
+	// equality helpers (registered while bodies were emitted above)
+	// follow the structs they take by value.
+	var recordDefs strings.Builder
+	if len(e.recordOrder) > 0 {
+		recordDefs.WriteString("\n" + e.emitStructDefs())
+	}
+	eqNames := make([]string, 0, len(e.usedEqHelpers))
+	for name := range e.usedEqHelpers {
+		eqNames = append(eqNames, name)
+	}
+	sort.Strings(eqNames)
+	for _, name := range eqNames {
+		recordDefs.WriteString(eqHelperBody(e.usedEqHelpers[name]) + "\n\n")
+	}
+
 	final := fmt.Sprintf(`%s%s
-%s
+%s%s
 %s
 %s
 int main() {
 	return (int)delta_main();
 }
-`, includes, runtime.String(), fwdDecls.String(), constDecls.String(), funcDecls.String())
+`, includes, runtime.String(), recordDefs.String(), fwdDecls.String(),
+		constDecls.String(), funcDecls.String())
 	return []byte(final)
 }

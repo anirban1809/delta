@@ -1,6 +1,6 @@
 ## 8. Type Declarations
 
-Section 8 covers Delta's user-defined data type surface: the `type` keyword, declaration syntax, construction model, field visibility, composition (spread and intersection), recursion via owning heap indirection, value-equality semantics, the `same(...)` identity intrinsic, and tagged unions over named variants. The recurring principles are **nominal identity is the only identity** (two declarations with identical fields are distinct types; there is no structural subtyping anywhere), **transparency belongs to types and opacity belongs to classes** (types are pure public data with no behavior; classes — [§9](#9-classes) — carry methods, static construction functions, and per-field visibility), and **cost and ownership are visible at every site** (heap indirection is spelled with `heap T`, borrows are spelled with `borrowed T`, no silent allocations through implicit boxing or copy-on-write). Each sub-feature below follows the Proposal / Reason / Examples / Conclusion structure.
+Section 8 covers Delta's user-defined data type surface: the `type` keyword, declaration syntax, construction model, field visibility, composition (spread and intersection), recursion via owning heap indirection, value-equality semantics, the `same(...)` identity intrinsic, and tagged unions over named variants. The recurring principles are **nominal identity is the only identity** (two declarations with identical fields are distinct types; there is no structural subtyping anywhere), **transparency belongs to types and opacity belongs to classes** (types are pure public data with no behavior; classes — [§9](#9-classes) — carry methods, static construction functions, and per-field visibility), and **cost and ownership are visible at every site** (heap indirection is spelled with `heap T`, references are spelled with `&T`, no silent allocations through implicit boxing or copy-on-write). Each sub-feature below follows the Proposal / Reason / Examples / Conclusion structure.
 
 ---
 
@@ -304,7 +304,7 @@ Properties of `heap T`:
 
 **Reason.** Recursive data structures are foundational — linked lists, trees, ASTs, JSON, the compiler's own type IR. Without an owning heap-indirection mechanism, none are expressible. `heap T` is one keyword (no generic brackets, no library type to import), reads as exactly what it does ("this value owns a heap-stored T"), and composes with the rest of the type-position grammar.
 
-The asymmetry with `borrowed T` ([§8.8](#88-borrows-on-type-values-borrowed-t)) is intentional and load-bearing: `heap T` is a *type* that owns a heap-stored value; `borrowed T` is a *type* that does not own the value it refers to. `owned` remains an English description of lifetime responsibility, not a user-facing type modifier. Together, inline `T`, `heap T`, and `borrowed T` cover the core storage/lifetime cases: owned inline storage, owned heap storage, and temporary non-owning access.
+The asymmetry with `&T` ([§8.8](#88-references-on-type-values)) is intentional and load-bearing: `heap T` is a *type* that owns a heap-stored value; `&T` is a *type* that does not own the value it refers to. `owned` remains an English description of lifetime responsibility, not a user-facing type modifier. Together, inline `T`, `heap T`, and `&T` cover the core storage/lifetime cases: owned inline storage, owned heap storage, and temporary non-owning access.
 
 Auto-deref on read pays for itself in tree-walking code: every node access (`node.left.right.value`) would otherwise require explicit dereference at every hop, dominating readability. The cost — readers don't see the pointer chase happening — is bounded because the field declaration is right there and the `heap` keyword is the cost signal.
 
@@ -357,63 +357,63 @@ const trees: Array<heap Tree> = ...;
 
 ---
 
-### 8.8 Borrows on Type Values: `borrowed T` and `mod borrowed T`
+### 8.8 References on Type Values
 
-**Proposal.** A non-owning borrow of a type value uses the `borrowed T` form (**read-only**, the default) or the `mod borrowed T` form (**mutable**). Read-only is unmarked because it is the overwhelmingly common case; mutability is opted into with `mod` — the same keyword that marks a mutating method ([§9.5](#9-classes)), so "`mod` means may-mutate" reads consistently at both the borrow and the method level. There is **no `readonly` keyword**. The keyword `borrowed` replaces the previous draft's `ref` modifier from [§12](#12-safe-borrows-borrowed-mod-borrowed).
+**Proposal.** A non-owning reference of a type value uses the `&T` form (**read-only**, the default) or the `edit &T` form (**mutable**). Read-only is unmarked because it is the overwhelmingly common case; mutability is opted into with `edit` — the same keyword that marks a mutating method ([§9.5](#9-classes)), so "`edit` means may-mutate" reads consistently at both the reference and the method level. There is **no `readonly` keyword**. The keyword `&` replaces the previous draft's `ref` modifier from [§12](#12-safe-references).
 
 ```ts
-function read(v: borrowed Vec3): float32 { return v.x; }        // read-only borrow (default)
-function update(v: mod borrowed Vec3): void { v.x += 1.0; }     // mutable borrow
+function read(v: &Vec3): float32 { return v.x; }        // read-only reference (default)
+function update(v: edit &Vec3): void { v.x += 1.0; }     // mutable reference
 
 let a: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
-read(borrowed a);                                              // pass read-only borrow
-update(mod borrowed a);                                        // pass mutable borrow
+read(&a);                                              // pass read-only reference
+update(edit &a);                                        // pass mutable reference
 ```
 
 Properties:
 
-- **Non-owning.** A borrow does not allocate, does not drop, and does not extend the lifetime of its referent.
-- **Read-only by default; `mod` for mutation.** A `borrowed T` cannot mutate its referent; only `mod borrowed T` can. A `mod borrowed` cannot be taken from a `const` binding.
-- **Auto-derefs on read.** `b.x` reads the field through the borrow without explicit dereference; symmetric with `heap T`'s read behavior ([§8.7](#87-recursion-and-indirection-heap-t)).
-- **Lifetime-tracked by the ownership system.** Full rules live in [§12](#12-safe-borrows-borrowed-mod-borrowed) and [§14](#14-ownership--move-semantics); §8 inherits whatever those sections specify.
-- **Parameter positions only** in MVP. Borrows as field types (which would require lifetime annotations on enclosing types) are out of scope.
+- **Non-owning.** A reference does not allocate, does not drop, and does not extend the lifetime of its referent.
+- **Read-only by default; `edit` for mutation.** A `&T` cannot mutate its referent; only `edit &T` can. An `edit &` cannot be taken from a `const` binding.
+- **Auto-derefs on read.** `b.x` reads the field through the reference without explicit dereference; symmetric with `heap T`'s read behavior ([§8.7](#87-recursion-and-indirection-heap-t)).
+- **Lifetime-tracked by the ownership system.** Full rules live in [§12](#12-safe-references) and [§14](#14-ownership--move-semantics); §8 inherits whatever those sections specify.
+- **Parameter positions only** in MVP. References as field types (which would require lifetime annotations on enclosing types) are out of scope.
 
 **Reason.** Two decisions combine here:
 
-- **The `ref` → `borrowed` rename.** `borrowed Vec3` reads as English, pairs symmetrically with `heap T` ([§8.7](#87-recursion-and-indirection-heap-t)) as the non-owning vs owning forms, and frees the bare `ref` keyword from carrying both a type modifier (`ref T`) and an expression operator (`ref x`). With `borrowed T` as the type and `borrowed x` as the expression, one word carries one meaning at both levels.
-- **Read-only as the default, `mod` for mutation.** Most borrows only read; making the common case unmarked keeps signatures short (`borrowed Vec3`, not `readonly borrowed Vec3`), and reusing `mod` for the rare mutable case ties the borrow vocabulary to the method-mutation vocabulary — a reader who knows `mod increment()` mutates already knows `mod borrowed` mutates. Eliminating `readonly` removes a keyword entirely and removes the verbosity of the old `readonly borrowed T` (18 characters) on the path most code takes.
+- **The `ref` → `&` rename.** `&Vec3` reads as English, pairs symmetrically with `heap T` ([§8.7](#87-recursion-and-indirection-heap-t)) as the non-owning vs owning forms, and frees the bare `ref` keyword from carrying both a type modifier (`ref T`) and an expression operator (`ref x`). With `&T` as the type and `&x` as the expression, one word carries one meaning at both levels.
+- **Read-only as the default, `edit` for mutation.** Most references only read; making the common case unmarked keeps signatures short (`&Vec3`, not `readonly &Vec3`), and reusing `edit` for the rare mutable case ties the reference vocabulary to the method-mutation vocabulary — a reader who knows `edit increment()` mutates already knows `edit &` mutates. Eliminating `readonly` removes a keyword entirely and removes the verbosity of the old `readonly &T` (18 characters) on the path most code takes.
 
-At the value level, `move` transfers ownership and `clone x` (fallible) deep-copies; there is no `copy` operator (plain assignment copies copyable values). `borrowed` / `mod borrowed` are the non-owning forms.
+At the value level, `move` transfers ownership and `clone x` (fallible) deep-copies; there is no `copy` operator (plain assignment copies copyable values). `&` / `edit &` are the non-owning forms.
 
 **Examples.**
 ```ts
 type Vec3 = { x: float32; y: float32; z: float32; };
 
-// mutable borrow
-function scale(v: mod borrowed Vec3, factor: float32): void {
+// mutable reference
+function scale(v: edit &Vec3, factor: float32): void {
   v.x *= factor;
   v.y *= factor;
   v.z *= factor;
 }
 
-// read-only borrow (default)
-function length(v: borrowed Vec3): float32 {
+// read-only reference (default)
+function length(v: &Vec3): float32 {
   return sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 }
 
 let a: Vec3 = { x: 3.0, y: 4.0, z: 0.0 };
-scale(mod borrowed a, 2.0);                                   // a is now { 6, 8, 0 }
-const len = length(borrowed a);                               // 10.0
+scale(edit &a, 2.0);                                   // a is now { 6, 8, 0 }
+const len = length(&a);                               // 10.0
 
 // auto-deref on field access
-function firstX(v: borrowed Vec3): float32 { return v.x; }    // no explicit deref
+function firstX(v: &Vec3): float32 { return v.x; }    // no explicit deref
 
-// borrow as a field type — out of scope in MVP
-type Bad = { v: borrowed Vec3; };                             // ERROR — borrows in field positions
+// reference as a field type — out of scope in MVP
+type Bad = { v: &Vec3; };                             // ERROR — references in field positions
                                                               //   require lifetime annotations
 ```
 
-**Conclusion.** `borrowed T` (read-only, default) and `mod borrowed T` (mutable) are the parameter-position borrow forms; there is no `readonly` keyword. Auto-deref on read. Renaming from `ref T` resolves the prior keyword overload. Full borrow rules live in [§12](#12-safe-borrows-borrowed-mod-borrowed) and [§14](#14-ownership--move-semantics).
+**Conclusion.** `&T` (read-only, default) and `edit &T` (mutable) are the parameter-position reference forms; there is no `readonly` keyword. Auto-deref on read. Renaming from `ref T` resolves the prior keyword overload. Full reference rules live in [§12](#12-safe-references) and [§14](#14-ownership--move-semantics).
 
 ---
 
@@ -430,7 +430,7 @@ a == b                                                        // true
 
 `==` is **compiler-derived, not user-overridable**. There is no operator-overloading surface for it in MVP; a `type` either supports `==` (because all its fields do) or it does not (because some field doesn't).
 
-`==` auto-derefs through `heap T` and `borrowed T` operands — the operator sees the underlying `T` value, never the indirection or the borrow representation itself ([§8.10](#810-identity-via-same) is where storage identity lives).
+`==` auto-derefs through `heap T` and `&T` operands — the operator sees the underlying `T` value, never the indirection or the reference representation itself ([§8.10](#810-identity-via-same) is where storage identity lives).
 
 Ordering operators `<`, `>`, `<=`, `>=` are **not** defined on `type` values. There is no natural total order on records, and adding one would either require lexicographic ordering (which is rarely what the user means) or a user-defined comparator (which would re-introduce operator overloading).
 
@@ -459,12 +459,12 @@ const bad = p == q;
 //   use `.equals()` on the field, or write a comparison helper:
 //     p.name.equals(q.name) && p.age == q.age
 
-// heap and borrowed operands auto-deref
+// heap and reference operands auto-deref
 const oa: heap Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
 const ob: heap Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
 oa == ob                                                      // true — values compared
 
-function compare(p: borrowed Vec3, q: borrowed Vec3): bool {
+function compare(p: &Vec3, q: &Vec3): bool {
   return p == q;                                              // true if underlying values equal
 }
 
@@ -472,7 +472,7 @@ function compare(p: borrowed Vec3, q: borrowed Vec3): bool {
 const less = a < b;                                           // ERROR — `<` not defined on `type`
 ```
 
-**Conclusion.** `==` / `!=` are compiler-derived and structural when all field types support them; auto-deref through `heap` and `borrowed`. Ordering operators are not defined on `type`. No user override.
+**Conclusion.** `==` / `!=` are compiler-derived and structural when all field types support them; auto-deref through `heap` and `&`. Ordering operators are not defined on `type`. No user override.
 
 ---
 
@@ -484,8 +484,8 @@ const less = a < b;                                           // ERROR — `<` n
 const a: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
 const b: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
 
-same(borrowed a, borrowed a)                                  // true — same storage
-same(borrowed a, borrowed b)                                  // false — different storage
+same(&a, &a)                                  // true — same storage
+same(&a, &b)                                  // false — different storage
 a == b                                                        // true — values compared (per §8.9)
 ```
 
@@ -495,33 +495,33 @@ Rules:
 - **Not a value.** `const f = same;` is a compile error — `same` exists only at call sites.
 - **Available without import** — part of the language surface.
 - **Exactly two arguments.**
-- **Argument expressions must be indirected** — each argument must be an existing borrow-typed value, an explicit `borrowed ...` / `mod borrowed ...` call-site expression, or a `heap T` access path. Plain inline `T` is a compile error (inline values have no meaningful storage identity).
-- **Same underlying `T` required.** `same(borrowed someVec3, borrowed someVelocity)` is a compile error — distinct types cannot share storage.
-- **Mixed indirection forms are fine** if the underlying `T` matches: `same(borrowed someVec3, heapVec3)` is legal when `heapVec3: heap Vec3`.
+- **Argument expressions must be indirected** — each argument must be an existing reference-typed value, an explicit `& ...` / `edit & ...` call-site expression, or a `heap T` access path. Plain inline `T` is a compile error (inline values have no meaningful storage identity).
+- **Same underlying `T` required.** `same(&someVec3, &someVelocity)` is a compile error — distinct types cannot share storage.
+- **Mixed indirection forms are fine** if the underlying `T` matches: `same(&someVec3, heapVec3)` is legal when `heapVec3: heap Vec3`.
 - **Return type:** `bool`. Runtime cost: O(1) pointer comparison.
 
 **Reason.** Storage identity is occasionally needed — cycle detection during graph traversal, aliasing guards before mutation, fast-path optimization inside `==` implementations of large structures — but it is rare in application code. A dedicated intrinsic at compiler level (rather than a std function) keeps the surface small and unambiguous: a reader who sees `same(...)` knows the question is "do these refer to the same storage?", not "are these values equal?"
 
-Restricting the argument types to indirected forms is what makes the operation well-defined. An inline `Vec3` lives at whatever stack address its binding happens to occupy; comparing two inline values' addresses is asking the wrong question — the answer changes when the compiler reorders locals. Forcing the argument through `borrowed`, `mod borrowed`, or `heap` guarantees the address is meaningful and stable for the duration of the call.
+Restricting the argument types to indirected forms is what makes the operation well-defined. An inline `Vec3` lives at whatever stack address its binding happens to occupy; comparing two inline values' addresses is asking the wrong question — the answer changes when the compiler reorders locals. Forcing the argument through `&`, `edit &`, or `heap` guarantees the address is meaningful and stable for the duration of the call.
 
 Compiler-intrinsic status (rather than std function) earns its keep on two axes: no import needed (rare uses, not worth ceremony), and the compiler can validate the type / arity / indirection constraints with precise diagnostics rather than going through the generic function overload machinery.
 
 **Examples.**
 ```ts
 // graph traversal — cycle detection
-function visit(node: borrowed Node, seen: borrowed Set<heap Node>): void {
+function visit(node: &Node, seen: &Set<heap Node>): void {
   for (const s of seen) {
-    if (same(node, borrowed s)) { return; }                   // already visited
+    if (same(node, &s)) { return; }                   // already visited
   }
   seen.add(...);
-  for (const child of node.children) { visit(borrowed child, seen); }
+  for (const child of node.children) { visit(&child, seen); }
 }
 
 // aliasing guard before mutation
-// Note: §12.4 rejects swap(mod borrowed x, mod borrowed x) at compile time (same root).
+// Note: §12.4 rejects swap(edit &x, edit &x) at compile time (same root).
 // This same(a, b) guard covers aliasing root-checking cannot see — e.g. two heap
 // handles reaching the same node, or graph edges into shared storage.
-function swap(a: mod borrowed Vec3, b: mod borrowed Vec3): void {
+function swap(a: edit &Vec3, b: edit &Vec3): void {
   if (same(a, b)) { return; }                                  // self-swap is a no-op
   const tmp: Vec3 = { x: a.x, y: a.y, z: a.z };
   a.x = b.x; a.y = b.y; a.z = b.z;
@@ -534,13 +534,13 @@ const y: Vec3 = ...;
 same(x, y);                                                    // ERROR — inline values
                                                                //   have no storage identity
 
-same(borrowed someVec3, borrowed someVel);                     // ERROR — Vec3 and Velocity distinct
+same(&someVec3, &someVel);                     // ERROR — Vec3 and Velocity distinct
 
 const f = same;                                                // ERROR — not a value
 function same(a, b): bool { ... }                              // ERROR — reserved name
 ```
 
-**Conclusion.** `same(a, b)` is a compiler intrinsic for storage-identity comparison. Arguments must be existing borrows, explicit borrow expressions, or `heap T` values that reference the same underlying type. Distinct from `==`, which compares values.
+**Conclusion.** `same(a, b)` is a compiler intrinsic for storage-identity comparison. Arguments must be existing references, explicit reference expressions, or `heap T` values that reference the same underlying type. Distinct from `==`, which compares values.
 
 ---
 
@@ -767,7 +767,7 @@ The following are deliberately out of scope, either deferred to a later section 
 - **A user-visible heap-wrapper indirection type** — never. `heap T` is the canonical syntax.
 - **Implicit boxing / heap promotion** of inline values — never. `heap T` is always written explicitly.
 - **Direct self-reference in field types** (`type Tree = { left: Tree; ... }`) — never. Must go through `heap T` or an indirection-shaped std type.
-- **Borrows in field positions** — out of scope for MVP. Would require lifetime annotations on enclosing types; revisit post-MVP.
+- **References in field positions** — out of scope for MVP. Would require lifetime annotations on enclosing types; revisit post-MVP.
 - **User-overridable `==`** — never. Equality is compiler-derived structural per-field; types whose fields do not support `==` simply do not support `==`.
 - **Ordering operators (`<`, `>`, `<=`, `>=`) on `type` values** — never. There is no natural total order on records.
 - **User-defined generic `type` declarations** — deferred to the generics section ([§31](#31-generics--constraints)). MVP scope is settled in that section.
@@ -775,15 +775,15 @@ The following are deliberately out of scope, either deferred to a later section 
 - **User-supplied discriminant fields** on tagged-union variants — never. The tag is compiler-synthesized and not user-visible.
 - **Implicit narrowing from a union back to a variant** (without `switch type`) — never. Narrowing happens only through variant dispatch ([§30](#30-variant-dispatch-switch-type)).
 - **Reference identity via `==`** — never. `==` is value equality; `same(...)` is the identity intrinsic.
-- **`same(...)` on inline (non-indirected) values** — never. Arguments must be existing borrows, explicit borrow expressions, or `heap T` values.
+- **`same(...)` on inline (non-indirected) values** — never. Arguments must be existing references, explicit reference expressions, or `heap T` values.
 
 ---
 
 **Note on downstream sections.** This rewrite of §8 has knock-on effects elsewhere in the spec:
 
 - **[§9](#9-classes)** — language unchanged in substance, but the data/behavior split is now sharpened: `type` is pure-public data with no methods; `class` is the *only* construct with methods, static construction functions, and per-field visibility. §9 should reference [§8.5](#85-field-visibility-and-the-absence-of-methods) for the rationale.
-- **[§12](#12-safe-borrows-borrowed-mod-borrowed)** — the keyword change from `ref T` / `readonly ref T` to `borrowed T` (read-only, default) / `mod borrowed T` (mutable) applies uniformly; the `readonly` keyword is eliminated. Section 12 also fixes the MVP limits: borrows are parameter/call scoped, owner call sites spell `borrowed x` / `mod borrowed x`, and borrow operands are bindings or field paths rather than temporaries, indexes, or slice expressions.
-- **[§14](#14-ownership--move-semantics)** — the ownership vocabulary is now `heap` (type-level, owning heap indirection), `borrowed` (type-level, non-owning), `move` (operator, ownership transfer), and `clone` (operator, explicit fallible deep copy of owned types). There is **no `copy` operator**: plain assignment copies copyable values and is an error for move-only ones. `owned` remains descriptive prose, not syntax.
+- **[§12](#12-safe-references)** — the keyword change from `ref T` / `readonly ref T` to `&T` (read-only, default) / `edit &T` (mutable) applies uniformly; the `readonly` keyword is eliminated. Section 12 also fixes the MVP limits: references are parameter/call scoped, owner call sites spell `&x` / `edit &x`, and reference operands are bindings or field paths rather than temporaries, indexes, or slice expressions.
+- **[§14](#14-ownership--move-semantics)** — the ownership vocabulary is now `heap` (type-level, owning heap indirection), `&` (type-level, non-owning), `move` (operator, ownership transfer), and `clone` (operator, explicit fallible deep copy of owned types). There is **no `copy` operator**: plain assignment copies copyable values and is an error for move-only ones. `owned` remains descriptive prose, not syntax.
 - **[§18](#18-null-safety--nullable-types)** — already removed by [§3.9](#39-removal-of-nullability). The §8 model uses fallible signatures and tagged unions for absence, not nullable record types.
 - **[§29](#29-tagged-unions--exhaustiveness)** — the *declaration* surface for tagged unions moves into §8 ([§8.13](#813-tagged-unions-over-type)); §29 now focuses on exhaustiveness checking and the `switch type` dispatch statement.
 - **[§30](#30-variant-dispatch-switch-type)** — referenced from [§8.13](#813-tagged-unions-over-type) as the home of the `switch type` dispatch/narrowing rules (replacing the former `match`).

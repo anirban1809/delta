@@ -3,7 +3,7 @@
 Date drafted: 2026-06-03
 Status: planning, not started.
 Predecessor: All of v0.5a (Phases **I, D, J, A, B, C, E**) landed.
-Successor: Phase G adds borrowed/mod-borrowed references on top of the ownership model. Phase H adds `heap T` owning indirection.
+Successor: Phase G adds referenced/edit-referenced references on top of the ownership model. Phase H adds `heap T` owning indirection.
 Spec basis: [spec-sections/14-ownership-and-move-semantics.md](../../spec-sections/14-ownership-and-move-semantics.md), [spec-sections/13-memory-safety-model.md](../../spec-sections/13-memory-safety-model.md), [spec-sections/11-mutability-model.md](../../spec-sections/11-mutability-model.md).
 
 ## Goal
@@ -45,8 +45,8 @@ function main(): int32 {
 | `uses Cloneable` user-supplied clone hook | Auto-derived only. | Post-v0.5. |
 | `uses Disposable` user-supplied dispose hook | Phase E's empty dispose function stays the only dispose path. | Post-v0.5. |
 | Partial moves / field-level moves | Aggregates move whole or not at all. | Never planned per spec. |
-| `move` of borrow operands | Borrows aren't owned — moving them makes no sense. Phase G enforces. | Phase G. |
-| `clone` of borrows | A borrow can't be cloned because the destination would need ownership. | Phase G. |
+| `move` of reference operands | References aren't owned — moving them makes no sense. Phase G enforces. | Phase G. |
+| `clone` of references | A reference can't be cloned because the destination would need ownership. | Phase G. |
 | Move state of heap-allocated values | Phase H adds `heap T` and its own move discipline. | Phase H. |
 | Move tracking across modules / cross-TU | Inside one function only. Cross-call moves are handled at the call site (the argument is moved into the callee, the parameter receives ownership). | Already in scope for v0.5; this is what call-by-value with move-only types means. |
 
@@ -206,4 +206,4 @@ Steps 3–9 are the analyzer-heavy core. Step 12 is the codegen win.
 - The disposal pass produces C that calls dispose only on bindings the analyzer proved live at scope exit, verified by snapshot inspection.
 - `clone x` is consumed via `as result` + `check` at every call site; no in-band failure mode escapes.
 - The intentional v0.5a unsoundness gap is closed: passing a class by value moves it; subsequent use is a compile error.
-- Phase G can begin: the move-state machinery is the foundation for the borrow-exclusivity check (a `mod borrowed` reference precludes a concurrent move).
+- Phase G can begin: the move-state machinery is the foundation for the reference-exclusivity check (an `edit &` reference precludes a concurrent move).

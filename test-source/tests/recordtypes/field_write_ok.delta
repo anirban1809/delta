@@ -1,0 +1,9 @@
+type Vec3 = { x: float64; y: float64; z: float64; };
+
+function main(): int32 {
+    let v: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
+    v.x = 5.0;
+    if (int32(v.x) != 5) { return 1; }
+    if (int32(v.y) != 2) { return 2; }
+    return 0;
+}

@@ -1,11 +1,12 @@
 package semantics
 
 import (
-	"delta/internal/ast"
-	"delta/internal/diagnostics"
 	"fmt"
 	"slices"
 	"strings"
+
+	"delta/internal/ast"
+	"delta/internal/diagnostics"
 )
 
 type SymbolKind int
@@ -16,6 +17,7 @@ const (
 	SymbolParameter
 	SymbolLocalConst
 	SymbolLocalLet
+	SymbolTypeDecl
 )
 
 type Symbol struct {
@@ -103,6 +105,18 @@ type Analyzer struct {
 	// currently being analyzed. ReturnStatement validation reads it. Set
 	// in AnalyzeFunctionDeclaration; nil at file scope.
 	currentFunctionSig *FunctionSignature
+
+	// contains all the custom record type declarations
+	recordTypes map[string]ast.RecordRHS
+
+	// contains all the custom record alias declarations
+	aliasRecordTypes map[string]ast.AliasRHS
+
+	// contains all the custom record composition declarations
+	compRecordTypes map[string]ast.CompositionRHS
+
+	// to keep track of what type declarations have been initialized.
+	typeInits map[string]ast.ObjectLiteralExpression
 }
 
 // pushScopeNode wires a freshly-constructed Scope into the analyzer's
@@ -210,6 +224,28 @@ func (a *Analyzer) errorAt(pos ast.Position, message string) {
 func (a *Analyzer) AnalyzeExpr(expr ast.Expression, scope *Scope) bool {
 	expression := expr
 	switch expression := expression.(type) {
+
+	case ast.MemberAccessExpression:
+		receiver := expression.Receiver
+		a.AnalyzeExpr(receiver, scope)
+		member := expression.Member
+		recvT := a.TypeOf(receiver, scope)
+
+		if recvT.Kind != TypeCustom {
+			a.errorAt(receiver.Pos(), fmt.Sprintf("field %s does not exist on type %s", member, recvT.String()))
+		}
+
+	case ast.ObjectLiteralExpression:
+		elements := expression.Elements
+		for _, element := range elements {
+			switch e := element.(type) {
+			case ast.FieldInit:
+				if ok := a.AnalyzeExpr(e.Value, scope); !ok {
+					continue
+				}
+			}
+		}
+
 	case ast.Identifier:
 		if !a.FindSymbol(scope, expression.Name) {
 			a.errorAt(
@@ -286,10 +322,10 @@ func (a *Analyzer) AnalyzeExpr(expr ast.Expression, scope *Scope) bool {
 					Kind: SymbolFunction,
 					Signature: &FunctionSignature{
 						Parameters: []Type{
-							{TypeInt32}, //this type is just a placeholder
+							{Name: "int32", Kind: TypeInt32}, // this type is just a placeholder
 						},
 						ReturnTypes: []Type{
-							{TypeInt32}, //this type is just a placeholder
+							{Name: "int32", Kind: TypeInt32}, // this type is just a placeholder
 						},
 					},
 					DefPos:  callee.Position,
@@ -340,37 +376,40 @@ func (a *Analyzer) AnalyzeExpr(expr ast.Expression, scope *Scope) bool {
 func (a *Analyzer) typeOfUnary(e ast.UnaryExpression, scope *Scope) Type {
 	operandT := a.TypeOf(e.Expression, scope)
 	if operandT.Kind == TypeInvalid {
-		return Type{Kind: TypeInvalid}
+		return Type{Name: "<invalid>", Kind: TypeInvalid}
 	}
 
 	switch e.Operator {
 	case "!":
 		if operandT.Kind != TypeBool {
 			a.errorAt(e.Position, fmt.Sprintf(
-				"unary `!` requires bool operand, got %s", operandT))
-			return Type{Kind: TypeInvalid}
+				"unary `!` requires bool operand, got %s", operandT,
+			))
+			return Type{Name: "<invalid>", Kind: TypeInvalid}
 		}
-		return Type{TypeBool}
+		return Type{Name: "bool", Kind: TypeBool}
 
 	case "-":
 		if !operandT.IsInteger() && !operandT.IsFloat() {
 			a.errorAt(e.Position, fmt.Sprintf(
-				"unary `-` requires numeric operand, got %s", operandT))
-			return Type{Kind: TypeInvalid}
+				"unary `-` requires numeric operand, got %s", operandT,
+			))
+			return Type{Name: "<invalid>", Kind: TypeInvalid}
 		}
-		return Type{operandT.Kind}
+		return operandT
 
 	case "~":
 		if !operandT.IsInteger() {
 			a.errorAt(e.Position, fmt.Sprintf(
-				"unary `~` requires integer operand, got %s", operandT))
-			return Type{Kind: TypeInvalid}
+				"unary `~` requires integer operand, got %s", operandT,
+			))
+			return Type{Name: "<invalid>", Kind: TypeInvalid}
 		}
-		return Type{operandT.Kind}
+		return operandT
 	}
 
 	a.errorAt(e.Position, fmt.Sprintf("unknown unary operator %q", e.Operator))
-	return Type{Kind: TypeInvalid}
+	return Type{Name: "<invalid>", Kind: TypeInvalid}
 }
 
 func isIntegerLiteral(expr ast.Expression) bool {
@@ -409,6 +448,10 @@ func (a *Analyzer) typeOfBinary(e ast.BinaryExpression, scope *Scope) Type {
 	leftT := a.TypeOf(e.Left, scope)
 	rightT := a.TypeOf(e.Right, scope)
 
+	if leftT.Kind == TypeInvalid || rightT.Kind == TypeInvalid {
+		return Type{Name: "<invalid>", Kind: TypeInvalid}
+	}
+
 	if (leftT.IsInteger() && rightT.IsInteger()) && isIntegerLiteral(e.Left) &&
 		!isIntegerLiteral(e.Right) {
 		leftT = rightT
@@ -438,11 +481,11 @@ func (a *Analyzer) typeOfBinary(e ast.BinaryExpression, scope *Scope) Type {
 				rightT.String(),
 			),
 		)
-		return Type{TypeInvalid}
+		return Type{Name: "<invalid>", Kind: TypeInvalid}
 	}
 
 	if leftT.Kind == TypeInvalid || rightT.Kind == TypeInvalid {
-		return Type{Kind: TypeInvalid}
+		return Type{Name: "<invalid>", Kind: TypeInvalid}
 	}
 
 	switch e.Operator {
@@ -456,14 +499,14 @@ func (a *Analyzer) typeOfBinary(e ast.BinaryExpression, scope *Scope) Type {
 				rightT,
 			))
 
-			return Type{Kind: TypeInvalid}
+			return Type{Name: "<invalid>", Kind: TypeInvalid}
 		}
 
 		if e.Operator == "/" && leftT.IsInteger() {
 			a.recordDivision(e.Position, leftT)
 		}
 
-		return Type{leftT.Kind}
+		return leftT
 
 	case "%":
 		// Unlike the other arithmetic operators, `%` is integer-only: C's `%`
@@ -476,11 +519,11 @@ func (a *Analyzer) typeOfBinary(e ast.BinaryExpression, scope *Scope) Type {
 				leftT,
 				rightT,
 			))
-			return Type{Kind: TypeInvalid}
+			return Type{Name: "<invalid>", Kind: TypeInvalid}
 		}
 
 		a.recordDivision(e.Position, leftT)
-		return Type{leftT.Kind}
+		return leftT
 
 	case "&", "|", "^":
 		// Bitwise operators are integer-only (no float, no bool) and yield
@@ -493,9 +536,9 @@ func (a *Analyzer) typeOfBinary(e ast.BinaryExpression, scope *Scope) Type {
 				leftT,
 				rightT,
 			))
-			return Type{Kind: TypeInvalid}
+			return Type{Name: "<invalid>", Kind: TypeInvalid}
 		}
-		return Type{leftT.Kind}
+		return leftT
 
 	case "<<", ">>":
 		// Shifts are integer-only. The result takes the left operand's type;
@@ -508,12 +551,21 @@ func (a *Analyzer) typeOfBinary(e ast.BinaryExpression, scope *Scope) Type {
 				leftT,
 				rightT,
 			))
-			return Type{Kind: TypeInvalid}
+			return Type{Name: "<invalid>", Kind: TypeInvalid}
 		}
 		a.recordShift(e.Position, leftT)
-		return Type{leftT.Kind}
+		return leftT
 
 	case "<", "<=", ">", ">=":
+		if leftT.Kind == TypeCustom || rightT.Kind == TypeCustom {
+			a.errorAt(e.Position, fmt.Sprintf(
+				"types %s and %s are non-comparable",
+				leftT,
+				rightT,
+			))
+			return Type{Name: "<invalid>", Kind: TypeInvalid}
+		}
+
 		if !isComparable(leftT) || !isComparable(rightT) ||
 			leftT.Kind != rightT.Kind {
 			a.errorAt(e.Position, fmt.Sprintf(
@@ -522,11 +574,16 @@ func (a *Analyzer) typeOfBinary(e ast.BinaryExpression, scope *Scope) Type {
 				leftT,
 				rightT,
 			))
-			return Type{Kind: TypeInvalid}
+			return Type{Name: "<invalid>", Kind: TypeInvalid}
 		}
-		return Type{TypeBool}
+		return Type{Name: "bool", Kind: TypeBool}
 
 	case "==", "!=":
+
+		if leftT.Kind == TypeCustom || rightT.Kind == TypeCustom {
+			return Type{Name: "bool", Kind: TypeBool}
+		}
+
 		if leftT.Kind != rightT.Kind {
 			a.errorAt(e.Position, fmt.Sprintf(
 				"operator `%s` requires operands of the same type, got %s and %s",
@@ -534,28 +591,30 @@ func (a *Analyzer) typeOfBinary(e ast.BinaryExpression, scope *Scope) Type {
 				leftT,
 				rightT,
 			))
-			return Type{Kind: TypeInvalid}
+			return Type{Name: "<invalid>", Kind: TypeInvalid}
 		}
 		if !isNumeric(leftT) && leftT.Kind != TypeBool &&
 			leftT.Kind != TypeChar {
 			a.errorAt(e.Position, fmt.Sprintf(
-				"operator `%s` is not defined for type %s", e.Operator, leftT))
-			return Type{Kind: TypeInvalid}
+				"operator `%s` is not defined for type %s", e.Operator, leftT,
+			))
+			return Type{Name: "<invalid>", Kind: TypeInvalid}
 		}
-		return Type{TypeBool}
+		return Type{Name: "bool", Kind: TypeBool}
 
 	case "&&", "||":
 		if leftT.Kind != TypeBool || rightT.Kind != TypeBool {
 			a.errorAt(e.Position, fmt.Sprintf(
 				"operator `%s` requires bool operands, got %s and %s",
-				e.Operator, leftT, rightT))
-			return Type{Kind: TypeInvalid}
+				e.Operator, leftT, rightT,
+			))
+			return Type{Name: "<invalid>", Kind: TypeInvalid}
 		}
-		return Type{TypeBool}
+		return Type{Name: "bool", Kind: TypeBool}
 	}
 
 	a.errorAt(e.Position, fmt.Sprintf("unknown binary operator %q", e.Operator))
-	return Type{Kind: TypeInvalid}
+	return Type{Name: "<invalid>", Kind: TypeInvalid}
 }
 
 // typeOfCall returns the type of a function-call expression. Handles
@@ -574,30 +633,8 @@ func (a *Analyzer) typeOfCall(e ast.FunctionCallExpression, scope *Scope) Type {
 		for _, arg := range e.Arguments {
 			a.TypeOf(arg, scope)
 		}
-		return Type{Kind: TypeInvalid}
+		return Type{Name: "<invalid>", Kind: TypeInvalid}
 	}
-
-	if !a.FindSymbol(scope, ident.Name) {
-		a.errorAt(ident.Position,
-			fmt.Sprintf("unknown identifier: %s", ident.Name))
-		for _, arg := range e.Arguments {
-			a.TypeOf(arg, scope)
-		}
-		return Type{Kind: TypeInvalid}
-	}
-
-	sym := a.GetSym(scope, ident.Name)
-	a.recordRef(ident.Position, sym)
-	if sym.Kind != SymbolFunction || sym.Signature == nil {
-		a.errorAt(ident.Position, fmt.Sprintf(
-			"cannot invoke %s, not a callable function", ident.Name))
-		for _, arg := range e.Arguments {
-			a.TypeOf(arg, scope)
-		}
-		return Type{Kind: TypeInvalid}
-	}
-
-	sig := sym.Signature
 
 	// `T(x)` numeric conversions are parsed as calls but are not real
 	// functions — the callee is a type name registered with a placeholder
@@ -610,12 +647,33 @@ func (a *Analyzer) typeOfCall(e ast.FunctionCallExpression, scope *Scope) Type {
 		return a.typeOfConversion(e, target, scope)
 	}
 
+	if !a.FindSymbol(scope, ident.Name) {
+		a.errorAt(ident.Position,
+			fmt.Sprintf("unknown identifier: %s", ident.Name))
+		return Type{Name: "<invalid>", Kind: TypeInvalid}
+	}
+
+	sym := a.GetSym(scope, ident.Name)
+	a.recordRef(ident.Position, sym)
+	if sym.Kind != SymbolFunction || sym.Signature == nil {
+		a.errorAt(ident.Position, fmt.Sprintf(
+			"cannot invoke %s, not a callable function", ident.Name,
+		))
+		for _, arg := range e.Arguments {
+			a.TypeOf(arg, scope)
+		}
+		return Type{Name: "<invalid>", Kind: TypeInvalid}
+	}
+
+	sig := sym.Signature
+
 	// Arity: report once, but still type-check overlapping positions so
 	// arg-type errors don't get hidden behind the arity error.
 	if len(e.Arguments) != len(sig.Parameters) {
 		a.errorAt(e.Position, fmt.Sprintf(
 			"function %s expects %d argument(s), got %d",
-			ident.Name, len(sig.Parameters), len(e.Arguments)))
+			ident.Name, len(sig.Parameters), len(e.Arguments),
+		))
 	}
 
 	for i, arg := range e.Arguments {
@@ -624,6 +682,14 @@ func (a *Analyzer) typeOfCall(e ast.FunctionCallExpression, scope *Scope) Type {
 			continue
 		}
 		want := sig.Parameters[i]
+
+		switch t := arg.(type) {
+		case ast.ObjectLiteralExpression:
+			if !a.verifyObjectType(want, t, scope) {
+				continue
+			}
+		}
+
 		if want.Kind == TypeInvalid || argT.Kind == TypeInvalid {
 			continue
 		}
@@ -631,7 +697,8 @@ func (a *Analyzer) typeOfCall(e ast.FunctionCallExpression, scope *Scope) Type {
 		if want.Kind != argT.Kind {
 			a.errorAt(e.Position, fmt.Sprintf(
 				"argument %d of %s: expected %s, got %s",
-				i+1, ident.Name, want, argT))
+				i+1, ident.Name, want, argT,
+			))
 		}
 	}
 
@@ -641,16 +708,16 @@ func (a *Analyzer) typeOfCall(e ast.FunctionCallExpression, scope *Scope) Type {
 	//   2+ declared returns      → reject in expression position
 	switch len(sig.ReturnTypes) {
 	case 0:
-		return Type{TypeVoid}
+		return Type{Name: "void", Kind: TypeVoid}
 	case 1:
 		if sig.ReturnTypes[0].Kind == TypeVoid {
-			return Type{TypeVoid}
+			return Type{Name: "void", Kind: TypeVoid}
 		}
 		return sig.ReturnTypes[0]
 	default:
 		a.errorAt(e.Position,
 			"multi-return call cannot be used in expression position")
-		return Type{Kind: TypeInvalid}
+		return Type{Name: "<invalid>", Kind: TypeInvalid}
 	}
 }
 
@@ -671,7 +738,8 @@ func (a *Analyzer) typeOfConversion(
 	if len(e.Arguments) != 1 {
 		a.errorAt(e.Position, fmt.Sprintf(
 			"conversion %s expects 1 argument, got %d",
-			ident.Name, len(e.Arguments)))
+			ident.Name, len(e.Arguments),
+		))
 		for _, arg := range e.Arguments {
 			a.TypeOf(arg, scope)
 		}
@@ -686,7 +754,8 @@ func (a *Analyzer) typeOfConversion(
 	switch kind := ClassifyConversion(argT, target); kind {
 	case ConvForbidden:
 		a.errorAt(e.Position, fmt.Sprintf(
-			"conversion from %s to %s is not allowed", argT, target))
+			"conversion from %s to %s is not allowed", argT, target,
+		))
 	default:
 		a.recordConversion(e.Position, ConversionInfo{
 			From: argT,
@@ -698,30 +767,119 @@ func (a *Analyzer) typeOfConversion(
 	return target
 }
 
+// todo: refactor the complexity
+func (a *Analyzer) convertCompToRecord(
+	c ast.CompositionRHS,
+	scope *Scope,
+) (ast.RecordRHS, bool) {
+	fields := make([]ast.RecordField, 0)
+	for _, operand := range c.Operands {
+		if operand.Named != nil {
+			ident := operand.Named.Name.Name
+			s := a.GetSym(scope, ident)
+			if s.Kind == SymbolTypeDecl {
+				r, ok := a.recordTypes[s.Name]
+				if !ok {
+					aT, ok := a.aliasRecordTypes[s.Name]
+					if !ok {
+						cT, ok := a.compRecordTypes[s.Name]
+						if !ok {
+							a.errorAt(operand.Named.Name.Position, fmt.Sprintf("invalid type %s", ident))
+							return ast.RecordRHS{}, false
+						}
+						return a.convertCompToRecord(cT, scope)
+					}
+					r = a.recordTypes[aT.Target.Name.Name]
+					fields = append(fields, r.Fields...)
+					continue
+				}
+				fields = append(fields, r.Fields...)
+				continue
+			}
+		}
+
+		if operand.Inline == nil {
+			continue
+		}
+		fields = append(fields, operand.Inline.Fields...)
+	}
+	return ast.RecordRHS{
+		Position: c.Position,
+		Fields:   fields,
+	}, true
+}
+
+func (a *Analyzer) typeOfMemberAccessExpr(
+	e ast.MemberAccessExpression,
+	scope *Scope,
+) Type {
+	recv := e.Receiver
+	member := e.Member
+
+	switch recv := recv.(type) {
+	case ast.Identifier:
+		s := a.GetSym(scope, recv.Name)
+		sT, ok := a.recordTypes[s.Type.Name]
+
+		if !ok {
+			if aT, ok := a.aliasRecordTypes[s.Type.Name]; ok {
+				sT = a.recordTypes[aT.Target.Name.Name]
+			} else {
+				if cT, ok := a.compRecordTypes[s.Type.Name]; !ok {
+					a.errorAt(recv.Position, "invalid type")
+					return Type{Name: "invalid", Kind: TypeInvalid}
+				} else {
+					if sT, ok = a.convertCompToRecord(cT, scope); !ok {
+						return Type{Name: "invalid", Kind: TypeInvalid}
+					}
+				}
+			}
+		}
+
+		validMember := false
+		for _, m := range sT.Fields {
+			if member == m.Name.Name {
+				kind, _ := ResolveTypeName(m.Type.Name.Name)
+				validMember = true
+				return Type{Name: m.Type.Name.Name, Kind: kind.Kind}
+			}
+		}
+
+		if !validMember {
+			a.errorAt(e.Position, fmt.Sprintf("member %s is not available on type %s", member, s.Type.Name))
+		}
+
+	case ast.MemberAccessExpression:
+		return a.typeOfMemberAccessExpr(recv, scope)
+	}
+
+	return Type{Name: "invalid", Kind: TypeInvalid}
+}
+
 func (a *Analyzer) TypeOf(expr ast.Expression, scope *Scope) Type {
 	switch e := expr.(type) {
 	case ast.IntegerLiteral:
-		return Type{TypeInt32}
+		return Type{Name: "int32", Kind: TypeInt32}
 	case ast.FloatLiteral:
-		return Type{TypeFloat64}
+		return Type{Name: "float64", Kind: TypeFloat64}
 	case ast.BooleanLiteral:
-		return Type{TypeBool}
+		return Type{Name: "bool", Kind: TypeBool}
 	case ast.StringLiteral:
-		return Type{TypeString}
+		return Type{Name: "string", Kind: TypeString}
 	case ast.CharacterLiteral:
-		return Type{TypeChar}
+		return Type{Name: "char", Kind: TypeChar}
 	case ast.Identifier:
 		// existing unknown-id check already emits a diagnostic in AnalyzeExpression;
 		// here just look up and return the type or Invalid.
 		if !a.FindSymbol(scope, e.Name) {
-			return Type{Kind: TypeInvalid}
+			return Type{Name: "<invalid>", Kind: TypeInvalid}
 		}
 		sym := a.GetSym(scope, e.Name)
 		a.recordRef(e.Position, sym)
 		if sym.Kind == SymbolFunction {
 			// bare function identifier as a value — not supported yet.
 			a.errorAt(e.Position, "function-typed values are not yet supported")
-			return Type{Kind: TypeInvalid}
+			return Type{Name: "<invalid>", Kind: TypeInvalid}
 		}
 		return sym.Type
 	case ast.UnaryExpression:
@@ -732,8 +890,10 @@ func (a *Analyzer) TypeOf(expr ast.Expression, scope *Scope) Type {
 		return a.TypeOf(e.Operand, scope)
 	case ast.FunctionCallExpression:
 		return a.typeOfCall(e, scope)
+	case ast.MemberAccessExpression:
+		return a.typeOfMemberAccessExpr(e, scope)
 	}
-	return Type{Kind: TypeInvalid}
+	return Type{Name: "<invalid>", Kind: TypeInvalid}
 }
 
 func (a *Analyzer) AnalyzeVarDecl(
@@ -754,37 +914,47 @@ func (a *Analyzer) AnalyzeVarDecl(
 	}
 
 	varType, _ := ResolveTypeName(decl.Type.Name.Name)
+	objValue, ok := decl.Value.(ast.ObjectLiteralExpression)
+
+	for _, e := range objValue.Elements {
+		switch e := e.(type) {
+		case ast.SpreadElement:
+			src := e.Source.(ast.Identifier)
+			elemT := a.TypeOf(e.Source, scope)
+
+			if elemT.String() != decl.Type.Name.Name {
+				a.errorAt(e.Source.Pos(), fmt.Sprintf("type mismatch for spread operation, want %s, got %s", elemT.String(), decl.Type.Name.Name))
+				return false
+			}
+
+			obj := a.typeInits[src.Name]
+			objValue.Elements = append(objValue.Elements, obj.Elements...)
+		}
+	}
+
+	if (varType.Kind == TypeEmpty) && ok {
+		a.errorAt(decl.Position, "no typed context available for object literal")
+		return false
+	}
+
+	if ok && a.verifyObjectType(varType, objValue, scope) {
+		a.typeInits[decl.Name] = objValue
+	}
 
 	if varType.Kind == TypeInvalid {
-		a.errorAt(
-			decl.Position,
-			fmt.Sprintf("unknown type: %s", decl.Type.Name.Name),
-		)
+		sym := a.GetSym(scope, decl.Type.Name.Name)
+		if sym.Kind == SymbolTypeDecl {
+			varType = Type{Kind: TypeCustom, Name: decl.Type.Name.Name}
+		} else {
+			a.errorAt(
+				decl.Type.Name.Position,
+				fmt.Sprintf("unknown type: %s", decl.Type.Name.Name),
+			)
+		}
 	}
 
 	if varType.Kind == TypeEmpty {
 		varType = a.TypeOf(decl.Value, scope)
-	}
-
-	if decl.Value == nil {
-		scope.AddSymbol(Symbol{
-			Name:    decl.Name,
-			Kind:    kind,
-			Type:    varType,
-			DefPos:  decl.Position,
-			Display: renderBindingDisplay(kind, decl.Name, varType),
-		})
-
-		return true
-	}
-
-	if !isIntegerLiteral(decl.Value) && !isFloatLiteral(decl.Value) {
-		typeLeft := varType
-		typeRight := a.TypeOf(decl.Value, scope)
-
-		if typeLeft != typeRight {
-			return false
-		}
 	}
 
 	symbol := Symbol{
@@ -794,11 +964,113 @@ func (a *Analyzer) AnalyzeVarDecl(
 		DefPos:  decl.Position,
 		Display: renderBindingDisplay(kind, decl.Name, varType),
 	}
-
-	scope.assignments = append(scope.assignments, symbol)
 	scope.AddSymbol(symbol)
 
+	// no need to add to assignments if the value is not initialized yet
+	if decl.Value == nil {
+		return true
+	}
+
+	scope.assignments = append(scope.assignments, symbol)
 	return true
+}
+
+// helper for the verifyObjectType function
+func fieldExistsInRecord(
+	field string,
+	record ast.ObjectLiteralExpression,
+) bool {
+	exists := false
+	for _, e := range record.Elements {
+		switch e := e.(type) {
+		case ast.FieldInit:
+			if e.Name == field && !exists {
+				exists = true
+			}
+		}
+	}
+
+	return exists
+}
+
+// helper for the verifyObjectType function
+func isValidField(field string, v ast.RecordRHS) bool {
+	valid := false
+
+	for _, f := range v.Fields {
+		if f.Name.Name == field {
+			valid = true
+			break
+		}
+	}
+
+	return valid
+}
+
+func (a *Analyzer) verifyObjectType(
+	t Type,
+	expr ast.ObjectLiteralExpression,
+	scope *Scope,
+) bool {
+	v, ok := a.recordTypes[t.Name]
+	if !ok {
+		aT, ok := a.aliasRecordTypes[t.Name]
+		if ok {
+			v = a.recordTypes[aT.Target.Name.Name]
+		} else {
+			cT, ok := a.compRecordTypes[t.Name]
+			if ok {
+				v, _ = a.convertCompToRecord(cT, scope)
+			} else {
+				a.errorAt(expr.Pos(), fmt.Sprintf("unknown type %s", t.Name))
+				return false
+			}
+		}
+	}
+
+	visited := make(map[string]struct{})
+
+	for _, e := range expr.Elements {
+		switch e := e.(type) {
+		case ast.FieldInit:
+			if _, ok := visited[e.Name]; ok {
+				a.errorAt(e.Position, fmt.Sprintf("duplicate field %s", e.Name))
+				return false
+			}
+			visited[e.Name] = struct{}{}
+			if !isValidField(e.Name, v) {
+				a.errorAt(e.Position, fmt.Sprintf("unknown field %s", e.Name))
+				return false
+			}
+		}
+	}
+
+	for i, field := range v.Fields {
+		if len(expr.Elements) <= i {
+			a.errorAt(field.Position, fmt.Sprintf("missing field %s", field.Name.Name))
+			return false
+		}
+
+		e := expr.Elements[i]
+		switch e := e.(type) {
+		case ast.FieldInit:
+			if !fieldExistsInRecord(field.Name.Name, expr) {
+				a.errorAt(e.Position, fmt.Sprintf("missing field %s", field.Name.Name))
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func (a *Analyzer) AnalyzeObjectLiteralExpr(
+	expr ast.ObjectLiteralExpression,
+	scope *Scope,
+) {
+	for _, element := range expr.Elements {
+		e := element.(ast.FieldInit)
+		a.AnalyzeExpr(e.Value, scope)
+	}
 }
 
 func (a *Analyzer) AnalyzeScope(
@@ -828,6 +1100,10 @@ func (a *Analyzer) AnalyzeScope(
 
 		case ast.IfStatement:
 			exprType := a.TypeOf(stmt.Condition, &scope)
+
+			if exprType.Kind == TypeInvalid {
+				continue
+			}
 
 			if exprType.Kind != TypeBool {
 				a.errorAt(stmt.Condition.Pos(), fmt.Sprintf("condition inside if statement must be boolean, found %s", exprType.String()))
@@ -884,10 +1160,43 @@ func (a *Analyzer) AnalyzeScope(
 			if stmt.Operator != "" && !symbol.Type.IsInteger() {
 				a.errorAt(stmt.Target.Position, fmt.Sprintf(
 					"compound assignment `%s=` requires an integer binding, got %s",
-					stmt.Operator, symbol.Type))
+					stmt.Operator, symbol.Type,
+				))
 			}
 
-			if symbol.Type != a.TypeOf(expr, &scope) {
+			switch e := stmt.TargetExpression.(type) {
+			case ast.ObjectLiteralExpression:
+				a.AnalyzeObjectLiteralExpr(expr.(ast.ObjectLiteralExpression), &scope)
+				a.verifyObjectType(symbol.Type, e, &scope)
+				continue
+
+			case ast.MemberAccessExpression:
+				recvT := a.TypeOf(e.Receiver, &scope)
+				if ident, ok := e.Receiver.(ast.Identifier); ok {
+					_, initOk := a.typeInits[ident.Name]
+					if !initOk {
+						a.errorAt(stmt.Position, fmt.Sprintf("partial initialization of %s is not allowed, %s is uninitialized", recvT.Name, recvT.Name))
+						continue
+					}
+				}
+
+				memberT := a.TypeOf(e, &scope)
+				valT := a.TypeOf(stmt.Value, &scope)
+
+				v, ok := stmt.Value.(ast.ObjectLiteralExpression)
+				if ok {
+					a.typeInits[recvT.Name] = v
+					continue
+				}
+
+				if memberT != valT {
+					a.errorAt(stmt.Target.Position, fmt.Sprintf("assignment value type must match the binding type, want %s, received %s", memberT.String(), valT.String()))
+				}
+
+				continue
+			}
+
+			if symbol.Type != a.TypeOf(expr, &scope) && (symbol.Type.Kind != TypeCustom) {
 				a.errorAt(stmt.Target.Position, fmt.Sprintf("assignment value type must match the binding type, want %s, received %s", symbol.Type.String(), a.TypeOf(expr, &scope).String()))
 			}
 
@@ -928,7 +1237,7 @@ func (a *Analyzer) AnalyzeScope(
 				switch expr.(type) {
 				case ast.IntegerLiteral:
 					if exprType.Kind == TypeEmpty {
-						exprType = Type{TypeInt32}
+						exprType = Type{Name: "int32", Kind: TypeInt32}
 					}
 				}
 
@@ -1148,6 +1457,19 @@ func (a *Analyzer) AnalyzeFuncDecl(
 		}
 
 		paramType, _ := ResolveTypeName(parameter.Type.Name.Name)
+
+		if paramType.Kind == TypeInvalid {
+			sym := a.GetSym(&functionScope, parameter.Type.Name.Name)
+			if sym.Kind == SymbolTypeDecl {
+				paramType = Type{Kind: TypeCustom, Name: parameter.Type.Name.Name}
+			} else {
+				a.errorAt(
+					parameter.Type.Name.Position,
+					fmt.Sprintf("unknown type: %s", parameter.Type.Name.Name),
+				)
+			}
+		}
+
 		symbol := Symbol{
 			Name:    name,
 			Kind:    SymbolParameter,
@@ -1234,6 +1556,176 @@ func renderFunctionDisplay(name string, sig *FunctionSignature) string {
 	return b.String()
 }
 
+type visitState uint8
+
+const (
+	unvisited visitState = iota
+	visiting
+	visited
+)
+
+func (a *Analyzer) detectTypeCycles() {
+	states := make(map[string]visitState)
+	path := make([]string, 0)
+
+	var visit func(string)
+	visit = func(name string) {
+		switch states[name] {
+		case visiting:
+			a.reportTypeCycle(path, name)
+			return
+		case visited:
+			return
+		}
+
+		states[name] = visiting
+		path = append(path, name)
+
+		for _, dependency := range a.typeDependencies(name) {
+			visit(dependency)
+		}
+
+		path = path[:len(path)-1]
+		states[name] = visited
+	}
+
+	typeNames := make(map[string]struct{})
+	for name := range a.recordTypes {
+		typeNames[name] = struct{}{}
+	}
+	for name := range a.aliasRecordTypes {
+		typeNames[name] = struct{}{}
+	}
+	for name := range a.compRecordTypes {
+		typeNames[name] = struct{}{}
+	}
+
+	for name := range typeNames {
+		if states[name] == unvisited {
+			visit(name)
+		}
+	}
+}
+
+func (a *Analyzer) typeDependencies(name string) []string {
+	var dependencies []string
+
+	if record, ok := a.recordTypes[name]; ok {
+		for _, field := range record.Fields {
+			typeName := field.Type.Name.Name
+			if a.isUserDefinedType(typeName) {
+				dependencies = append(dependencies, typeName)
+			}
+		}
+	}
+
+	if alias, ok := a.aliasRecordTypes[name]; ok {
+		target := alias.Target.Name.Name
+		if a.isUserDefinedType(target) {
+			dependencies = append(dependencies, target)
+		}
+	}
+
+	if composition, ok := a.compRecordTypes[name]; ok {
+		for _, operand := range composition.Operands {
+			if operand.Named == nil {
+				continue
+			}
+			target := operand.Named.Name.Name
+			if a.isUserDefinedType(target) {
+				dependencies = append(dependencies, target)
+			}
+		}
+	}
+
+	return dependencies
+}
+
+func (a *Analyzer) isUserDefinedType(name string) bool {
+	if _, ok := a.recordTypes[name]; ok {
+		return true
+	}
+	if _, ok := a.aliasRecordTypes[name]; ok {
+		return true
+	}
+	_, ok := a.compRecordTypes[name]
+	return ok
+}
+
+func (a *Analyzer) reportTypeCycle(
+	path []string,
+	repeated string,
+) {
+	start := 0
+	for i, name := range path {
+		if name == repeated {
+			start = i
+			break
+		}
+	}
+
+	cycle := append([]string{}, path[start:]...)
+	cycle = append(cycle, repeated)
+
+	position := ast.Position{}
+	if record, ok := a.recordTypes[repeated]; ok {
+		position = record.Position
+	} else if alias, ok := a.aliasRecordTypes[repeated]; ok {
+		position = alias.Position
+	} else if composition, ok := a.compRecordTypes[repeated]; ok {
+		position = composition.Position
+	}
+
+	a.errorAt(
+		position,
+		fmt.Sprintf(
+			"type cycle: %s; use `heap<T>` to break this cycle",
+			strings.Join(cycle, " -> "),
+		),
+	)
+}
+
+func (a *Analyzer) ValidateCompositionRHS(d ast.CompositionRHS, name string) bool {
+	recordFields := []ast.RecordField{}
+	for _, operand := range d.Operands {
+		if operand.Named != nil {
+			typeName := operand.Named.Name.Name
+			record, ok := a.recordTypes[typeName]
+			if !ok {
+				alias, ok := a.aliasRecordTypes[typeName]
+				if !ok {
+					if t, _ := ResolveTypeName(typeName); !ok {
+						a.errorAt(d.Position, fmt.Sprintf("%s is not a valid record type", t.String()))
+						return false
+					} else {
+						a.errorAt(d.Position, fmt.Sprintf("unknown type %s", typeName))
+						return false
+					}
+				}
+				record := a.recordTypes[alias.Target.Name.Name]
+				recordFields = append(recordFields, record.Fields...)
+				continue
+			}
+			recordFields = append(recordFields, record.Fields...)
+		} else {
+			recordFields = append(recordFields, operand.Inline.Fields...)
+		}
+	}
+
+	seen := make(map[string]struct{})
+
+	for _, field := range recordFields {
+		if _, ok := seen[field.Name.Name]; !ok {
+			seen[field.Name.Name] = struct{}{}
+			continue
+		}
+		a.errorAt(field.Position, fmt.Sprintf("collision detected: duplicate field %s", field.Name.Name))
+		return false
+	}
+
+	return true
+}
+
 func (a *Analyzer) Analyze() {
 	// Initialize LSP-facing outputs. RootScope wraps GlobalScope and is the
 	// anchor for all child scope nodes created during the walk.
@@ -1244,6 +1736,10 @@ func (a *Analyzer) Analyze() {
 	a.IncDecs = map[ast.Position]Type{}
 	a.RootScope = &ScopeNode{Scope: a.GlobalScope}
 	a.currentNode = a.RootScope
+	a.recordTypes = map[string]ast.RecordRHS{}
+	a.aliasRecordTypes = map[string]ast.AliasRHS{}
+	a.compRecordTypes = map[string]ast.CompositionRHS{}
+	a.typeInits = map[string]ast.ObjectLiteralExpression{}
 
 	decls := a.AST.Declarations
 	for _, decl := range decls {
@@ -1296,21 +1792,70 @@ func (a *Analyzer) Analyze() {
 		case ast.Comment:
 			continue
 
+		case ast.TypeDeclaration:
+			switch d := decl.RHS.(type) {
+			case ast.RecordRHS:
+				a.recordTypes[decl.Name.Name] = ast.RecordRHS{
+					Position: decl.Position,
+					Fields:   d.Fields,
+				}
+
+			case ast.AliasRHS:
+				targetT := d.Target.Name.Name
+				if _, ok := a.recordTypes[targetT]; !ok {
+					a.errorAt(d.Position, fmt.Sprintf("unknown type %s", targetT))
+					continue
+				}
+				a.aliasRecordTypes[decl.Name.Name] = ast.AliasRHS{
+					Position: decl.Position,
+					Target:   d.Target,
+				}
+
+			case ast.CompositionRHS:
+				a.ValidateCompositionRHS(d, decl.Name.Name)
+				a.compRecordTypes[decl.Name.Name] = d
+			}
+
+			a.GlobalScope.AddSymbol(Symbol{
+				Name:   decl.Name.Name,
+				Kind:   SymbolTypeDecl,
+				DefPos: decl.Position,
+			})
+
 		case ast.FunctionDeclaration:
 			typeCheckFailed := false
 			for _, returnType := range decl.ReturnTypes {
-				if _, ok := ResolveTypeName(returnType.Name.Name); !ok {
-					a.errorAt(returnType.Name.Position, fmt.Sprintf("unknown identifier %s", returnType.Name.Name))
-					typeCheckFailed = true
-					continue
+				returnT, _ := ResolveTypeName(returnType.Name.Name)
+				if returnT.Kind == TypeInvalid {
+					sym := a.GetSym(a.GlobalScope, returnType.Name.Name)
+					if sym.Kind == SymbolTypeDecl {
+						returnT = Type{Kind: TypeCustom, Name: returnType.Name.Name}
+					} else {
+						a.errorAt(returnType.Name.Position, fmt.Sprintf("unknown identifier %s", returnType.Name.Name))
+						typeCheckFailed = true
+						continue
+
+					}
 				}
 			}
 
 			for _, param := range decl.Parameters {
-				if _, ok := ResolveTypeName(param.Type.Name.Name); !ok {
-					a.errorAt(param.Name.Position, fmt.Sprintf("unknown identifier %s", param.Type.Name.Name))
-					typeCheckFailed = true
-					continue
+				if t, ok := ResolveTypeName(param.Type.Name.Name); !ok {
+					if t.Kind == TypeInvalid {
+						s := a.GetSym(a.GlobalScope, param.Type.Name.Name)
+						if s.Kind != SymbolTypeDecl {
+							a.errorAt(
+								param.Type.Name.Position,
+								fmt.Sprintf("unknown type: %s", param.Type.Name.Name),
+							)
+							continue
+						}
+
+					} else {
+						a.errorAt(param.Name.Position, fmt.Sprintf("unknown identifier %s", param.Type.Name.Name))
+						typeCheckFailed = true
+						continue
+					}
 				}
 			}
 
@@ -1336,4 +1881,6 @@ func (a *Analyzer) Analyze() {
 
 		}
 	}
+
+	a.detectTypeCycles()
 }

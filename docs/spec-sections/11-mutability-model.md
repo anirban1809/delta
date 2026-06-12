@@ -1,6 +1,6 @@
 ## 11. Mutability Model (`const` vs `let`)
 
-Section 11 defines the binding-capability model for owned values: `const` is read-only and non-consuming through the binding's normal access paths; `let` is mutable and reassignable. This section also pins down how that capability composes with methods, fields, indexed element access, `heap T`, ownership transfer, replacement, disposal, file-scope constants, and deferred borrow/interior-mutability questions. The recurring principle is **local capability, not global immutability**: `const` says what this binding may do, not that no other alias can ever observe or perform mutation.
+Section 11 defines the binding-capability model for owned values: `const` is read-only and non-consuming through the binding's normal access paths; `let` is mutable and reassignable. This section also pins down how that capability composes with methods, fields, indexed element access, `heap T`, ownership transfer, replacement, disposal, file-scope constants, and deferred reference/interior-mutability questions. The recurring principle is **local capability, not global immutability**: `const` says what this binding may do, not that no other alias can ever observe or perform mutation.
 
 ---
 
@@ -8,10 +8,10 @@ Section 11 defines the binding-capability model for owned values: `const` is rea
 
 **Proposal.** Delta has two owned binding forms:
 
-- **`const`** creates a read-only, non-consuming owned binding. The binding cannot be reassigned, mutated through, passed as `mod borrowed`, or moved from by user code.
-- **`let`** creates a mutable owned binding. The binding may be reassigned, mutated through, passed as `mod borrowed`, and moved from, subject to the ordinary ownership rules.
+- **`const`** creates a read-only, non-consuming owned binding. The binding cannot be reassigned, mutated through, passed as `edit &`, or moved from by user code.
+- **`let`** creates a mutable owned binding. The binding may be reassigned, mutated through, passed as `edit &`, and moved from, subject to the ordinary ownership rules.
 
-`const` / `let` apply to **owned bindings**. Non-owning parameter access uses `borrowed T` (read-only) and `mod borrowed T` (mutable), specified in [§8.8](#88-borrows-on-type-values-borrowed-t), [§12](#12-safe-borrows-borrowed-mod-borrowed), and [§14](#14-ownership--move-semantics). Local borrow bindings are out of scope for MVP and deferred to the lifetime design.
+`const` / `let` apply to **owned bindings**. Non-owning parameter access uses `&T` (read-only) and `edit &T` (mutable), specified in [§8.8](#88-references-on-type-values), [§12](#12-safe-references), and [§14](#14-ownership--move-semantics). Local reference bindings are out of scope for MVP and deferred to the lifetime design.
 
 **Reason.** TypeScript's `const` only freezes the name, not the value reachable through the name. That is too weak for Delta: readers need to know that `const user` cannot be used to change `user.profile.name`, call a mutating method, or consume the value via `move`. At the same time, `const` should not claim more than the compiler can locally prove; if a separate mutable access path to the same backing storage exists, alias/lifetime rules decide whether that access is legal.
 
@@ -21,17 +21,17 @@ Keeping `let` as the single "mutable binding + mutable receiver" form avoids int
 ```ts
 const frozen = Counter.create(0);
 frozen.get();                         // OK - non-mutating method
-frozen.increment();                   // ERROR - `mod` method on const receiver
-mutate(mod borrowed frozen);          // ERROR - cannot take mutable borrow from const
+frozen.increment();                   // ERROR - `edit` method on const receiver
+mutate(edit &frozen);          // ERROR - cannot take mutable reference from const
 consume(move frozen);                 // ERROR - cannot move from const
 
 let counter = Counter.create(0);
 counter.increment();                  // OK
-mutate(mod borrowed counter);         // OK
+mutate(edit &counter);         // OK
 consume(move counter);                // OK - counter invalid afterward
 ```
 
-**Conclusion.** `const` is read-only and non-consuming; `let` is mutable and reassignable. Borrow capabilities are expressed with `borrowed T` / `mod borrowed T`, not with `const borrowed T`.
+**Conclusion.** `const` is read-only and non-consuming; `let` is mutable and reassignable. Reference capabilities are expressed with `&T` / `edit &T`, not with `const &T`.
 
 ---
 
@@ -45,7 +45,7 @@ consume(move counter);                // OK - counter invalid afterward
 - indexed element access on arrays and mutable containers,
 - view values, for mutation attempted through that view.
 
-The rule is a local capability rule: it forbids mutation **through the const-rooted access path**. It does not assert that the underlying storage has no mutable aliases elsewhere, unless the borrow/lifetime rules separately establish that.
+The rule is a local capability rule: it forbids mutation **through the const-rooted access path**. It does not assert that the underlying storage has no mutable aliases elsewhere, unless the reference/lifetime rules separately establish that.
 
 **Reason.** If `const` only prevented reassignment of the top-level name, Delta would inherit the TypeScript object-mutation footgun. Nested state and heap-stored state must be read-only through the binding for the guarantee to matter. Views are the subtle case: a const view cannot mutate its backing storage through the view, but the view's existence is not itself a global immutability proof.
 
@@ -72,7 +72,7 @@ mutableUser.address.city = "Delhi";  // OK
 ```ts
 const h: heap Counter = Counter.create(0);
 h.value = 1;                         // ERROR - const freezes through heap auto-deref
-h.increment();                       // ERROR - `mod` method on const heap receiver
+h.increment();                       // ERROR - `edit` method on const heap receiver
 h.get();                             // OK
 ```
 
@@ -89,20 +89,20 @@ let values: Array<int32> = [1, 2, 3];
 const view: Slice<int32> = values.slice();
 
 view[0] = 42;                        // ERROR - cannot mutate through const view
-values[0] = 99;                      // governed by borrow/lifetime rules, not by `view`
+values[0] = 99;                      // governed by reference/lifetime rules, not by `view`
 ```
 
-**Conclusion.** `const` recursively makes ordinary access paths read-only, including nested fields, heap auto-deref, and element access. The guarantee is local to that access path; alias exclusivity belongs to the borrow/lifetime model.
+**Conclusion.** `const` recursively makes ordinary access paths read-only, including nested fields, heap auto-deref, and element access. The guarantee is local to that access path; alias exclusivity belongs to the reference/lifetime model.
 
 ---
 
 ### 11.3 Methods, Copying, Cloning, and Moving
 
-**Proposal.** A `const` receiver may call non-`mod` methods. It may not call `mod` methods. A `const` binding may be copied from if its type is Copyable; it may not be moved from. The `clone` operator may be applied to a `const` binding because cloning reads the source and produces a new owned value without consuming the original ([§14.4](#144-the-clone-operator)).
+**Proposal.** A `const` receiver may call non-`edit` methods. It may not call `edit` methods. A `const` binding may be copied from if its type is Copyable; it may not be moved from. The `clone` operator may be applied to a `const` binding because cloning reads the source and produces a new owned value without consuming the original ([§14.4](#144-the-clone-operator)).
 
 Cloneability is a property of the type, not of `const`: a type is cloneable iff it is not `Disposable` and every field is copyable or cloneable ([§14.1](#141-the-copyability-classifier)). Resource-owning types such as `File` are `Disposable` and therefore not cloneable.
 
-**Reason.** Banning all method calls on `const` would force users to declare values as `let` merely to read through methods or make an explicit owned copy. That weakens `let` as a signal. The real boundary is mutation or consumption: `mod` methods and `move` are forbidden; non-mutating reads and explicit clones are allowed where the type supports them.
+**Reason.** Banning all method calls on `const` would force users to declare values as `let` merely to read through methods or make an explicit owned copy. That weakens `let` as a signal. The real boundary is mutation or consumption: `edit` methods and `move` are forbidden; non-mutating reads and explicit clones are allowed where the type supports them.
 
 **Examples.**
 ```ts
@@ -129,7 +129,7 @@ const f2 = clone f as result;        // ERROR - File is Disposable, not cloneabl
 consume(move f);                     // ERROR - cannot move from const
 ```
 
-**Conclusion.** `const` permits reads, non-`mod` methods, Copyable copies, and explicit non-mutating clones. It forbids `mod` methods and `move`.
+**Conclusion.** `const` permits reads, non-`edit` methods, Copyable copies, and explicit non-mutating clones. It forbids `edit` methods and `move`.
 
 ---
 
@@ -177,7 +177,7 @@ s.file = move file2;                // OK - old file disposed, new file installe
 
 ### 11.5 Whole-Value Initialization Only
 
-**Proposal.** `const` always requires an initializer at the declaration site. `let` may be declared without an initializer only when it has an explicit type annotation, and it must be assigned a complete value before any read, mutation, borrow, or move.
+**Proposal.** `const` always requires an initializer at the declaration site. `let` may be declared without an initializer only when it has an explicit type annotation, and it must be assigned a complete value before any read, mutation, reference, or move.
 
 Partial initialization through fields, nested fields, or indexed elements is not allowed. An uninitialized binding has no usable access paths.
 
@@ -251,7 +251,7 @@ function writeLog(): int32 {
   const file = File.open("log.txt") as result;
   check result { return 1; }
 
-  read(borrowed file);                  // OK - read-only borrow
+  read(&file);                  // OK - read-only reference
   return 0;
 } // file is disposed here
 ```
@@ -269,9 +269,9 @@ const lock = mutex.lock();
 
 The following are deliberately out of scope or excluded:
 
-- **Field-level `const`** inside `type` or `class` declarations — not in MVP. Field mutability follows receiver capability. Classes that need invariants should keep fields private and expose controlled `mod` methods.
-- **Local borrow bindings** — deferred to the lifetime design. MVP borrows are parameter/call-site capabilities.
-- **Interior mutability and concurrency** — deferred. Future explicitly-marked types such as atomics, mutexes, cells, or caches may define their own non-`mod` mutation surfaces under their safety rules.
+- **Field-level `const`** inside `type` or `class` declarations — not in MVP. Field mutability follows receiver capability. Classes that need invariants should keep fields private and expose controlled `edit` methods.
+- **Local reference bindings** — deferred to the lifetime design. MVP references are parameter/call-site capabilities.
+- **Interior mutability and concurrency** — deferred. Future explicitly-marked types such as atomics, mutexes, cells, or caches may define their own non-`edit` mutation surfaces under their safety rules.
 - **Partial initialization** — never in the core model. Use whole-value assignment.
 - **Global runtime `const` objects** — not supplied by file-scope `const`; any future global-state facility must be specified separately.
 

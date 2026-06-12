@@ -278,7 +278,7 @@ delta build progress (8 cores):
 ```
 # diagnostic output is sorted, regardless of which thread produced what
 $ delta build
-error: auth/login.delta:8:14: cannot move out of borrowed `user`
+error: auth/login.delta:8:14: cannot move out of & `user`
 error: auth/login.delta:23:5: missing return in fallible function `login`
 error: util/array.delta:42:1: unused import `core/iter`
 ```

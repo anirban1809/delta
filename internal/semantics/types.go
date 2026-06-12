@@ -2,7 +2,6 @@ package semantics
 
 import (
 	"delta/internal/ast"
-	"slices"
 )
 
 // ScopeNode mirrors the analyzer's scope tree with source-position ranges
@@ -82,10 +81,27 @@ const (
 	TypeString
 	TypeChar
 	TypeEmpty
+
+	TypeCustom
 )
 
+type CustomRecord struct {
+	Name     string
+	CName    string
+	Fields   []ResolvedRecordField
+	Position ast.Position
+}
+
+type ResolvedRecordField struct {
+	Name     string
+	Type     Type
+	Position ast.Position
+}
+
 type Type struct {
-	Kind TypeKind
+	Name   string
+	Kind   TypeKind
+	Record *CustomRecord
 }
 
 func (t Type) String() string {
@@ -124,6 +140,8 @@ func (t Type) String() string {
 		return "char"
 	case TypeEmpty:
 		return ""
+	case TypeCustom:
+		return t.Name
 	default:
 		return "<invalid>"
 	}
@@ -154,41 +172,41 @@ func (t Type) IsFloat() bool {
 func ResolveTypeName(name string) (Type, bool) {
 	switch name {
 	case "int8":
-		return Type{TypeInt8}, true
+		return Type{Name: name, Kind: TypeInt8}, true
 	case "int16":
-		return Type{TypeInt16}, true
+		return Type{Name: name, Kind: TypeInt16}, true
 	case "int32":
-		return Type{TypeInt32}, true
+		return Type{Name: name, Kind: TypeInt32}, true
 	case "int64":
-		return Type{TypeInt64}, true
+		return Type{Name: name, Kind: TypeInt64}, true
 	case "intsize":
-		return Type{TypeIntSize}, true
+		return Type{Name: name, Kind: TypeIntSize}, true
 	case "uint8":
-		return Type{TypeUInt8}, true
+		return Type{Name: name, Kind: TypeUInt8}, true
 	case "uint16":
-		return Type{TypeUInt16}, true
+		return Type{Name: name, Kind: TypeUInt16}, true
 	case "uint32":
-		return Type{TypeUInt32}, true
+		return Type{Name: name, Kind: TypeUInt32}, true
 	case "uint64":
-		return Type{TypeUInt64}, true
+		return Type{Name: name, Kind: TypeUInt64}, true
 	case "uintsize":
-		return Type{TypeUIntSize}, true
+		return Type{Name: name, Kind: TypeUIntSize}, true
 	case "float32":
-		return Type{TypeFloat32}, true
+		return Type{Name: name, Kind: TypeFloat32}, true
 	case "float64":
-		return Type{TypeFloat64}, true
+		return Type{Name: name, Kind: TypeFloat64}, true
 	case "bool":
-		return Type{TypeBool}, true
+		return Type{Name: name, Kind: TypeBool}, true
 	case "void":
-		return Type{TypeVoid}, true
+		return Type{Name: name, Kind: TypeVoid}, true
 	case "string":
-		return Type{TypeString}, true
+		return Type{Name: name, Kind: TypeString}, true
 	case "char":
-		return Type{TypeChar}, true
+		return Type{Name: name, Kind: TypeChar}, true
 	case "":
-		return Type{TypeEmpty}, true
+		return Type{Name: name, Kind: TypeEmpty}, true
 	}
-	return Type{TypeInvalid}, false
+	return Type{Name: name, Kind: TypeInvalid}, false
 }
 
 type FunctionSignature struct {
@@ -229,25 +247,21 @@ func (t *Type) BitWidth() int {
 }
 
 func (t *Type) IsSigned() bool {
-	signedT := []Type{
-		{TypeInt8},
-		{TypeInt16},
-		{TypeInt32},
-		{TypeInt64},
-		{TypeIntSize},
+	switch t.Kind {
+	case TypeInt8, TypeInt16, TypeInt32, TypeInt64, TypeIntSize:
+		return true
+	default:
+		return false
 	}
-	return slices.Contains(signedT, *t)
 }
 
 func (t *Type) IsUnsigned() bool {
-	unsigned := []Type{
-		{TypeUInt8},
-		{TypeUInt16},
-		{TypeUInt32},
-		{TypeUInt64},
-		{TypeUIntSize},
+	switch t.Kind {
+	case TypeUInt8, TypeUInt16, TypeUInt32, TypeUInt64, TypeUIntSize:
+		return true
+	default:
+		return false
 	}
-	return slices.Contains(unsigned, *t)
 }
 
 type ConvKind int

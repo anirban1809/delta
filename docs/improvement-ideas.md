@@ -30,25 +30,25 @@ check result { return error as MyError { ... } }   // handle / transform / wrap
 
 ---
 
-### 2. `borrowed` → `ref` — **Rejected**
+### 2. `&` → `ref` — **Rejected**
 
-Considered shortening `borrowed` / `mod borrowed` to `ref` / `mod ref`.
+Considered shortening `&` / `edit &` to `ref` / `edit ref`.
 
 **Why rejected:**
 - `ref` carries the wrong semantic baggage from C# (mutable pass-by-ref, no aliasing rules), C++ (`&`), Rust (`&` / `&mut`). None match Delta's "non-owning, call-scope, exclusivity-checked, non-null" semantics. Readers from those languages will project the wrong rules onto it.
-- The rest of the language consistently chooses teaching over terseness (`function`, `const`/`let`, `interface`, `mod borrowed`). Picking the short word here breaks the pattern.
-- `function length(v: borrowed Vec3)` reads as English ("v is a borrowed Vec3"); `ref Vec3` doesn't.
-- IDE autocomplete neutralizes the typing-cost argument; the visual density of `borrowed` is part of how the model gets taught.
+- The rest of the language consistently chooses teaching over terseness (`function`, `const`/`let`, `interface`, `edit &`). Picking the short word here breaks the pattern.
+- `function length(v: &Vec3)` reads as English ("v is a referenced Vec3"); `ref Vec3` doesn't.
+- IDE autocomplete neutralizes the typing-cost argument; the visual density of `&` is part of how the model gets taught.
 
-**Compromise if revisited:** `borrow` (drop `-ed`) — 6 chars, still unique-to-Delta vocabulary, still reads as English. But leaving it as `borrowed` is the recommendation.
+**Compromise if revisited:** `borrow` (drop `-ed`) — 6 chars, still unique-to-Delta vocabulary, still reads as English. But leaving it as `&` is the recommendation.
 
 ---
 
 ## Open — worth exploring next
 
-### 3. Field-disjoint mutable borrows
+### 3. Field-disjoint mutable references
 
-Currently §12.4 keys exclusivity off the **root binding**, so `fillTwo(mod borrowed pair.left, mod borrowed pair.right)` is rejected even when the two fields can't alias. The spec marks field-disjoint analysis post-MVP. Pulling it forward will matter more than almost any other single ergonomic feature — it's the #1 thing Rust users miss when working in a stricter dialect, and root-level rejection of obviously-safe code is the most common "fighting the checker" complaint.
+Currently §12.4 keys exclusivity off the **root binding**, so `fillTwo(edit &pair.left, edit &pair.right)` is rejected even when the two fields can't alias. The spec marks field-disjoint analysis post-MVP. Pulling it forward will matter more than almost any other single ergonomic feature — it's the #1 thing Rust users miss when working in a stricter dialect, and root-level rejection of obviously-safe code is the most common "fighting the checker" complaint.
 
 **Affected:** §12.4, §12.7 (the same rule blocks `normalizePair(line.start, line.end)`).
 
@@ -139,11 +139,11 @@ Rules to think through: ordering (must match? any order?), mixing with positiona
 
 Stdlib ergonomics has more leverage on day-to-day "felt friction" than any single language feature. Concretely:
 
-- Collections, string APIs, and parsers should take `borrowed` / view parameters by default, not by-value owned.
-- Builders should return `mod borrowed Self` for chaining instead of moving `self`.
-- Iteration APIs should expose `borrowed T` items, not owned.
+- Collections, string APIs, and parsers should take `&` / view parameters by default, not by-value owned.
+- Builders should return `edit &Self` for chaining instead of moving `self`.
+- Iteration APIs should expose `&T` items, not owned.
 
-Get this right early and users will pass `borrowed x` constantly without thinking about it — most "fighting the borrow checker" in Rust is actually "fighting the stdlib's by-value APIs."
+Get this right early and users will pass `&x` constantly without thinking about it — most "fighting the reference checker" in Rust is actually "fighting the stdlib's by-value APIs."
 
 Not a spec change; a guideline for whoever writes the std.
 
@@ -151,12 +151,12 @@ Not a spec change; a guideline for whoever writes the std.
 
 ### 9. Fix-it diagnostics with applicable edits
 
-Rust became tolerable in 2018–2020 not because rules relaxed but because `rustc` started saying *"help: consider borrowing here: `&value`"* with a copy-pasteable suggestion. The single highest-leverage ergonomic investment for Delta is making the eventual checker emit applicable suggestions:
+Rust became tolerable in 2018–2020 not because rules relaxed but because `rustc` started saying *"help: consider referencing here: `&value`"* with a copy-pasteable suggestion. The single highest-leverage ergonomic investment for Delta is making the eventual checker emit applicable suggestions:
 
 - "insert `move`"
 - "add `as result` + `forward result`"
 - "this would work with `clone x as result`"
-- "borrow originates here; consider `clone` to obtain an owned value"
+- "reference originates here; consider `clone` to obtain an owned value"
 
 Pair with LSP quick-fixes. The felt experience of the checker is completely different when 80% of errors come with a one-keystroke fix. Not a spec change; a checker / LSP work item.
 
@@ -216,7 +216,7 @@ const updated = { ...original, name: "new" };       // object spread
 ```
 
 Common TS feature. Ownership questions to settle:
-- Variadic parameter is probably `borrowed Slice<T>` by default, not owned.
+- Variadic parameter is probably `&Slice<T>` by default, not owned.
 - Object spread interacts with copyability — copyable fields copy, owned fields would need explicit `move`/`clone` per field, or the spread is rejected.
 
 **Affected:** §3 (function parameters), §8 (type literals), §14 (ownership rules at spread sites).
@@ -288,18 +288,18 @@ Distinct from `defer` (#6): `defer` registers cleanup at function exit; `using` 
 
 ---
 
-### 19. Fluent method chaining via `mod borrowed Self` returns
+### 19. Fluent method chaining via `edit &Self` returns
 
-[§12.1](spec-sections/12-safe-borrows.md) forbids borrowed returns in MVP, so `b.append("x").append("y").finalize()` is structurally impossible — every builder method must be its own statement. Java / C# / JS / TS lean on fluent builders heavily; [improvement-ideas.md #8](improvement-ideas.md) (library shape) even calls for builders to *return* `mod borrowed Self`, which the spec then forbids.
+[§12.1](spec-sections/12-safe-references.md) forbids referenced returns in MVP, so `b.append("x").append("y").finalize()` is structurally impossible — every builder method must be its own statement. Java / C# / JS / TS lean on fluent builders heavily; [improvement-ideas.md #8](improvement-ideas.md) (library shape) even calls for builders to *return* `edit &Self`, which the spec then forbids.
 
-Pull forward the *narrowest* useful case: a `mod` method may return `mod borrowed Self` (the receiver itself), and only the receiver. Not field paths; not derived views. No general lifetime parameters needed — the receiver is the borrow source, not derived from it, so the §13.6 fresh-derived-view escape rule isn't triggered.
+Pull forward the *narrowest* useful case: an `edit` method may return `edit &Self` (the receiver itself), and only the receiver. Not field paths; not derived views. No general lifetime parameters needed — the receiver is the reference source, not derived from it, so the §13.6 fresh-derived-view escape rule isn't triggered.
 
 ```ts
 let b = new StringBuilder();
 const s = b.append("user=").append(name).append(", id=").finalize();
 ```
 
-**Affected:** §12.1, §12.11 (move "borrowed return values" off the never-MVP list — narrowly), §14.
+**Affected:** §12.1, §12.11 (move "referenced return values" off the never-MVP list — narrowly), §14.
 
 ---
 
@@ -347,7 +347,7 @@ Same line count, same semantics. `new` contributes zero information the type sys
 - **`?` / `try` syntax** — supplanted by `forward result` above, which preserves lexical visibility of the return.
 - **`copy` operator** — §14.12 already excludes; assignment copies copyable values, `move` transfers, `clone` deep-copies.
 - **Drop flags / conditional-move bookkeeping** — §14.12 excludes; static uniformity is load-bearing.
-- **Implicit `borrowed` at call sites** — §12.11 excludes; visible capability at the boundary is the point.
+- **Implicit `&` at call sites** — §12.11 excludes; visible capability at the boundary is the point.
 - **`if` / blocks / `switch` / `switch type` as expressions** — §3.10 closes this as a never. Use declare-then-assign under definite-assignment.
 - **Nullish coalescing `??`** — §3.13 lists it among banned operators.
 - **`+` for string concat** — §3.13 banned; use template literals or `string.concat`.

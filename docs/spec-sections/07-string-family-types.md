@@ -1,6 +1,6 @@
 ## 7. String Family Types
 
-Section 7 covers Delta's four string types: owned and borrowed variants of both UTF-8 strings and NUL-terminated C strings. The recurring principles are **separate ownership from representation** (each axis — UTF-8 vs NUL-terminated, owned vs borrowed — gets its own type rather than being a runtime flag), **invariants are enforced by construction** (every value of each type is valid by the time it exists, so consumers never re-validate), and **cost is visible at the call site** (allocation, scanning, and copying never hide behind operators or implicit coercions that look free). Each sub-feature below follows the Proposal / Reason / Examples / Conclusion structure.
+Section 7 covers Delta's four string types: owned and referenced variants of both UTF-8 strings and NUL-terminated C strings. The recurring principles are **separate ownership from representation** (each axis — UTF-8 vs NUL-terminated, owned vs referenced — gets its own type rather than being a runtime flag), **invariants are enforced by construction** (every value of each type is valid by the time it exists, so consumers never re-validate), and **cost is visible at the call site** (allocation, scanning, and copying never hide behind operators or implicit coercions that look free). Each sub-feature below follows the Proposal / Reason / Examples / Conclusion structure.
 
 ---
 
@@ -9,24 +9,24 @@ Section 7 covers Delta's four string types: owned and borrowed variants of both 
 **Proposal.** Four lowercase atom types form the string family:
 
 - **`string`** — owned, immutable, heap-backed, valid UTF-8. Shape: `{ ptr, byteLength, ...allocator info per §35 }`.
-- **`stringview`** — borrowed, immutable, valid UTF-8. Shape: `{ ptr, byteLength }`. Non-owning view into bytes owned by something else (`string`, `.rodata`, `StringBuilder` buffer, etc.).
+- **`stringview`** — referenced, immutable, valid UTF-8. Shape: `{ ptr, byteLength }`. Non-owning view into bytes owned by something else (`string`, `.rodata`, `StringBuilder` buffer, etc.).
 - **`cstring`** — owned, NUL-terminated, FFI-compatible. Shape: `{ ptr }` pointing at heap-allocated bytes ending in `\0`. No embedded NUL.
-- **`cstringview`** — borrowed, NUL-terminated. Shape: `{ ptr }` pointing at NUL-terminated bytes owned by something else (typically `.rodata` or C-returned memory).
+- **`cstringview`** — referenced, NUL-terminated. Shape: `{ ptr }` pointing at NUL-terminated bytes owned by something else (typically `.rodata` or C-returned memory).
 
 Naming follows the [§6](#6-other-primitive-types-bool-char-void) convention: lowercase for atomic non-generic types (`string`, `stringview`, `cstring`, `cstringview`, `int32`, `bool`, `char`); PascalCase for generic and container types (`Array<T>`, `Map<K, V>`, `Slice<T>`, `StringBuilder`). Owning heap indirection is spelled with the `heap T` type modifier, not a PascalCase generic type.
 
-**Reason.** A single `string` type collapses ownership, sharing, and C interop into one type and forces hidden allocations or hidden copies at every boundary. Splitting along the **ownership axis** (owned vs borrowed) makes lifetime tracking visible in the type system. Splitting along the **representation axis** (length-prefixed UTF-8 vs NUL-terminated) makes C FFI a typed handoff rather than a per-call conversion.
+**Reason.** A single `string` type collapses ownership, sharing, and C interop into one type and forces hidden allocations or hidden copies at every boundary. Splitting along the **ownership axis** (owned vs referenced) makes lifetime tracking visible in the type system. Splitting along the **representation axis** (length-prefixed UTF-8 vs NUL-terminated) makes C FFI a typed handoff rather than a per-call conversion.
 
-The fourth type — `cstringview` — earns its place at the FFI boundary. The most common shape of a C function returning a string is "here is a `const char*` I still own"; without a borrowed C-string type, the binding would either lie (treat the pointer as an owned `cstring` and risk freeing C's memory) or fall back to raw `pointer<uint8>` (loses safety and length recovery). `cstringview` is the typed wrapper that makes that pattern safe.
+The fourth type — `cstringview` — earns its place at the FFI boundary. The most common shape of a C function returning a string is "here is a `const char*` I still own"; without a referenced C-string type, the binding would either lie (treat the pointer as an owned `cstring` and risk freeing C's memory) or fall back to raw `pointer<uint8>` (loses safety and length recovery). `cstringview` is the typed wrapper that makes that pattern safe.
 
 Lowercase naming for atoms keeps `string` visually peer to `int32`, `bool`, `char` — types that the program is built on at every level. Reserving PascalCase for generic and container types preserves the type/identifier visual split (a function signature `fn f(s: string, xs: Array<int32>)` reads at a glance).
 
 **Examples.**
 ```ts
-const name: stringview  = "Delta";              // borrow from .rodata, zero cost
+const name: stringview  = "Delta";              // reference from .rodata, zero cost
 const owned: string     = "Delta";              // allocates, copies from .rodata
 const cstr:  cstring    = "Delta";              // allocates with NUL, copies from .rodata
-const cview: cstringview = "Delta";             // borrow NUL-terminated bytes from .rodata
+const cview: cstringview = "Delta";             // reference NUL-terminated bytes from .rodata
 ```
 
 **Conclusion.** Adopt all four lowercase atom types: `string`, `stringview`, `cstring`, `cstringview`. The remaining subsections specify invariants, literal storage, construction, conversions, and the operator/method surface for each.
@@ -50,7 +50,7 @@ Routing arbitrary-byte work through `Buffer` / `Slice<uint8>` ([§37](#37-standa
 **Examples.**
 ```ts
 const s: string = "café";                       // 5 bytes: 0x63 0x61 0x66 0xC3 0xA9
-const v: stringview = s;                        // borrow, still valid UTF-8
+const v: stringview = s;                        // reference, still valid UTF-8
 
 // From cstring: fallible (might be invalid UTF-8)
 const c: cstring = ...;
@@ -91,14 +91,14 @@ Construction cost by binding type:
 
 | Binding | Backing | Runtime cost |
 |---|---|---|
-| `stringview = "..."` | `.rodata` borrow | zero |
-| `cstringview = "..."` | `.rodata` borrow | zero |
+| `stringview = "..."` | `.rodata` reference | zero |
+| `cstringview = "..."` | `.rodata` reference | zero |
 | `string = "..."` | heap copy from `.rodata` | one malloc + memcpy |
 | `cstring = "..."` | heap copy from `.rodata` (with NUL) | one malloc + memcpy |
 
 The empty string literal `""` is a special case: a single shared sentinel exists in `.rodata`, and `string` / `cstring` destructors check for the sentinel before freeing. All four empty-literal forms point to it; none allocate.
 
-**Reason.** The `.rodata` storage model is what makes `const v: stringview = "hello"` truly free: the bytes already exist in the binary image, and the view is just a `{ptr, byteLength}` pair pointing at them. No allocator is involved, no destructor runs, and the borrow is sound because `.rodata` outlives every possible scope.
+**Reason.** The `.rodata` storage model is what makes `const v: stringview = "hello"` truly free: the bytes already exist in the binary image, and the view is just a `{ptr, byteLength}` pair pointing at them. No allocator is involved, no destructor runs, and the reference is sound because `.rodata` outlives every possible scope.
 
 Appending a trailing NUL to every literal unconditionally — rather than only when the literal appears in a `cstring`/`cstringview` context — keeps the lowering uniform. The compiler does not need to track which literals are referenced from FFI contexts; one byte per literal is a rounding error in any real binary.
 
@@ -109,10 +109,10 @@ The MVP escape set covers what's strictly load-bearing. `\xNN` is excluded becau
 **Examples.**
 ```ts
 // Single-line, escape-processed, binding-driven
-const v: stringview  = "hello\nworld";          // .rodata borrow, zero cost
+const v: stringview  = "hello\nworld";          // .rodata reference, zero cost
 const s: string      = "hello\nworld";          // allocates, copies
 const c: cstring     = "hello\nworld";          // allocates with NUL
-const cv: cstringview = "hello\nworld";         // .rodata borrow
+const cv: cstringview = "hello\nworld";         // .rodata reference
 
 // char literal — always char
 const ch: char = 'δ';
@@ -204,14 +204,14 @@ const bad: string = `pos = ${p}`;               // ERROR — Point not interpola
 - `cstring.from(x)` accepts the same set and is **fallible**: returns `cstring | CStringError` because the source may contain an embedded NUL. Bind with `as result` per [§22](#22-consuming-fallible-calls-as-result).
 
 **View construction (`stringview.from`, `cstringview.from`):**
-- `stringview.from(x)` accepts `string` and `cstring` (and `stringview` as identity). Returns `stringview`. Zero-cost when borrowing a known-length source.
+- `stringview.from(x)` accepts `string` and `cstring` (and `stringview` as identity). Returns `stringview`. Zero-cost when referencing a known-length source.
 - `cstringview.from(x)` accepts `cstring` (and `cstringview` as identity). Returns `cstringview`. Zero-cost.
 
 **Implicit owned→view coercion:** at a binding or call site, an owned type may be assigned to its view counterpart without `stringview.from` / `cstringview.from`:
 
 ```ts
 const owned: string = "hello";
-const view:  stringview = owned;                // implicit borrow, zero-cost
+const view:  stringview = owned;                // implicit reference, zero-cost
 ```
 
 The implicit form is identical in semantics and codegen to the explicit `stringview.from(owned)`; readers may prefer either spelling.
@@ -235,7 +235,7 @@ The implicit form is identical in semantics and codegen to the explicit `stringv
 | from \ to       | → `string`                | → `stringview`                | → `cstring`                       | → `cstringview`              |
 |-----------------|---------------------------|--------------------------------|------------------------------------|------------------------------|
 | `string`        | `clone s as result` (deep copy) | implicit, or `stringview.from(s)` | `cstring.from(s) as result`     | `cstringview.from(cstring.from(s) as result)` |
-| `stringview`    | `string.from(v)`          | assignment (copy — `{ptr,len}`, copyable) | `cstring.from(v) as result`        | via `cstring.from` then borrow |
+| `stringview`    | `string.from(v)`          | assignment (copy — `{ptr,len}`, copyable) | `cstring.from(v) as result`        | via `cstring.from` then reference |
 | `cstring`       | `cstring.scan(c)` w/ `:string`     | `cstring.scan(c)` w/ `:stringview`   | `clone c as result` (deep copy) | implicit, or `cstringview.from(c)` |
 | `cstringview`   | `cstring.scan(cv)` w/ `:string`    | `cstring.scan(cv)` w/ `:stringview`  | `cstring.from(cv) as result` (validates UTF-8 not required, NUL not possible) | assignment (copy — copyable) |
 
@@ -287,8 +287,8 @@ const y = owned as stringview;                      // ERROR — as is for resul
 - **Plain assignment / by-value passing** of an owned string is a **compile error** (it owns a heap buffer; assignment cannot copy it).
 - **`move x`** — transfer ownership; the original binding becomes invalid.
 - **`clone x`** — deep copy: allocates a fresh buffer and copies the bytes. Because it allocates, it is **fallible** and consumed with `as result` ([§14.4](#144-the-clone-operator)). There is no `copy` operator.
-- **`borrowed x`** (read-only) / **`mod borrowed x`** (mutable) — references (see [§12](#12-safe-borrows-borrowed-mod-borrowed)).
-- **Implicit** — view-shaped coercion at a binding or call site (`string` → `stringview`, `cstring` → `cstringview`), which is the zero-cost borrow path.
+- **`&x`** (read-only) / **`edit &x`** (mutable) — references (see [§12](#12-safe-references)).
+- **Implicit** — view-shaped coercion at a binding or call site (`string` → `stringview`, `cstring` → `cstringview`), which is the zero-cost reference path.
 
 `stringview` and `cstringview` are non-owning views and *are* copyable by plain assignment (they own nothing; lifetime tracking keeps them from outliving their source).
 
@@ -300,7 +300,7 @@ fn takeOwned(s: string): void { /* ... */ }
 
 const s: string = "hello";
 
-takeView(s);                                    // implicit borrow — OK
+takeView(s);                                    // implicit reference — OK
 takeOwned(s);                                   // ERROR — string is move-only; assignment can't copy it
 takeOwned(move s);                              // transfer; s now invalid
 
@@ -310,7 +310,7 @@ check result { return; }
 takeOwned(move dup);
 ```
 
-Lifetime tracking for borrows (a `stringview` outliving the `string` it borrows from, a `cstringview` outliving the buffer it points into) is the province of [§14](#14-ownership--move-semantics); §7 inherits whatever rules §14 defines and does not specify them locally.
+Lifetime tracking for references (a `stringview` outliving the `string` it references from, a `cstringview` outliving the buffer it points into) is the province of [§14](#14-ownership--move-semantics); §7 inherits whatever rules §14 defines and does not specify them locally.
 
 **Reason.** Keyword-prefix `move` makes ownership transfer visible at the start of the expression, where it is hard to skim past in review, and generalizes to every owned type. Deep copy is the one operation that genuinely differs from a transfer — it allocates — so it is the explicit, fallible `clone` operator consumed with `as result`, symmetric with `move`. This matches the universal model in [§14](#14-ownership--move-semantics): assignment copies copyable values, `move` transfers, `clone` deep-copies; there is no `copy` operator.
 
@@ -325,7 +325,7 @@ const v1: stringview = s;                       // implicit
 const v2: stringview = stringview.from(s);      // explicit, same semantics
 
 // View coercion at call sites
-log(s);                                         // log(s: stringview), implicit borrow
+log(s);                                         // log(s: stringview), implicit reference
 write(move s);                                  // write(s: string), explicit transfer
 // `s` is now invalid; further use is a compile error
 ```
@@ -352,7 +352,7 @@ const s: string = b.finalize();                 // produces immutable string
 
 `stringview` and `cstringview` are non-owning views; they cannot be mutated independently of their backing storage.
 
-**Reason.** An immutable `string` makes every operation on it cheap to reason about: a `stringview` borrowing from a `string` cannot have the underlying bytes mutated under it, so the view stays valid as long as the lifetime allows. Mutability would force either reference-counted snapshots, copy-on-write machinery, or runtime aliasing checks — all of which are larger than the cost of building text through `StringBuilder`.
+**Reason.** An immutable `string` makes every operation on it cheap to reason about: a `stringview` referencing from a `string` cannot have the underlying bytes mutated under it, so the view stays valid as long as the lifetime allows. Mutability would force either reference-counted snapshots, copy-on-write machinery, or runtime aliasing checks — all of which are larger than the cost of building text through `StringBuilder`.
 
 Concentrating mutation in `StringBuilder` rather than spreading it across `string` methods also clarifies the cost model: `b.append(...)` may resize and reallocate the buffer; `s.something(...)` never does. Readers can see which expressions involve buffer growth.
 
@@ -407,7 +407,7 @@ This is what makes "always on codepoint boundaries" enforceable: no arithmetic o
 
 **Reason.** Integer subscripting on a UTF-8 string is the single most common source of "I split a multi-byte character in half" bugs in languages that allow it. Rejecting it at compile time and routing all positional access through a type that's structurally restricted to codepoint boundaries eliminates the class of bug — without giving up O(1) substring operations the way "always decode to char position" would.
 
-Binding-driven return type on `.slice()` follows the same rule established for literals and `cstring.scan`: the value's representation can serve both `string` and `stringview`, and the binding picks. Forcing annotation when ambiguous keeps the cost (allocation vs borrow) visible at the call site.
+Binding-driven return type on `.slice()` follows the same rule established for literals and `cstring.scan`: the value's representation can serve both `string` and `stringview`, and the binding picks. Forcing annotation when ambiguous keeps the cost (allocation vs reference) visible at the call site.
 
 **Examples.**
 ```ts

@@ -2,6 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
 	"delta/internal/ast"
 	"delta/internal/codegen"
 	"delta/internal/diagnostics"
@@ -11,14 +20,6 @@ import (
 	"delta/internal/token"
 	"delta/internal/tokenizer"
 	"delta/internal/toolchain"
-	"encoding/json"
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"sort"
-	"strings"
-	"time"
 )
 
 const testsRoot = "test-source/tests"
@@ -266,12 +267,12 @@ func runBuild(args []string) {
 	basename := strings.TrimSuffix(filepath.Base(sourcePath), ".delta")
 	buildDir := filepath.Join(projectRoot, "build")
 	cDir := filepath.Join(buildDir, "c")
-	if err := os.MkdirAll(cDir, 0755); err != nil {
+	if err := os.MkdirAll(cDir, 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to create %s: %v\n", cDir, err)
 		os.Exit(1)
 	}
 	cFile := filepath.Join(cDir, basename+".c")
-	if err := os.WriteFile(cFile, cBytes, 0644); err != nil {
+	if err := os.WriteFile(cFile, cBytes, 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to write %s: %v\n", cFile, err)
 		os.Exit(1)
 	}
@@ -471,7 +472,7 @@ func runSuite(manifestPath string) (suiteResult, error) {
 
 	manifestDir := filepath.Dir(manifestPath)
 	resultsDir := filepath.Join(manifestDir, "test-results")
-	if err := os.MkdirAll(resultsDir, 0755); err != nil {
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		return res, fmt.Errorf("failed to create %s: %w", resultsDir, err)
 	}
 
@@ -516,13 +517,13 @@ func runSuite(manifestPath string) (suiteResult, error) {
 func writeCompileOutput(sourcePath, dest string) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = os.WriteFile(dest, fmt.Appendf(nil, "PANIC: %v\n", r), 0644)
+			err = os.WriteFile(dest, fmt.Appendf(nil, "PANIC: %v\n", r), 0o644)
 		}
 	}()
 
 	result, cerr := compile(sourcePath)
 	if cerr != nil {
-		return os.WriteFile(dest, []byte(cerr.Error()+"\n"), 0644)
+		return os.WriteFile(dest, []byte(cerr.Error()+"\n"), 0o644)
 	}
 
 	var out strings.Builder
@@ -537,7 +538,7 @@ func writeCompileOutput(sourcePath, dest string) (err error) {
 			out.WriteString("\n")
 		}
 	}
-	return os.WriteFile(dest, []byte(out.String()), 0644)
+	return os.WriteFile(dest, []byte(out.String()), 0o644)
 }
 
 func runOneTest(sourcePath string, tc testCase) (ok bool, reason string) {
@@ -682,12 +683,12 @@ func runCodegenMatch(
 
 	// Persist the raw generated output for inspection on mismatch.
 	outDir := filepath.Join(filepath.Dir(sourcePath), ".codegen-out")
-	if err := os.MkdirAll(outDir, 0755); err != nil {
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return false, "failed to create " + outDir + ": " + err.Error()
 	}
 	base := strings.TrimSuffix(filepath.Base(sourcePath), ".delta")
 	actualPath := filepath.Join(outDir, base+".actual.c")
-	_ = os.WriteFile(actualPath, cBytes, 0644)
+	_ = os.WriteFile(actualPath, cBytes, 0o644)
 
 	expected := normalizeC(refBytes)
 	actual := normalizeC(cBytes)
@@ -749,7 +750,7 @@ func runTrapTest(
 
 	base := strings.TrimSuffix(filepath.Base(sourcePath), ".delta")
 	cFile := filepath.Join(tmpDir, base+".c")
-	if err := os.WriteFile(cFile, cBytes, 0644); err != nil {
+	if err := os.WriteFile(cFile, cBytes, 0o644); err != nil {
 		return false, "failed to write generated C: " + err.Error()
 	}
 

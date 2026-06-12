@@ -140,7 +140,7 @@ const u = uint32(neg);                     // panic
 - **No implicit masking** of the count. A count of `≥` the operand's bit width traps per [§5.3](#53-the-complete-trap-set) row 4 — it is never silently truncated to `count mod width`.
 - **No dedicated unsigned shift operator** (`>>>`) in MVP. The C-style "logical shift on signed" is obtained via `int32(uint32(x) >> count)`, which is the existing combination of sign-flip cast and unsigned shift.
 
-**Reason.** The uniform `uint32` count type is borrowed from Rust and matches what users expect from "shift count is a small positive integer." Per-operand-width count types (`uint8` for `int8`, `uint16` for `int16`, ...) would add five rules with no semantic benefit and force conversions at every shift site.
+**Reason.** The uniform `uint32` count type is referenced from Rust and matches what users expect from "shift count is a small positive integer." Per-operand-width count types (`uint8` for `int8`, `uint16` for `int16`, ...) would add five rules with no semantic benefit and force conversions at every shift site.
 
 No-implicit-masking matches the rest of §5's no-silent-wrong-answer stance. C's masking (`x << 32` becomes `x << 0` on x86) was the source of countless codec and protocol bugs; Java specified the masking but the result is still wrong half the time. Trapping forces the algorithm to be honest about its shift amounts.
 

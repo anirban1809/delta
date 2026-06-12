@@ -128,6 +128,32 @@ func (t *Tokenizer) nextToken() token.Token {
 			Line:   line,
 			Column: column,
 		}
+	case '.':
+		if t.peek() == '.' && t.peekAhead(1) == '.' {
+			t.advance()
+			t.advance()
+			return token.Token{
+				Kind:   token.Symbol_Ellipsis,
+				Lexeme: "...",
+				Line:   line,
+				Column: column,
+			}
+		}
+		if t.peek() == '.' {
+			t.advance()
+			return token.Token{
+				Kind:   token.Symbol_Range,
+				Lexeme: "..",
+				Line:   line,
+				Column: column,
+			}
+		}
+		return token.Token{
+			Kind:   token.Symbol_Dot,
+			Lexeme: ".",
+			Line:   line,
+			Column: column,
+		}
 	case '+':
 		if t.peek() == '+' {
 			t.advance()

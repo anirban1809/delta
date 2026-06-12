@@ -88,7 +88,7 @@ function main(): int32 {
    - `const a, b = fallibleCall() as resultName;` — fresh `const` bindings receive multi-value success.
    - `let x = trappingExpr as resultName;` — fresh `let` binding receives the single success value.
    - `fallibleCall() as resultName;` — `void` success; no value bound.
-   - `existingField = expr as resultName;` — assignment-form: the storage path receives the success value (also marked *pending* until the matching check). This form is used in `mod` methods to update fields.
+   - `existingField = expr as resultName;` — assignment-form: the storage path receives the success value (also marked *pending* until the matching check). This form is used in `edit` methods to update fields.
 6. **`check resultName { ... }` is a block statement.** Not an expression. Inside, `resultName.error` is the only thing that may be read from `resultName`. Every control-flow path inside the block must terminate with a *diverging terminator*: `return`, `panic`, `break`, `continue`, `process.exit`, or `unreachable`. The analyzer enforces this via the Phase B CFG: every CFG sink inside the block must be a divergence. Falling through is a structured error.
 7. **Pending-state lattice.** A binding (or storage path) targeted by `as resultName` enters the analyzer's per-binding *pending* state from the `as result` site forward. Reads of a pending binding are errors. The matching `check resultName { ... }` block, whose body the analyzer has proved fully-diverging, transitions the binding to *valid* on the fall-through path past the block. (On the in-block path, the binding remains pending — it can't be read because the block can only read `result.error`.)
 8. **`check resultName` must follow the `as resultName` binding directly.** Per spec, the result-name lifecycle is: introduced by `as resultName`, consumed by exactly one `check resultName`, then the name goes out of scope. The analyzer enforces this as a syntactic-ish rule: between the `as result` site and the next `check result` site in the same basic block, no statements other than further uninvolved code may intervene — and the next `check result` must reference the same name. (Practically: the `check` block comes immediately or near-immediately after the `as result` binding; the analyzer doesn't require strict adjacency, but it does require that no read of the pending binding happens in between.)
@@ -203,7 +203,7 @@ New fixtures under `test-source/tests/codegen/errors/`:
 - `as_result_div_ok` — divisor zero caught.
 - `as_result_narrow_ok` — narrowing cast caught.
 - `as_result_on_non_trap_err` — `as result` on a provably-infallible expression rejected ("this expression cannot fail").
-- `as_result_assign_to_field_ok` — `this.value = expr as result;` form used in a `mod` method (the acceptance-program shape).
+- `as_result_assign_to_field_ok` — `this.value = expr as result;` form used in an `edit` method (the acceptance-program shape).
 
 **`check` block (6)**
 - `check_block_diverges_via_return_ok` — every path in the block ends in `return`.

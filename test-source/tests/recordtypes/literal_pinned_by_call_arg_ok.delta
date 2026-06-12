@@ -1,0 +1,10 @@
+type Vec3 = { x: float64; y: float64; z: float64; };
+
+function sum(v: Vec3): float64 {
+    return v.x + v.y + v.z;
+}
+
+function main(): int32 {
+    if (int32(sum({ x: 1.0, y: 2.0, z: 3.0 })) != 6) { return 1; }
+    return 0;
+}

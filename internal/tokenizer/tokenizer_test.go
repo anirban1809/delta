@@ -70,6 +70,57 @@ func TestTokenizeReportsUnterminatedBlockComment(t *testing.T) {
 	}
 }
 
+func TestTokenizeRecordTypePunctuation(t *testing.T) {
+	tokens, errorBag := tokenizeForTest(
+		"type Dog = { ...Animal; goodBoy: bool; }; dog.age",
+	)
+
+	assertNoErrors(t, errorBag)
+	assertKinds(t, tokens,
+		token.Keyword_Type,
+		token.Kind_Identifier,
+		token.Symbol_Equals,
+		token.Symbol_LeftBrace,
+		token.Symbol_Ellipsis,
+		token.Kind_Identifier,
+		token.Symbol_Semicolon,
+		token.Kind_Identifier,
+		token.Symbol_Colon,
+		token.Kind_Identifier,
+		token.Symbol_Semicolon,
+		token.Symbol_RightBrace,
+		token.Symbol_Semicolon,
+		token.Kind_Identifier,
+		token.Symbol_Dot,
+		token.Kind_Identifier,
+		token.Kind_EOF,
+	)
+}
+
+func TestTokenizeDotDoesNotExtendIntegerLiteral(t *testing.T) {
+	tokens, errorBag := tokenizeForTest("1.x")
+
+	assertNoErrors(t, errorBag)
+	assertKinds(t, tokens,
+		token.Kind_IntegerLiteral,
+		token.Symbol_Dot,
+		token.Kind_Identifier,
+		token.Kind_EOF,
+	)
+}
+
+func TestTokenizeDotsPreferLongestMatch(t *testing.T) {
+	tokens, errorBag := tokenizeForTest("... .. .")
+
+	assertNoErrors(t, errorBag)
+	assertKinds(t, tokens,
+		token.Symbol_Ellipsis,
+		token.Symbol_Range,
+		token.Symbol_Dot,
+		token.Kind_EOF,
+	)
+}
+
 func tokenizeForTest(source string) ([]token.Token, *diagnostics.ErrorBag) {
 	errorBag := &diagnostics.ErrorBag{Source: source}
 	tokens, _ := Tokenize(source, errorBag)

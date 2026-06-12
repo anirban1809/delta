@@ -102,7 +102,7 @@ Verbose was chosen because (a) it reads more clearly for newcomers — the prefi
 
 No `int` / `uint` aliases (à la Go) because a bare `int` reads as "the default integer," which collides with `int32` being the actual default literal type and re-introduces Go's platform-width hazard. No `double` (à la C) because it breaks the size-in-the-name pattern that `int32`, `int64`, `float32` all follow.
 
-`intsize` / `uintsize` over `intptr` / `uintptr` because the type's job is "an integer sized like a pointer," not "an integer that can hold a pointer" — and Delta's safe-references rule ([§12](#12-safe-borrows-borrowed-mod-borrowed)) means application code does not work with pointer values anyway.
+`intsize` / `uintsize` over `intptr` / `uintptr` because the type's job is "an integer sized like a pointer," not "an integer that can hold a pointer" — and Delta's safe-references rule ([§12](#12-safe-references)) means application code does not work with pointer values anyway.
 
 **Examples.**
 ```ts
@@ -255,7 +255,7 @@ class Counter {
     };
   }
 
-  public mod increment(): void { this.value += 1; }
+  public edit increment(): void { this.value += 1; }
   public get(): int32 { return this.value; }
 }
 

@@ -1,6 +1,6 @@
 ## 13. Memory Safety Model
 
-Section 13 defines the memory-safety promise Delta makes at the language boundary. It is a hub section: ownership, borrows, bounds checks, initialization, disposal, allocation, and the C backend each have their own detailed sections, but this section states which guarantees are part of the MVP and where the deliberate MVP boundaries are. The recurring principles are **no raw memory access in Delta source**, **safe APIs only expose valid values**, **local failures are recoverable when requested**, and **MVP is honest about view lifetimes it does not yet fully track**.
+Section 13 defines the memory-safety promise Delta makes at the language boundary. It is a hub section: ownership, references, bounds checks, initialization, disposal, allocation, and the C backend each have their own detailed sections, but this section states which guarantees are part of the MVP and where the deliberate MVP boundaries are. The recurring principles are **no raw memory access in Delta source**, **safe APIs only expose valid values**, **local failures are recoverable when requested**, and **MVP is honest about view lifetimes it does not yet fully track**.
 
 ---
 
@@ -14,12 +14,12 @@ For MVP, the safety promise is deliberately precise:
 - no double dispose through safe ownership,
 - no buffer overrun through safe indexing or slicing,
 - no read of uninitialized storage,
-- no null pointer or nullable-borrow access,
+- no null pointer or nullable-reference access,
 - no raw pointer arithmetic in Delta source,
-- no escaping call-scoped borrows,
+- no escaping call-scoped references,
 - no escaping fresh-derived views from storage whose lifetime ends at the function boundary.
 
-MVP does **not** claim full lifetime tracking for every stored view value. A pass-through view value such as `stringview` or `Slice<T>` may be returned or stored like any other value unless the compiler can see that it was freshly derived from local or borrowed storage in the current function. Full lifetime-bearing views are post-MVP.
+MVP does **not** claim full lifetime tracking for every stored view value. A pass-through view value such as `stringview` or `Slice<T>` may be returned or stored like any other value unless the compiler can see that it was freshly derived from local or referenced storage in the current function. Full lifetime-bearing views are post-MVP.
 
 **Reason.** "Memory safe" must be specific enough to implement and test. Overclaiming "no use-after-free anywhere" while MVP still permits pass-through view values would make the spec dishonest. The credible MVP promise is stronger than C - raw memory bugs are not expressible through ordinary Delta operations - but it still names the limited view-lifetime hole that remains until the lifetime design exists.
 
@@ -94,15 +94,15 @@ typedef struct {
 
 **Proposal.** Delta's memory-safety model is enforced by several independent compiler checks and runtime checks:
 
-- definite assignment prevents reads, moves, borrows, and mutation of absent values ([§3.3](#3-basic-syntax--variable-bindings), [§11.5](#115-whole-value-initialization-only)),
+- definite assignment prevents reads, moves, references, and mutation of absent values ([§3.3](#3-basic-syntax--variable-bindings), [§11.5](#115-whole-value-initialization-only)),
 - ownership and move checking prevent use-after-move and double disposal ([§14](#14-ownership--move-semantics)),
 - automatic disposal ensures owned values are cleaned exactly once on every exit path ([§9.7](#97-disposal-and-disposable), [§33](#33-automatic-disposal)),
-- borrow checking prevents escaping borrows and call-local mutable aliasing ([§12](#12-safe-borrows-borrowed-mod-borrowed)),
+- reference checking prevents escaping references and call-local mutable aliasing ([§12](#12-safe-references)),
 - view-escape checks prevent fresh-derived views from outliving visible sources ([§13.6](#136-fresh-derived-view-lifetimes)),
 - bounds and numeric checks prevent out-of-range memory access and invalid scalar construction ([§5](#5-primitive-numeric-types), [§38](#38-bounds-checking)),
 - construction rules ensure nominal values are complete before use ([§8.4](#84-construction), [§9.2](#92-controlled-construction)).
 
-**Reason.** No single mechanism carries the safety promise. Bounds checks alone do not prevent double-free; ownership alone does not validate UTF-8; borrow checking alone does not prove an index is in range. The model is intentionally layered so each check has a small job and a clear diagnostic.
+**Reason.** No single mechanism carries the safety promise. Bounds checks alone do not prevent double-free; ownership alone does not validate UTF-8; reference checking alone does not prove an index is in range. The model is intentionally layered so each check has a small job and a clear diagnostic.
 
 **Examples.**
 ```ts
@@ -202,7 +202,7 @@ class BadView uses View of Buffer, Disposable {
 
 - from an owned local,
 - from an owned by-value parameter,
-- from a `borrowed` or `mod borrowed` parameter,
+- from a `&` or `edit &` parameter,
 - from a field path rooted in any of the above,
 - from an implicit owned-to-view coercion,
 - from a method call whose result type is a built-in view type or a `uses View of S` type and whose receiver/source is one of the above.
@@ -224,8 +224,8 @@ function bad(): stringview {
 ```
 
 ```ts
-function bad2(doc: borrowed Document): stringview {
-  const text = doc.viewText();          // fresh-derived from borrowed parameter
+function bad2(doc: &Document): stringview {
+  const text = doc.viewText();          // fresh-derived from reference parameter
   return text;                          // ERROR
 }
 ```
@@ -233,7 +233,7 @@ function bad2(doc: borrowed Document): stringview {
 ```ts
 type Cache = { text: stringview; };
 
-function bad3(doc: borrowed Document): Cache {
+function bad3(doc: &Document): Cache {
   const text = doc.viewText();
   return { text };                      // ERROR - stores fresh-derived view
 }
@@ -263,7 +263,7 @@ function ok2(view: BufferView): BufferView {
 }
 ```
 
-**Conclusion.** MVP has a local fresh-derived-view escape check. It is not full lifetime tracking, but it closes the visible local/borrowed-storage escape hole.
+**Conclusion.** MVP has a local fresh-derived-view escape check. It is not full lifetime tracking, but it closes the visible local/referenced-storage escape hole.
 
 ---
 
@@ -273,7 +273,7 @@ function ok2(view: BufferView): BufferView {
 
 | Category | Examples | Behavior |
 |---|---|---|
-| Compile-time error | raw pointer type, temporary borrow, use after move, uninitialized read, fresh-derived view escape | rejected before codegen |
+| Compile-time error | raw pointer type, temporary reference, use after move, uninitialized read, fresh-derived view escape | rejected before codegen |
 | Recoverable with `as result` | integer overflow, divide by zero, shift out of range, numeric/`char` cast failure, array/slice/string bounds, invalid `ByteOffset` slicing | produces `T | ErrorType` and must be checked |
 | Default panic | same local check used without `as result` and failing at runtime | non-catchable panic |
 | Non-trapping explicit arithmetic | `Wrap<T>`, `Saturate<T>` | wraps or saturates, no panic |
@@ -404,7 +404,7 @@ The following are deliberately out of scope for MVP or permanently excluded:
 - **User-authored `@trusted` Delta modules** - not in MVP.
 - **Trusted Delta standard-library internals with raw pointers** - not in MVP; std Delta source uses the same safe surface as user code.
 - **Full lifetime parameters or lifetime inference for every view** - post-MVP.
-- **Field-disjoint borrow analysis and whole-program alias analysis** - post-MVP.
+- **Field-disjoint reference analysis and whole-program alias analysis** - post-MVP.
 - **Thread/data-race guarantees** - post-MVP, owned by §42.
 - **FFI safety rules** - deferred to §§40-41.
 - **Exact collection allocation APIs** - deferred to §§35 and 37.
@@ -424,7 +424,7 @@ This section requires the following alignment elsewhere:
 - **§8.7 / §9.1 / §36** - `heap T` is the owning heap-indirection form; it is not a raw pointer capability.
 - **§9.1 / §12.4** - `uses View of S` marks non-owning view types and drives both call-level alias checking and fresh-derived-view escape checking.
 - **§9.7 / §33 / §34** - disposal is automatic, implicit, and ownership-driven.
-- **§12** - borrows are non-owning, call-scoped access capabilities; they do not own, copy, move, or extend lifetime.
+- **§12** - references are non-owning, call-scoped access capabilities; they do not own, copy, move, or extend lifetime.
 - **§14** - ownership is single-owner: assignment copies copyable values, `move` transfers ownership, and `clone` deep-copies cloneable values (fallible). `Disposable` types are never cloneable, which is what blocks resource duplication; use-after-move and double-free are compile-time properties.
 - **§38** - bounds failures panic by default and are recoverable with `as result`.
 - **§39** - MVP has no trusted Delta source with raw pointer privileges; unsafe implementation detail lives below the Delta boundary in generated/runtime C.

@@ -1,0 +1,5 @@
+type Tree = { value: int32; left: Tree; };
+
+function main(): int32 {
+    return 0;
+}

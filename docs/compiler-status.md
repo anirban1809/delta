@@ -122,7 +122,7 @@ Not implemented yet:
 - Template string literals.
 - Raw string literals.
 - Import/export/decorator/extern tokens.
-- Type declaration, class, enum, interface, borrow, move, clone, heap, and error
+- Type declaration, class, enum, interface, reference, move, clone, heap, and error
   handling tokens.
 - Remaining compound assignment operators (`/=`, `%=`, `&=`, `|=`, `^=`,
   `<<=`, `>>=`).
@@ -273,7 +273,7 @@ Implemented:
 Not implemented yet:
 
 - `as result`.
-- `move`, `clone`, `borrowed`, and `mod borrowed` expressions.
+- `move`, `clone`, `&`, and `edit &` expressions.
 - Member access.
 - Index expressions.
 - Object literals.
@@ -885,11 +885,11 @@ Pending:
 Pending:
 
 - Ownership and move checking.
-- `borrowed` and `mod borrowed`.
+- `&` and `edit &`.
 - `heap T`.
 - `move` and `clone`.
 - Disposal analysis.
-- Borrow aliasing rules.
+- Reference aliasing rules.
 - Memory safety validation.
 
 ### Error Model
@@ -1120,7 +1120,7 @@ After the basic compiler can build small programs, expand in this order:
 4. Arrays and strings.
 5. Error handling with `as result` and `check`.
 6. Ownership and move semantics.
-7. Borrows.
+7. References.
 8. Classes and disposal.
 9. Generics.
 10. Incremental compilation.

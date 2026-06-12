@@ -1,0 +1,18 @@
+type Vec3 = { x: float64; y: float64; z: float64; };
+
+/*
+
+get the expression from typeInit[a]
+replace the spreadelement, with fieldinit, then verify the type as usual
+b: Vec3 = {...a, b: 23};
+
+*/
+
+function main(): int32 {
+    const a: Vec3 = { x: 1.0, y: 2.0, z: 2.0 };
+    const b: Vec3 = { ...a };
+    if (int32(b.x) != 1) { return 1; }
+    if (int32(b.y) != 2) { return 2; }
+    if (int32(b.z) != 2) { return 3; }
+    return 0;
+}

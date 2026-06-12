@@ -1,0 +1,8 @@
+type Vec3 = { x: float64; y: float64; z: float64; };
+
+function main(): int32 {
+    const v: Vec3 = { x: 4.0, y: 5.0, z: 6.0 };
+    if (int32(v.x + v.y) != 9) { return 1; }
+    if (int32(v.z) != 6)       { return 2; }
+    return 0;
+}

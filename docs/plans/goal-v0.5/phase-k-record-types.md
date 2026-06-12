@@ -3,12 +3,12 @@
 Date drafted: 2026-06-07
 Status: planning, not started.
 Predecessor: Phases **A** and **B** landed.
-Successor: Phase E (classes) reuses the field-list, member-access, object-literal-pinning, and structural-`==` machinery introduced here. Phase H (`heap T`) lifts the no-recursion restriction. Phase G (`borrowed T`) and a future tagged-union phase lift two more restrictions called out below.
+Successor: Phase E (classes) reuses the field-list, member-access, object-literal-pinning, and structural-`==` machinery introduced here. Phase H (`heap T`) lifts the no-recursion restriction. Phase G (`&T`) and a future tagged-union phase lift two more restrictions called out below.
 Spec basis: [spec-sections/08-type-declarations.md](../../spec-sections/08-type-declarations.md), with knock-on text in §11 (mutability) and §3.3 (definite assignment).
 
 ## Why land this before Phase E
 
-The existing Phase E plan assumes phases I/D/J/A/B/C have shipped because its acceptance program uses `as result`, `check`, `std/log`, and `OverflowError`. Phase K lets the project add a sizable, demonstrable language slice (records, object literals, field access, member assignment, composition, structural equality) without depending on the error model, modules, or `std/log`. It also pulls forward the front-end machinery Phase E needs — `MemberAccessExpression`, object-literal-pinning by expected type, struct emission and compound-literal codegen, declaration-time fixed-size check — into a smaller and cheaper surface, so Phase E can focus on the class-specific layers (privacy, `this`, `mod`, dispose scaffolding) rather than re-inventing field plumbing.
+The existing Phase E plan assumes phases I/D/J/A/B/C have shipped because its acceptance program uses `as result`, `check`, `std/log`, and `OverflowError`. Phase K lets the project add a sizable, demonstrable language slice (records, object literals, field access, member assignment, composition, structural equality) without depending on the error model, modules, or `std/log`. It also pulls forward the front-end machinery Phase E needs — `MemberAccessExpression`, object-literal-pinning by expected type, struct emission and compound-literal codegen, declaration-time fixed-size check — into a smaller and cheaper surface, so Phase E can focus on the class-specific layers (privacy, `this`, `edit`, dispose scaffolding) rather than re-inventing field plumbing.
 
 ## Goal
 
@@ -70,8 +70,8 @@ function main(): int32 {
 | Feature | Reason | Eventual home |
 |---|---|---|
 | `heap T` indirection (recursive records) | Spec §8.7; depends on heap allocation story. | Phase H. |
-| `borrowed T` / `mod borrowed T` field-type and parameter types | Spec §8.8; needs borrow machinery. | Phase G. |
-| `same(a, b)` identity intrinsic | Spec §8.10; requires `borrowed` / `heap` operands to be well-defined. | Co-lands with G/H. |
+| `&T` / `edit &T` field-type and parameter types | Spec §8.8; needs reference machinery. | Phase G. |
+| `same(a, b)` identity intrinsic | Spec §8.10; requires `&` / `heap` operands to be well-defined. | Co-lands with G/H. |
 | Tagged unions `type X = A \| B;` | Spec §8.13; separate phase. | Future "tagged-union phase". |
 | Aliases to generic instantiations (`type IntList = Array<int32>;`) | Generics not yet specified. | Future generics phase. |
 | Ordering operators `<` / `>` / `<=` / `>=` on records | Spec §8.9: not defined for records. | Never. |
@@ -106,7 +106,7 @@ function main(): int32 {
 7. **Direct self-reference is a hard error at declaration time.** Phase K has no `heap T`, so any record cycle is fatal. The diagnostic names every type on the cycle and ends with "introduce indirection (`heap T`) — not supported until Phase H." This is intentional: the cycle check is the same code path that Phase H will refine once `heap T` lands; the only thing Phase H changes is what counts as a cycle-breaker.
 8. **Coverage check happens after pinning, comparing the literal's field-name set against the pinned type's field-name set.** Missing / unknown / duplicate field diagnostics each carry the field name and the target type name. Spread sources contribute their declared field set; if a spread source's static type is not the *same* type as the target, the diagnostic is "spread source is `T1`, target is `T2`; cross-type spread is not allowed (§8.12)."
 9. **`==` is compiler-derived structurally.** For two operands of the same record type, the analyzer accepts the comparison iff every field type supports `==` (numeric, `bool`, `char` today). Codegen synthesizes one `static inline bool delta__<Record>_eq(delta__<Record> a, delta__<Record> b) { return a.x == b.x && ...; }` per record type the program compares, emitted on first use. Records whose fields are all primitives qualify; once `string` is added later, the gate will exclude any record with a `string` field per §8.9 with the suggested fix message.
-10. **Field access (`v.f`) and field assignment (`v.f = e;`) reuse `MemberAccessExpression`.** The analyzer resolves the receiver to a record type, looks up `f` on that type's field list, and yields the field's type (read) or validates the L-value (write). Writes require the receiver binding to be a `let` (or, eventually, `mod borrowed`). Writes to a `const`-bound receiver are the existing "cannot assign to const" diagnostic, extended to record receivers.
+10. **Field access (`v.f`) and field assignment (`v.f = e;`) reuse `MemberAccessExpression`.** The analyzer resolves the receiver to a record type, looks up `f` on that type's field list, and yields the field's type (read) or validates the L-value (write). Writes require the receiver binding to be a `let` (or, eventually, `edit &`). Writes to a `const`-bound receiver are the existing "cannot assign to const" diagnostic, extended to record receivers.
 11. **Definite-assignment treats record bindings whole.** `let v: Vec3;` is uninitialized; reading any field of `v` or writing any field of `v` before `v = { ... };` is an error ("`v` is uninitialized"). Whole-value assignment marks the binding initialized; from then on, individual field reads/writes are fine. The DA tracker doesn't need per-field bits, because §8.4 forbids partial field initialization outright.
 12. **No ordering, no field defaults, no methods, no per-field visibility — rejected at the earliest legal stage.** Field defaults (`port: int32 = 8080;`) are a parser error inside the RHS field list. Methods (`name(): T { ... }`) are a parser error. `public` / `private` inside a `type` are parser errors. `<` / `>` / `<=` / `>=` between record operands are analyzer errors. All carry the §8 reference in the help text.
 

@@ -19,7 +19,7 @@
 9. [Classes](#9-classes)
 10. [Interfaces & Traits](#10-interfaces--traits)
 11. [Mutability Model (`const` vs `let`)](#11-mutability-model-const-vs-let)
-12. [Safe Borrows (`borrowed`, `mod borrowed`)](#12-safe-borrows-borrowed-mod-borrowed)
+12. [Safe References (`&`, `edit &`)](#12-safe-references)
 13. [Memory Safety Model](#13-memory-safety-model)
 14. [Ownership & Move Semantics](#14-ownership--move-semantics)
 15. [Lifetimes](#15-lifetimes)
@@ -126,15 +126,15 @@
 **Proposal.** Two related but distinct constructs sit between [§9 Classes](#9-classes) and the mutability model:
 
 - **Interfaces** describe *shape* — a structural contract of fields and/or methods a type must provide. Already relied on as the minimum-shape requirement for error types ([§21](#21-error-type-shape)), as generic constraints ([§32](#32-generics--constraints)), and as FFI struct layouts ([§42](#42-ffi-safe-types), [§48](#48-layout-rules-reprc-packed)). Satisfaction is **structural**: any type with the required members conforms, with no explicit `implements` clause.
-- **Traits** describe *capability* — compiler-recognized behavioral markers attached with `uses` ([§9](#9-classes)). The MVP trait set is **closed**: `Copyable`, `Disposable`, and `View of S`. Traits govern ownership, disposal, and borrow-aliasing, not member shape, and conformance is an explicit `uses` declaration the compiler trusts.
+- **Traits** describe *capability* — compiler-recognized behavioral markers attached with `uses` ([§9](#9-classes)). The MVP trait set is **closed**: `Copyable`, `Disposable`, and `View of S`. Traits govern ownership, disposal, and reference-aliasing, not member shape, and conformance is an explicit `uses` declaration the compiler trusts.
 
-**Reason.** Separating "what members a type has" (interface, structural) from "what the compiler may assume about a type's resource and aliasing behavior" (trait, nominal `uses` marker) keeps the two checks independent: interface satisfaction is a structural test, trait conformance is an explicit opt-in. Folding them into one construct would force either nominal interfaces (losing the TS feel) or structural traits (losing the explicit ownership opt-in that the borrow and disposal models depend on).
+**Reason.** Separating "what members a type has" (interface, structural) from "what the compiler may assume about a type's resource and aliasing behavior" (trait, nominal `uses` marker) keeps the two checks independent: interface satisfaction is a structural test, trait conformance is an explicit opt-in. Folding them into one construct would force either nominal interfaces (losing the TS feel) or structural traits (losing the explicit ownership opt-in that the reference and disposal models depend on).
 
 **Examples.**
 ```ts
 // interface — structural shape, no `implements` needed
 interface Comparable<T> {
-  compareTo(other: borrowed T): int32;
+  compareTo(other: &T): int32;
 }
 
 // trait — capability marker via `uses` (closed set in MVP)
@@ -153,9 +153,9 @@ class Buffer uses Disposable {
 
 ---
 
-## 12. Safe Borrows (`borrowed`, `mod borrowed`)
+## 12. Safe References (`&`, `edit &`)
 
-> 📄 See standalone document: [spec-sections/12-safe-borrows.md](spec-sections/12-safe-borrows.md)
+> 📄 See standalone document: [spec-sections/12-safe-references.md](spec-sections/12-safe-references.md)
 
 ---
 
@@ -173,62 +173,7 @@ class Buffer uses Disposable {
 
 ## 15. Lifetimes
 
-> ⚠️ **Stub — post-MVP design pass.** MVP has no lifetime syntax. This section names the boundary between what the language guarantees today and what the eventual lifetime design must close.
-
-**Proposal.** Delta lifetimes are the future answer to "for how long is this borrow, slice, or view value valid?" — the question MVP deliberately defers ([§12.11](#12-safe-borrows-borrowed-mod-borrowed), [§13.11](#13-memory-safety-model)). The intended shape:
-
-- **No lifetime syntax in the source surface.** The TypeScript-flavored grammar commitment is load-bearing; the lifetime design must do its work through inference, not Rust-style `'a` annotations. If inference proves too weak, syntax must be opt-in and confined to signatures that genuinely need it (Appendix risk #2).
-- **Two distinct concerns to close.** *Borrow escape*: the [§12.11](#12-safe-borrows-borrowed-mod-borrowed) prohibitions on borrowed return values, borrowed fields, local borrow bindings, and closure capture of borrows are what hold the MVP together; the lifetime design replaces those prohibitions with checked-escape rules. *View provenance*: the [§13.6](#13-memory-safety-model) "fresh-derived view cannot escape the current function" rule is local and conservative; the lifetime design extends it to a cross-function provenance system that can validate stored and returned views.
-- **Single-owner remains the foundation.** Lifetimes describe how long a non-owning capability (borrow or view) may observe an owned value; they never split ownership ([§14](#14-ownership--move-semantics)). A lifetime is a *constraint*, not a refcount.
-- **Field-disjoint exclusivity.** Replacing [§12.4](#12-safe-borrows-borrowed-mod-borrowed)'s root-level "many readers or one writer" with place-level analysis is part of the same work package, because both rely on the same provenance machinery.
-
-**Reason.** Lifetimes are the single largest open question in the language (Appendix risk #2). Done well, they close the named holes in [§13.1](#13-memory-safety-model) without disturbing the surface syntax. Done badly, they turn Delta into a Rust dialect with a TypeScript skin — the worst of both. The reason this section exists as a stub rather than a full proposal is exactly that risk: committing to lifetime syntax now would lock in the wrong choice; refusing to mention lifetimes at all would let readers assume the MVP guarantees are the final story.
-
-The post-MVP lifetime work has four concrete consumers, each named elsewhere in the spec:
-
-1. **Borrowed returns** ([§12.11](#12-safe-borrows-borrowed-mod-borrowed)) — `function first<T>(xs: borrowed Slice<T>): borrowed T` is unwriteable today.
-2. **Borrow fields and stored borrows** ([§12.11](#12-safe-borrows-borrowed-mod-borrowed)) — a struct holding a `borrowed T` requires a lifetime on the enclosing value.
-3. **Field-disjoint mutable borrows** ([§12.4](#12-safe-borrows-borrowed-mod-borrowed), [§12.7](#12-safe-borrows-borrowed-mod-borrowed)) — `normalizePair(line.start, line.end)` is rejected today by the root-level rule.
-4. **Stored / returned views with cross-function provenance** ([§13.1](#13-memory-safety-model), [§13.6](#13-memory-safety-model)) — pass-through view values may escape today without lifetime tracking; the caller is trusted to keep the backing storage alive.
-
-**Examples.**
-
-Rejected today (MVP):
-```ts
-function first<T>(xs: borrowed Slice<T>): borrowed T {
-  return xs[0];                                  // ERROR — borrowed returns are post-MVP (§12.11)
-}
-
-function normalizeLine(line: mod borrowed Line): void {
-  normalizePair(line.start, line.end);           // ERROR — root-level exclusivity (§12.4)
-}
-
-type Cache = { text: stringview; };
-function cache(doc: borrowed Document): Cache {
-  return { text: doc.viewText() };               // ERROR — fresh-derived view escapes (§13.6)
-}
-```
-
-What the post-MVP design must allow, ideally without lifetime annotations in the source:
-```ts
-// borrowed return — lifetime inferred from the borrow source
-function first<T>(xs: borrowed Slice<T>): borrowed T;
-
-// field-disjoint mutable borrows — exclusivity per place, not per root
-function normalizeLine(line: mod borrowed Line): void {
-  normalizePair(line.start, line.end);           // OK once place analysis lands
-}
-
-// stored view with checked provenance — Cache valid for as long as `doc` is
-function cache(doc: borrowed Document): Cache;
-```
-
-**Conclusion.** Stub — to be expanded into a standalone document alongside the post-MVP work. Until that design lands, the MVP guarantee is the one [§13.1](#13-memory-safety-model) states verbatim, including its named holes; the call-scope borrow model ([§12](#12-safe-borrows-borrowed-mod-borrowed)) and the local fresh-derived-view check ([§13.6](#13-memory-safety-model)) carry the load. The lifetime design must:
-
-- preserve the no-annotations surface where it can, and confine any opt-in syntax to signatures that genuinely need it,
-- generalize [§13.6](#13-memory-safety-model)'s local view-escape check to cross-function provenance,
-- lift the [§12.11](#12-safe-borrows-borrowed-mod-borrowed) prohibitions on borrowed returns, borrow fields, local borrow bindings, and closure capture, and
-- replace [§12.4](#12-safe-borrows-borrowed-mod-borrowed)'s root-level exclusivity with field-disjoint place analysis.
+> 📄 See standalone document: [spec-sections/15-lifetimes.md](spec-sections/15-lifetimes.md)
 
 ---
 
@@ -271,9 +216,9 @@ const bad = numbers[100];              // runtime bounds panic unless bound with
 
 ## 18. Slices (`Slice<T>`)
 
-**Proposal.** A non-owning view into contiguous memory, internally `{ptr, length}`. `Slice<T>` is a view value type marked `uses View of Array<T>` ([§9.1](#9-classes), [§12.4](#12-safe-borrows-borrowed-mod-borrowed)), so the borrow checker treats it as aliasing array storage. There is **no `mut Slice<T>` type**: element-write capability follows the binding/borrow rules ([§11](#11-mutability-model-const-vs-let)) — writes are allowed through a `let` slice or a `mod borrowed Slice<T>` parameter and rejected through a `const` slice or `borrowed Slice<T>`. Indexing is bounds-checked. User code cannot extract the underlying pointer.
+**Proposal.** A non-owning view into contiguous memory, internally `{ptr, length}`. `Slice<T>` is a view value type marked `uses View of Array<T>` ([§9.1](#9-classes), [§12.4](#12-safe-references)), so the reference checker treats it as aliasing array storage. There is **no `mut Slice<T>` type**: element-write capability follows the binding/reference rules ([§11](#11-mutability-model-const-vs-let)) — writes are allowed through a `let` slice or an `edit &Slice<T>` parameter and rejected through a `const` slice or `&Slice<T>`. Indexing is bounds-checked. User code cannot extract the underlying pointer.
 
-**Reason.** Slices unify "view into a fixed array," "view into a dynamic array," and "view into someone else's buffer" under one type. They are the universal function-argument shape for "sequence of T." Reusing the `const`/`let` and `borrowed`/`mod borrowed` capability rules — instead of a separate `mut Slice` type — keeps slice mutability consistent with every other value, and the `uses View of S` marker is what lets §12.4's call-level exclusivity guard the slice against the storage it aliases. Full lifetime tracking of slices is post-MVP ([§12.11](#12-safe-borrows-borrowed-mod-borrowed)).
+**Reason.** Slices unify "view into a fixed array," "view into a dynamic array," and "view into someone else's buffer" under one type. They are the universal function-argument shape for "sequence of T." Reusing the `const`/`let` and `&`/`edit &` capability rules — instead of a separate `mut Slice` type — keeps slice mutability consistent with every other value, and the `uses View of S` marker is what lets §12.4's call-level exclusivity guard the slice against the storage it aliases. Full lifetime tracking of slices is post-MVP ([§12.11](#12-safe-references)).
 
 **Examples.**
 ```ts
@@ -283,7 +228,7 @@ function sum(values: Slice<int32>): int32 {
   return total;
 }
 
-function fill(values: mod borrowed Slice<int32>, value: int32): void {
+function fill(values: edit &Slice<int32>, value: int32): void {
   for (let i: uintsize = 0; i < values.length; i++) values[i] = value;
 }
 ```
@@ -342,7 +287,7 @@ function readFile(path: stringview): (stringview, string) | IOError;
 
 **Proposal.** Any type used as an error must satisfy a minimum shape: `code: stringview; message: stringview;`. The standard `Error` interface defines exactly that. Custom errors may add fields.
 
-**Reason.** A minimum shape gives generic error-handling code something to rely on (logging, propagation, wrapping) without forcing a sealed hierarchy or runtime type tagging. Borrowing `stringview` rather than `string` means error construction is allocation-free in the common case.
+**Reason.** A minimum shape gives generic error-handling code something to rely on (logging, propagation, wrapping) without forcing a sealed hierarchy or runtime type tagging. Referencing `stringview` rather than `string` means error construction is allocation-free in the common case.
 
 **Examples.**
 ```ts
@@ -576,7 +521,7 @@ type Minus      = { };
 type Eof        = { };
 type Token      = Identifier | Number | Plus | Minus | Eof;
 
-function printToken(token: borrowed Token): void {
+function printToken(token: &Token): void {
   switch type (token) {
     case Identifier: { console.writeLine(token.value); }   // `token` narrowed to Identifier here
     case Number:     { console.writeLine(token.value); }
@@ -608,12 +553,12 @@ type Leaf   = { };
 type Branch = { value: int32; left: heap Tree; right: heap Tree; };
 type Tree   = Leaf | Branch;
 
-function sum(node: borrowed Tree): int32 {
+function sum(node: &Tree): int32 {
   switch type (node) {
     case Leaf:   { return 0; }
     case Branch: { return node.value
-                        + sum(borrowed node.left)
-                        + sum(borrowed node.right); }   // `heap` auto-derefs
+                        + sum(&node.left)
+                        + sum(&node.right); }   // `heap` auto-derefs
   }
 }
 ```
@@ -635,11 +580,11 @@ function identity<T>(value: T): T { return value; }
 interface Pair<T, U> { first: T; second: U; }
 
 interface Comparable<T> {
-  compareTo(other: borrowed T): int32;
+  compareTo(other: &T): int32;
 }
 
 function max<T extends Comparable<T>>(a: T, b: T): T {
-  return a.compareTo(borrowed b) >= 0 ? a : b;
+  return a.compareTo(&b) >= 0 ? a : b;
 }
 ```
 
@@ -707,7 +652,7 @@ class TempFile uses Disposable {
 
 **Proposal.** Within a scope, owned values are disposed in **reverse declaration order (LIFO)**, matching the reverse-field-order disposal of a single value's fields ([§9.7](#9-classes)). There is **no `defer` keyword**. Cleanup that is not naturally a value's `dispose()` — restoring a global flag, decrementing a counter, unwinding any other side effect — is expressed by wrapping it in a small `Disposable` guard value whose `dispose()` performs the action.
 
-**Reason.** LIFO is the only order that respects dependencies between resources: a value declared later may borrow or depend on one declared earlier, so it must be torn down first. It also matches C++ destructor order and reads predictably.
+**Reason.** LIFO is the only order that respects dependencies between resources: a value declared later may reference or depend on one declared earlier, so it must be torn down first. It also matches C++ destructor order and reads predictably.
 
 Removing `defer` keeps a single cleanup mechanism instead of two. Go's `defer` and an opt-in `using` would each be a second path to "run this at scope exit"; collapsing everything onto value-tied disposal means there is exactly one rule to learn and one analysis to implement. The guard-value idiom recovers the arbitrary-cleanup case without a dedicated keyword — it is the same RAII-guard pattern C++ and Rust use, and it makes the cleanup auditable as a named type rather than an anonymous deferred expression.
 
@@ -765,7 +710,7 @@ console.writeLine(user.name);           // compile error: moved
 
 function parseScoped(source: stringview): AstNodeRef | ParseError {
   const arena = new Arena(1024 * 1024);   // disposed at this function's exit
-  const node = parse(source, mod borrowed arena) as parseResult;
+  const node = parse(source, edit &arena) as parseResult;
   check parseResult { return error as ParseError { /* ... */ }; }
   return node;                            // compile error: arena ref escapes its arena's scope
 }
@@ -890,7 +835,7 @@ interface PluginInfo {
 
 **Proposal.** Standard library provides `Thread`, `Mutex<T>`, and `Atomic<T>`. `Mutex<T>.lock()` returns a lock guard that releases automatically when the guard's binding goes out of scope ([§34](#34-automatic-disposal)). `Atomic<T>` supports the standard operations with explicit `MemoryOrder`.
 
-**Reason.** No language survives without a concurrency story. Wrapping the protected data inside the mutex (`Mutex<T>` not `Mutex + T`) is a borrow from Rust — it makes "I forgot to lock" impossible to express. Explicit memory ordering avoids hidden sequential-consistency costs.
+**Reason.** No language survives without a concurrency story. Wrapping the protected data inside the mutex (`Mutex<T>` not `Mutex + T`) is a reference from Rust — it makes "I forgot to lock" impossible to express. Explicit memory ordering avoids hidden sequential-consistency costs.
 
 **Examples.**
 ```ts
@@ -947,18 +892,18 @@ export class Parser {
 
 **Proposal.** Function types declared with `type X = function(args): ret`. Lambdas use arrow syntax (`(a, b) => a + b`). Closures may capture references; ownership rules apply to captures.
 
-**Reason.** Functions as values are required for callbacks, predicates, and higher-order utilities. Arrow syntax matches TS. The ownership story for captures is what makes this non-trivial — a lambda that captures a local `string` must either borrow it (and not escape the scope) or move it.
+**Reason.** Functions as values are required for callbacks, predicates, and higher-order utilities. Arrow syntax matches TS. The ownership story for captures is what makes this non-trivial — a lambda that captures a local `string` must either reference it (and not escape the scope) or move it.
 
 **Examples.**
 ```ts
-type Predicate<T> = function(value: borrowed T): bool;
+type Predicate<T> = function(value: &T): bool;
 
 const add = (a: int32, b: int32): int32 => a + b;
 
 function filter<T>(items: Slice<T>, predicate: Predicate<T>): Array<T> {
   const out = new Array<T>();
   for (const item of items) {
-    if (predicate(borrowed item)) out.push(item);
+    if (predicate(&item)) out.push(item);
   }
   return out;
 }
@@ -1161,8 +1106,8 @@ delta build --release
 
 ### Tier 1 — Containers & Data
 
-- **`std/array`** — `Array<T>`, `FixedArray<T, N>` (const-generic), `Slice<T>`, `mod Slice<T>`.
-- **`std/string`** — `String` (owned, UTF-8), `stringview` (borrowed), `Char`, `StringBuilder`, case/normalization helpers.
+- **`std/array`** — `Array<T>`, `FixedArray<T, N>` (const-generic), `Slice<T>`, `edit Slice<T>`.
+- **`std/string`** — `String` (owned, UTF-8), `stringview` (referenced), `Char`, `StringBuilder`, case/normalization helpers.
 - **`std/buffer`** — `Buffer` (owned bytes), `ByteSlice`, endian read/write, hex/base64 conversions.
 - **`std/map`** — `HashMap<K, V>`, `OrderedMap<K, V>` (insertion-ordered), `TreeMap<K, V>`.
 - **`std/set`** — `HashSet<T>`, `TreeSet<T>`, `BitSet`.
@@ -1238,7 +1183,7 @@ delta build --release
 
 ### Cross-cutting rules for every stdlib module
 
-1. **Borrow-first APIs.** Readers take `borrowed`; mutators take `mod borrowed`. No by-value `String` consumption unless ownership genuinely transfers. (Reinforces the guideline in [`docs/improvement-ideas.md`](improvement-ideas.md).)
+1. **Reference-first APIs.** Readers take `&`; mutators take `edit &`. No by-value `String` consumption unless ownership genuinely transfers. (Reinforces the guideline in [`docs/improvement-ideas.md`](improvement-ideas.md).)
 2. **No `new`.** All constructors are `.create(...)` or other named factories — consistent with [§9](#9-classes) and the user-class rule.
 3. **Fallible everything.** I/O, parsing, allocation, and network calls surface as `Success | IoError` (etc.), never thrown. Callers bind with `as result` and discharge with `check` ([§30](#30-error-state-discharge)).
 4. **Explicit allocator.** Every container takes an `Allocator` (defaulting to the process allocator) so arenas and test allocators slot in without rewriting call sites.
@@ -1260,7 +1205,7 @@ delta build --release
 
 These are the design choices most likely to need revision once the MVP exists:
 
-1. **Ownership classifier rule.** "Copyable when all fields copyable" is recursive — needs a precise base case and handling for types like `stringview` (borrow, not owned).
+1. **Ownership classifier rule.** "Copyable when all fields copyable" is recursive — needs a precise base case and handling for types like `stringview` (reference, not owned).
 2. **Lifetime inference.** Spec implies the compiler infers reference and slice lifetimes; no explicit lifetime syntax shown. If inference proves too weak, syntax must be added — preferably as an opt-in.
 3. **Allocator interface.** Every container takes an allocator. The interface must be stable before any container is finalized.
 4. **`as` keyword overloading.** Used for type assertions, fallible-result binding, and `error as ErrorType`. Parser must disambiguate cleanly.
