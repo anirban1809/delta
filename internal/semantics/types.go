@@ -210,9 +210,10 @@ func ResolveTypeName(name string) (Type, bool) {
 }
 
 type FunctionSignature struct {
-	Parameters  []Type
-	ReturnTypes []Type
-	ErrorTypes  []Type
+	ParameterNames []string
+	Parameters     []Type
+	ReturnTypes    []Type
+	ErrorTypes     []Type
 }
 
 func (t *Type) BitWidth() int {

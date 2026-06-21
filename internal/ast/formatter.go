@@ -58,13 +58,36 @@ func formatTypeDeclaration(
 	formatTypeRHS(out, declaration.RHS, depth+1)
 }
 
+func typeKindLabel(kind TypeKind) string {
+	switch kind {
+	case Custom:
+		return "custom"
+	default:
+		return "primitive"
+	}
+}
+
 func formatTypeRHS(out *strings.Builder, rhs TypeRHS, depth int) {
 	switch rhs := rhs.(type) {
 	case RecordRHS:
-		writeLine(out, depth, "RecordRHS")
+		writeLine(
+			out,
+			depth,
+			"RecordRHS type=%q kind=%q",
+			rhs.Type.Name.Name,
+			typeKindLabel(rhs.Type.Kind),
+		)
+		formatTypeReferenceFields(out, rhs.Type, depth+1)
 		formatRecordFields(out, rhs.Fields, depth+1)
 	case AliasRHS:
-		writeLine(out, depth, "AliasRHS")
+		writeLine(
+			out,
+			depth,
+			"AliasRHS type=%q kind=%q",
+			rhs.Type.Name.Name,
+			typeKindLabel(rhs.Type.Kind),
+		)
+		formatTypeReferenceFields(out, rhs.Type, depth+1)
 		writeLine(out, depth+1, "Target")
 		formatExpression(out, rhs.Target.Name, depth+2)
 	case CompositionRHS:
@@ -72,7 +95,15 @@ func formatTypeRHS(out *strings.Builder, rhs TypeRHS, depth int) {
 		if rhs.Style == IntersectionForm {
 			style = "intersection"
 		}
-		writeLine(out, depth, "CompositionRHS style=%q", style)
+		writeLine(
+			out,
+			depth,
+			"CompositionRHS style=%q type=%q kind=%q",
+			style,
+			rhs.Type.Name.Name,
+			typeKindLabel(rhs.Type.Kind),
+		)
+		formatTypeReferenceFields(out, rhs.Type, depth+1)
 		for index, operand := range rhs.Operands {
 			writeLine(out, depth+1, "Operand %d", index)
 			switch {
@@ -80,12 +111,38 @@ func formatTypeRHS(out *strings.Builder, rhs TypeRHS, depth int) {
 				writeLine(out, depth+2, "Named")
 				formatExpression(out, operand.Named.Name, depth+3)
 			case operand.Inline != nil:
-				writeLine(out, depth+2, "Inline")
+				writeLine(
+					out,
+					depth+2,
+					"Inline type=%q",
+					operand.Inline.Type.Name.Name,
+				)
+				formatTypeReferenceFields(
+					out,
+					operand.Inline.Type,
+					depth+3,
+				)
 				formatRecordFields(out, operand.Inline.Fields, depth+3)
 			}
 		}
 	default:
 		writeLine(out, depth, "UnknownTypeRHS")
+	}
+}
+
+func formatTypeReferenceFields(
+	out *strings.Builder,
+	typ TypeReference,
+	depth int,
+) {
+	for index, field := range typ.Fields {
+		writeLine(
+			out,
+			depth,
+			"TypeField %d type=%q",
+			index,
+			field.Name.Name,
+		)
 	}
 }
 
@@ -192,7 +249,7 @@ func formatStatement(out *strings.Builder, statement Statement, depth int) {
 	case *Comment:
 		formatComment(out, *statement, depth)
 	case ReturnStatement:
-		writeLine(out, depth, "ReturnStatement")
+		writeLine(out, depth, "ReturnStatement error=%t", statement.Error)
 		for index, value := range statement.Values {
 			writeLine(out, depth+1, "Value %d", index)
 			formatExpression(out, value, depth+2)
@@ -265,6 +322,20 @@ func formatStatement(out *strings.Builder, statement Statement, depth int) {
 		writeLine(out, depth, "BreakStatement")
 	case ContinueStatement:
 		writeLine(out, depth, "ContinueStatement")
+	case FallibleStatement:
+		writeLine(out, depth, "FallibleStatement")
+		writeLine(out, depth+1, "Inner")
+		formatStatement(out, statement.Inner, depth+2)
+		writeLine(out, depth+1, "Result")
+		formatExpression(out, statement.Result, depth+2)
+	case CheckStatement:
+		writeLine(out, depth, "CheckStatement")
+		writeLine(out, depth+1, "Result")
+		formatExpression(out, statement.Result, depth+2)
+		if statement.Body != nil {
+			writeLine(out, depth+1, "Body")
+			formatBlockStatement(out, statement.Body, depth+2)
+		}
 	case SwitchStatement:
 		writeLine(out, depth, "SwitchStatement")
 		writeLine(out, depth+1, "Scrutinee")
@@ -309,7 +380,7 @@ func formatExpression(out *strings.Builder, expression Expression, depth int) {
 		writeLine(out, depth+1, "Right")
 		formatExpression(out, expression.Right, depth+2)
 	case FunctionCallExpression:
-		writeLine(out, depth, "FunctionCallExpression")
+		writeLine(out, depth, "FunctionCallExpression caught=%t", expression.Caught)
 		writeLine(out, depth+1, "Callee")
 		formatExpression(out, expression.Callee, depth+2)
 		writeLine(out, depth+1, "Arguments")

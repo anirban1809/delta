@@ -1,0 +1,152 @@
+[
+  {
+    "file": "call_arg_type_err.delta",
+    "expect": "fail",
+    "contains": "argument",
+    "note": "task 1 — function-call argument type checking (bool passed where int32 declared)"
+  },
+  {
+    "file": "call_arity_err.delta",
+    "expect": "fail",
+    "contains": "argument",
+    "note": "task 1 (remaining) — too many arguments must be an arity error, not a panic"
+  },
+  {
+    "file": "logical_ops_ok.delta",
+    "expect": "pass",
+    "note": "task 3 — logical && and || on bool operands"
+  },
+  {
+    "file": "nonnumeric_eq_ok.delta",
+    "expect": "pass",
+    "note": "task 4 — == on bool, and == / < on char"
+  },
+  {
+    "file": "literal_coercion_ok.delta",
+    "expect": "pass",
+    "note": "task 5 — integer literal coerces to the other operand's type"
+  },
+  {
+    "file": "string_support_ok.delta",
+    "expect": "pass",
+    "note": "task 6 — string type and string literal support"
+  },
+  {
+    "file": "expr_stmt_err.delta",
+    "expect": "fail",
+    "contains": "unknown",
+    "note": "task 7 — bare expression statements must be analyzed"
+  },
+  {
+    "file": "break_flow_ok.delta",
+    "expect": "pass",
+    "note": "task 8 — break/continue terminate flow so a check block diverging via break is accepted"
+  },
+  {
+    "file": "void_function_ok.delta",
+    "expect": "pass",
+    "note": "task 9 — no declared return types means void; no forced return"
+  },
+  {
+    "file": "uninitialized_let_err.delta",
+    "expect": "fail",
+    "contains": "uninitialized",
+    "note": "task 10 — reading a let before assignment is an error"
+  },
+  {
+    "file": "global_const_err.delta",
+    "expect": "fail",
+    "contains": "mismatch",
+    "note": "task 11 — file-scope const initializer type checking"
+  },
+  {
+    "file": "spread_in_literal_ok.delta",
+    "expect": "pass",
+    "note": "task 12a — spread element contributes the source record's fields"
+  },
+  {
+    "file": "nested_object_literal_ok.delta",
+    "expect": "pass",
+    "note": "task 12b — nested object literal validated against the field's record type"
+  },
+  {
+    "file": "alias_compat_ok.delta",
+    "expect": "pass",
+    "note": "task 12c — record alias is interchangeable with its target"
+  },
+  {
+    "file": "composition_collision_err.delta",
+    "expect": "fail",
+    "contains": "duplicate",
+    "note": "task 13 — duplicate field across composition operands is a collision"
+  },
+  {
+    "file": "cycle_self_err.delta",
+    "expect": "fail",
+    "contains": "cycle",
+    "note": "task 14 — record that contains itself by value"
+  },
+  {
+    "file": "cycle_mutual_err.delta",
+    "expect": "fail",
+    "contains": "cycle",
+    "note": "task 14 — two records that each contain the other"
+  },
+  {
+    "file": "cycle_chain_err.delta",
+    "expect": "fail",
+    "contains": "cycle",
+    "note": "task 14 — longer containment chain A -> B -> C -> A"
+  },
+  {
+    "file": "cycle_alias_err.delta",
+    "expect": "fail",
+    "contains": "cycle",
+    "note": "task 14 — pure alias cycle X <-> Y"
+  },
+  {
+    "file": "cycle_via_alias_err.delta",
+    "expect": "fail",
+    "contains": "cycle",
+    "note": "task 14 — record cycle whose back-edge is an alias"
+  },
+  {
+    "file": "cycle_via_composition_err.delta",
+    "expect": "fail",
+    "contains": "cycle",
+    "note": "task 14 — composition inlines a type that contains it"
+  },
+  {
+    "file": "cycle_mixed_err.delta",
+    "expect": "fail",
+    "contains": "cycle",
+    "note": "task 14 — cycle spanning record field, alias, and composition"
+  },
+  {
+    "file": "acyclic_chain_ok.delta",
+    "expect": "pass",
+    "note": "task 14 control — finite chain must not be rejected"
+  },
+  {
+    "file": "diamond_ok.delta",
+    "expect": "pass",
+    "note": "task 14 control — same type in two fields is sharing, not a cycle"
+  },
+  {
+    "file": "multi_error_return_ok.delta",
+    "expect": "pass",
+    "note": "positional error set — `ErrA, ErrB` returns both error values via `return error as {..}, {..}`"
+  },
+  {
+    "file": "multi_error_arity_err.delta",
+    "expect": "fail",
+    "contains": "2 value",
+    "note": "positional error set — returning one literal for a 2-member error set is an arity error"
+  },
+  {
+    "file": "forbidden_conversion_err.delta",
+    "expect": "fail",
+    "contains": "not allowed",
+    "note": "task 16 — forbidden numeric conversion int32(bool) is rejected"
+  }
+]

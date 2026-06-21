@@ -1,0 +1,10 @@
+// Task 1: function-call argument type checking.
+// The rewrite currently does no per-argument type checking, so passing a
+// bool where an int32 is declared is silently accepted. Must be rejected.
+function takesInt(a: int32): int32 {
+    return a;
+}
+
+function main(): int32 {
+    return takesInt(true);
+}

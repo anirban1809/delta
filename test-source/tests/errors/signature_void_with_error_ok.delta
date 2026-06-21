@@ -1,0 +1,9 @@
+type OverflowError = { };
+
+function f(): void | OverflowError {
+    return;
+}
+
+function main(): int32 {
+    return 0;
+}

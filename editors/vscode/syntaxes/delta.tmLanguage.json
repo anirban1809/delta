@@ -10,6 +10,7 @@
     { "include": "#keywords" },
     { "include": "#booleans" },
     { "include": "#function-declaration" },
+    { "include": "#type-declaration" },
     { "include": "#type-annotation" },
     { "include": "#function-call" },
     { "include": "#identifiers" }
@@ -65,8 +66,12 @@
           "match": "\\b0[bB][01_]+\\b"
         },
         {
+          "name": "constant.numeric.octal.delta",
+          "match": "\\b0[oO][0-7_]+\\b"
+        },
+        {
           "name": "constant.numeric.decimal.delta",
-          "match": "\\b[0-9][0-9_]*(\\.[0-9_]+)?\\b"
+          "match": "\\b[0-9][0-9_]*(\\.[0-9_]+)?([eE][+-]?[0-9_]+)?\\b"
         }
       ]
     },
@@ -74,11 +79,15 @@
       "patterns": [
         {
           "name": "keyword.control.delta",
-          "match": "\\b(if|else|while|return)\\b"
+          "match": "\\b(if|else|while|for|switch|case|default|break|continue|return|check)\\b"
         },
         {
           "name": "storage.type.delta",
-          "match": "\\b(function|const|let)\\b"
+          "match": "\\b(function|const|let|type)\\b"
+        },
+        {
+          "name": "keyword.operator.delta",
+          "match": "\\b(as|error)\\b"
         }
       ]
     },
@@ -91,6 +100,13 @@
       "captures": {
         "1": { "name": "storage.type.delta" },
         "2": { "name": "entity.name.function.delta" }
+      }
+    },
+    "type-declaration": {
+      "match": "\\b(type)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "storage.type.delta" },
+        "2": { "name": "entity.name.type.delta" }
       }
     },
     "type-annotation": {

@@ -1,0 +1,112 @@
+[
+  {
+    "file": "method_read_ok.delta",
+    "expect": "pass",
+    "note": "phase L — read-only `&T` receiver method returns a field; called on a let binding"
+  },
+  {
+    "file": "method_edit_ok.delta",
+    "expect": "pass",
+    "note": "phase L — `edit &T` receiver method mutates a field of the receiver"
+  },
+  {
+    "file": "method_with_params_ok.delta",
+    "expect": "pass",
+    "note": "phase L — receiver method takes ordinary parameters alongside the receiver"
+  },
+  {
+    "file": "method_call_in_expr_ok.delta",
+    "expect": "pass",
+    "note": "phase L — method calls compose in expressions (`c.get() + c.get()`)"
+  },
+  {
+    "file": "method_on_const_ok.delta",
+    "expect": "pass",
+    "note": "phase L — a read-only `&T` method is callable on a `const`-bound receiver"
+  },
+  {
+    "file": "method_calls_method_ok.delta",
+    "expect": "pass",
+    "note": "phase L — a method body may call another method on its own receiver"
+  },
+  {
+    "file": "multiple_methods_ok.delta",
+    "expect": "pass",
+    "note": "phase L — several distinct methods may be attached to one record type"
+  },
+  {
+    "file": "method_on_composed_record_ok.delta",
+    "expect": "pass",
+    "note": "phase L — methods attach to composed (`...`) record types and read merged fields"
+  },
+  {
+    "file": "method_result_in_binding_ok.delta",
+    "expect": "pass",
+    "note": "phase L — an inferred binding (`let x = c.get();`) takes the method's return type"
+  },
+  {
+    "file": "by_value_receiver_err.delta",
+    "expect": "fail",
+    "contains": "reference",
+    "note": "phase L — a by-value receiver is rejected; receivers must be `&T` / `edit &T`"
+  },
+  {
+    "file": "receiver_not_record_err.delta",
+    "expect": "fail",
+    "contains": "record",
+    "note": "phase L — a method receiver must reference a record type, not a primitive"
+  },
+  {
+    "file": "method_field_collision_err.delta",
+    "expect": "fail",
+    "contains": "collides",
+    "note": "phase L — a method name may not collide with a field name on the same record"
+  },
+  {
+    "file": "duplicate_method_err.delta",
+    "expect": "fail",
+    "contains": "duplicate method",
+    "note": "phase L — two methods of the same name on one type are rejected (no overloading)"
+  },
+  {
+    "file": "readonly_receiver_mutation_err.delta",
+    "expect": "fail",
+    "contains": "const",
+    "note": "phase L — a `&T` (read-only) receiver method cannot assign to the receiver's fields"
+  },
+  {
+    "file": "missing_return_method_err.delta",
+    "expect": "fail",
+    "contains": "missing return",
+    "note": "phase L — a value-returning method must return on every path"
+  },
+  {
+    "file": "unknown_method_err.delta",
+    "expect": "fail",
+    "contains": "no method",
+    "note": "phase L — calling a method that does not exist on the receiver type is rejected"
+  },
+  {
+    "file": "arity_mismatch_err.delta",
+    "expect": "fail",
+    "contains": "argument count mismatch",
+    "note": "phase L — a method call with the wrong number of arguments is rejected"
+  },
+  {
+    "file": "arg_type_mismatch_err.delta",
+    "expect": "fail",
+    "contains": "requires type",
+    "note": "phase L — a method argument whose type mismatches the parameter is rejected"
+  },
+  {
+    "file": "unhandled_fallible_method_err.delta",
+    "expect": "fail",
+    "contains": "must be handled",
+    "note": "phase L — a fallible method call must be handled with `as result`"
+  },
+  {
+    "file": "method_codegen_ok.delta",
+    "expect": "codegen_match",
+    "note": "phase L — codegen lowers methods to free functions with a receiver pointer; `c.field`->`c->field`, call site auto-takes `&c`"
+  }
+]

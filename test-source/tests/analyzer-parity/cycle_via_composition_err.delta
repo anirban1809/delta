@@ -1,0 +1,9 @@
+// Task 14: a composition inlines C's fields, and C contains the composition
+// by value (B contains C's fields, which contain B).
+type A = { x: int32; };
+type B = A & C;
+type C = { b: B; };
+
+function main(): int32 {
+    return 0;
+}

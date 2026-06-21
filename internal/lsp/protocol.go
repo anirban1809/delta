@@ -42,10 +42,19 @@ type InitializeResult struct {
 }
 
 type ServerCapabilities struct {
-	TextDocumentSync   TextDocumentSyncOptions `json:"textDocumentSync"`
-	HoverProvider      bool                    `json:"hoverProvider,omitempty"`
-	DefinitionProvider bool                    `json:"definitionProvider,omitempty"`
-	CompletionProvider *CompletionOptions      `json:"completionProvider,omitempty"`
+	TextDocumentSync       TextDocumentSyncOptions `json:"textDocumentSync"`
+	HoverProvider          bool                    `json:"hoverProvider,omitempty"`
+	DefinitionProvider     bool                    `json:"definitionProvider,omitempty"`
+	CompletionProvider     *CompletionOptions      `json:"completionProvider,omitempty"`
+	SignatureHelpProvider  *SignatureHelpOptions   `json:"signatureHelpProvider,omitempty"`
+	DocumentSymbolProvider bool                    `json:"documentSymbolProvider,omitempty"`
+	ReferencesProvider     bool                    `json:"referencesProvider,omitempty"`
+	RenameProvider         *RenameOptions          `json:"renameProvider,omitempty"`
+	SemanticTokensProvider *SemanticTokensOptions  `json:"semanticTokensProvider,omitempty"`
+	InlayHintProvider      bool                    `json:"inlayHintProvider,omitempty"`
+	FoldingRangeProvider   bool                    `json:"foldingRangeProvider,omitempty"`
+	SelectionRangeProvider bool                    `json:"selectionRangeProvider,omitempty"`
+	CodeActionProvider     bool                    `json:"codeActionProvider,omitempty"`
 }
 
 // CompletionOptions advertises completion. TriggerCharacters is empty in
@@ -187,11 +196,15 @@ type CompletionContext struct {
 }
 
 type CompletionItem struct {
-	Label      string `json:"label"`
-	Kind       int    `json:"kind"`                 // LSP CompletionItemKind enum
-	Detail     string `json:"detail,omitempty"`     // signature / type
-	SortText   string `json:"sortText,omitempty"`   // for ordering
-	InsertText string `json:"insertText,omitempty"` // defaults to Label
+	Label            string         `json:"label"`
+	Kind             int            `json:"kind"`
+	Detail           string         `json:"detail,omitempty"`
+	Documentation    *MarkupContent `json:"documentation,omitempty"`
+	SortText         string         `json:"sortText,omitempty"`
+	FilterText       string         `json:"filterText,omitempty"`
+	InsertText       string         `json:"insertText,omitempty"`
+	InsertTextFormat int            `json:"insertTextFormat,omitempty"`
+	TextEdit         *TextEdit      `json:"textEdit,omitempty"`
 }
 
 type CompletionList struct {
@@ -203,7 +216,159 @@ type CompletionList struct {
 // are meaningful for the language surface today.
 const (
 	CompletionItemKindFunction = 3
+	CompletionItemKindField    = 5
 	CompletionItemKindVariable = 6
 	CompletionItemKindKeyword  = 14
 	CompletionItemKindConstant = 21
+	CompletionItemKindStruct   = 22
 )
+
+const (
+	InsertTextFormatPlainText = 1
+	InsertTextFormatSnippet   = 2
+)
+
+type SignatureHelpOptions struct {
+	TriggerCharacters   []string `json:"triggerCharacters,omitempty"`
+	RetriggerCharacters []string `json:"retriggerCharacters,omitempty"`
+}
+
+type SignatureHelp struct {
+	Signatures      []SignatureInformation `json:"signatures"`
+	ActiveSignature int                    `json:"activeSignature,omitempty"`
+	ActiveParameter int                    `json:"activeParameter,omitempty"`
+}
+
+type SignatureInformation struct {
+	Label      string                 `json:"label"`
+	Parameters []ParameterInformation `json:"parameters,omitempty"`
+}
+
+type ParameterInformation struct {
+	Label string `json:"label"`
+}
+
+type DocumentSymbolParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+}
+
+type DocumentSymbol struct {
+	Name           string           `json:"name"`
+	Detail         string           `json:"detail,omitempty"`
+	Kind           int              `json:"kind"`
+	Range          Range            `json:"range"`
+	SelectionRange Range            `json:"selectionRange"`
+	Children       []DocumentSymbol `json:"children,omitempty"`
+}
+
+const (
+	SymbolKindFile     = 1
+	SymbolKindFunction = 12
+	SymbolKindConstant = 14
+	SymbolKindStruct   = 23
+	SymbolKindField    = 8
+	SymbolKindVariable = 13
+)
+
+type ReferenceParams struct {
+	TextDocumentPositionParams
+	Context ReferenceContext `json:"context"`
+}
+
+type ReferenceContext struct {
+	IncludeDeclaration bool `json:"includeDeclaration"`
+}
+
+type RenameOptions struct {
+	PrepareProvider bool `json:"prepareProvider"`
+}
+
+type PrepareRenameResult struct {
+	Range       Range  `json:"range"`
+	Placeholder string `json:"placeholder"`
+}
+
+type RenameParams struct {
+	TextDocumentPositionParams
+	NewName string `json:"newName"`
+}
+
+type WorkspaceEdit struct {
+	Changes map[string][]TextEdit `json:"changes"`
+}
+
+type TextEdit struct {
+	Range   Range  `json:"range"`
+	NewText string `json:"newText"`
+}
+
+type SemanticTokensOptions struct {
+	Legend SemanticTokensLegend `json:"legend"`
+	Full   bool                 `json:"full"`
+}
+
+type SemanticTokensLegend struct {
+	TokenTypes     []string `json:"tokenTypes"`
+	TokenModifiers []string `json:"tokenModifiers"`
+}
+
+type SemanticTokensParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+}
+
+type SemanticTokens struct {
+	Data []uint32 `json:"data"`
+}
+
+type InlayHintParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Range        Range                  `json:"range"`
+}
+
+type InlayHint struct {
+	Position Position `json:"position"`
+	Label    string   `json:"label"`
+	Kind     int      `json:"kind,omitempty"`
+}
+
+const InlayHintKindType = 1
+
+type FoldingRangeParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+}
+
+type FoldingRange struct {
+	StartLine      int    `json:"startLine"`
+	StartCharacter int    `json:"startCharacter,omitempty"`
+	EndLine        int    `json:"endLine"`
+	EndCharacter   int    `json:"endCharacter,omitempty"`
+	Kind           string `json:"kind,omitempty"`
+}
+
+type SelectionRangeParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Positions    []Position             `json:"positions"`
+}
+
+type SelectionRange struct {
+	Range  Range           `json:"range"`
+	Parent *SelectionRange `json:"parent,omitempty"`
+}
+
+type CodeActionParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Range        Range                  `json:"range"`
+	Context      CodeActionContext      `json:"context"`
+}
+
+type CodeActionContext struct {
+	Diagnostics []Diagnostic `json:"diagnostics"`
+}
+
+type CodeAction struct {
+	Title       string        `json:"title"`
+	Kind        string        `json:"kind,omitempty"`
+	Diagnostics []Diagnostic  `json:"diagnostics,omitempty"`
+	Edit        WorkspaceEdit `json:"edit,omitempty"`
+	IsPreferred bool          `json:"isPreferred,omitempty"`
+}

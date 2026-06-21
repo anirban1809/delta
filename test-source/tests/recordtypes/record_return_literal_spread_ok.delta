@@ -1,0 +1,14 @@
+type Vec3 = { x: int32; y: int32; z: int32; };
+
+function copyVec3(source: Vec3): Vec3 {
+    return { ...source };
+}
+
+function main(): int32 {
+    const source: Vec3 = { x: 2, y: 3, z: 5 };
+    const copy: Vec3 = copyVec3(source);
+    if (copy.x != 2) { return 1; }
+    if (copy.y != 3) { return 2; }
+    if (copy.z != 5) { return 3; }
+    return 0;
+}

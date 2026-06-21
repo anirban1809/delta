@@ -1,0 +1,9 @@
+// Task 13: composing two records that declare the same field must be a
+// collision error. Currently fields are concatenated with no duplicate check.
+type A = { x: int32; };
+type B = { x: int32; };
+type C = A & B;
+
+function main(): int32 {
+    return 0;
+}

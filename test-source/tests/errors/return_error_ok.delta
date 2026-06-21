@@ -1,0 +1,27 @@
+type OverflowError = { };
+
+function mightFail(x: int32): int32 | OverflowError {
+    if (x < 0) {
+        return error as { };
+    }
+    return x;
+}
+
+function caller(x: int32): int32 | OverflowError {
+    const v = mightFail(x) as result;
+    check result {
+        return error as { };
+    }
+    return v;
+}
+
+function main(): int32 {
+    const r = caller(5) as result;
+    check result {
+        return 1;
+    }
+    if (r == 5) {
+        return 0;
+    }
+    return 2;
+}

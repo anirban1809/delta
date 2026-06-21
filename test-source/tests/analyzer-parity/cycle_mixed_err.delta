@@ -1,0 +1,10 @@
+// Task 14: a cycle spanning a record field, an alias, and a composition
+// (A contains C, C is an alias of B, B composes A).
+type A = { c: C; };
+type B = A & D;
+type C = B;
+type D = { x: int32; };
+
+function main(): int32 {
+    return 0;
+}

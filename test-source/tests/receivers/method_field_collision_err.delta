@@ -1,0 +1,6 @@
+type Counter = { value: int32; };
+
+// A method name may not collide with a field name on the same record.
+function (c: &Counter) value(): int32 {
+    return c.value;
+}

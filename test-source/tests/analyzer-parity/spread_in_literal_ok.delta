@@ -1,0 +1,11 @@
+// Task 12a: spread elements in an object literal must contribute the source's
+// fields. Currently spreads are skipped, so required fields look "missing".
+type Vec = { x: int32; y: int32; };
+
+function copy(s: Vec): Vec {
+    return { ...s };
+}
+
+function main(): int32 {
+    return 0;
+}

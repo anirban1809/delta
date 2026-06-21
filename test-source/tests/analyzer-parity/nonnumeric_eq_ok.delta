@@ -1,0 +1,13 @@
+// Task 4: equality on bool, and equality + ordered comparison on char,
+// must be accepted. Currently the comparison branch forces numeric operands.
+function chars(a: char, b: char): bool {
+    return a == b && a < b;
+}
+
+function bools(a: bool, b: bool): bool {
+    return a == b;
+}
+
+function main(): int32 {
+    return 0;
+}

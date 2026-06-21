@@ -1,0 +1,27 @@
+type OverflowError = { overflow: bool; };
+type DivideByZeroError = { divideByZero: bool; };
+
+function classify(x: int32, y: int32): int32 | OverflowError, DivideByZeroError {
+    if (y == 0) {
+        return error as { divideByZero: true };
+    }
+    const q = x / y as result;
+    check result {
+        return error as { divideByZero: true };
+    }
+    if (q > 1000000) {
+        return error as { overflow: true };
+    }
+    return q;
+}
+
+function main(): int32 {
+    const r = classify(10, 2) as result;
+    check result {
+        return 1;
+    }
+    if (r == 5) {
+        return 0;
+    }
+    return 2;
+}

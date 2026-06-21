@@ -1,7 +1,16 @@
 # Delta Language — VS Code Extension
 
-Syntax highlighting and live diagnostics (red squiggles) for `.delta` files,
-backed by the `delta lsp` language server.
+Modern editor support for `.delta` files, backed by the `delta lsp` language
+server.
+
+Implemented features include:
+
+- Live diagnostics and quick fixes for fallible-result binding mistakes.
+- Hover, go-to-definition, find references, and single-file rename.
+- Scope-aware, type-aware, record-field, object-literal, and snippet completion.
+- Function signature help.
+- Document outline, semantic highlighting, inferred-type inlay hints, folding,
+  and smart selection ranges.
 
 ## Requirements
 
@@ -39,3 +48,11 @@ Server stderr is piped to the **Delta Language Server** output channel.
 | --------------------- | ------- | ----- |
 | `delta.server.path`   | `""`    | Empty means "use `delta` from PATH". Set to absolute path otherwise. |
 | `delta.trace.server`  | `"off"` | `"messages"` / `"verbose"` to log LSP traffic in the output channel. |
+
+Relative values for `delta.server.path` are resolved from the first workspace
+folder.
+
+## Commands
+
+- **Delta: Restart Language Server**
+- **Delta: Show Language Server Output**

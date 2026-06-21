@@ -1,0 +1,6 @@
+type Counter = { value: int32; };
+
+// A `&T` (read-only) receiver cannot mutate the receiver's fields.
+function (c: &Counter) bad() {
+    c.value = 5;
+}

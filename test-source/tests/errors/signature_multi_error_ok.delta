@@ -1,0 +1,10 @@
+type OverflowError = { };
+type DivideByZeroError = { };
+
+function f(): int32 | OverflowError, DivideByZeroError {
+    return 0;
+}
+
+function main(): int32 {
+    return 0;
+}

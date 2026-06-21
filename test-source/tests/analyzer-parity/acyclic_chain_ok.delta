@@ -1,0 +1,7 @@
+// Task 14 control: a finite chain that never loops back must NOT be rejected.
+type B = { x: int32; };
+type A = { b: B; };
+
+function main(): int32 {
+    return 0;
+}

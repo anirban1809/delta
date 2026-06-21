@@ -150,6 +150,26 @@ func (s *Server) handle(msg *Message) {
 		s.handleDefinition(msg)
 	case "textDocument/completion":
 		s.handleCompletion(msg)
+	case "textDocument/signatureHelp":
+		s.handleSignatureHelp(msg)
+	case "textDocument/documentSymbol":
+		s.handleDocumentSymbols(msg)
+	case "textDocument/references":
+		s.handleReferences(msg)
+	case "textDocument/prepareRename":
+		s.handlePrepareRename(msg)
+	case "textDocument/rename":
+		s.handleRename(msg)
+	case "textDocument/semanticTokens/full":
+		s.handleSemanticTokens(msg)
+	case "textDocument/inlayHint":
+		s.handleInlayHints(msg)
+	case "textDocument/foldingRange":
+		s.handleFoldingRanges(msg)
+	case "textDocument/selectionRange":
+		s.handleSelectionRanges(msg)
+	case "textDocument/codeAction":
+		s.handleCodeActions(msg)
 	default:
 		if isRequest {
 			s.replyError(msg, ErrorCodeMethodNotFound, "method not found: "+msg.Method)
@@ -170,11 +190,30 @@ func (s *Server) handleInitialize(msg *Message) {
 			HoverProvider:      true,
 			DefinitionProvider: true,
 			CompletionProvider: &CompletionOptions{
-				// No trigger characters: editors invoke completion on
-				// identifier characters by default, and Delta has no
-				// member access syntax (`.`/`::`) in v1.
-				ResolveProvider: false,
+				// `.` triggers member-access completion: after a
+				// record-typed receiver, completion offers that record's
+				// fields (Phase K). Identifier characters trigger the
+				// default in-scope-name + keyword completion.
+				TriggerCharacters: []string{"."},
+				ResolveProvider:   false,
 			},
+			SignatureHelpProvider: &SignatureHelpOptions{
+				TriggerCharacters:   []string{"(", ","},
+				RetriggerCharacters: []string{","},
+			},
+			DocumentSymbolProvider: true,
+			ReferencesProvider:     true,
+			RenameProvider:         &RenameOptions{PrepareProvider: true},
+			SemanticTokensProvider: &SemanticTokensOptions{
+				Legend: SemanticTokensLegend{
+					TokenTypes: semanticTokenTypes,
+				},
+				Full: true,
+			},
+			InlayHintProvider:      true,
+			FoldingRangeProvider:   true,
+			SelectionRangeProvider: true,
+			CodeActionProvider:     true,
 		},
 		ServerInfo: ServerInfo{Name: serverName, Version: serverVersion},
 	}

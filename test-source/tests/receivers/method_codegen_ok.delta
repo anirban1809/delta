@@ -1,0 +1,15 @@
+type Counter = { value: int32; };
+
+function (c: &Counter) get(): int32 {
+    return c.value;
+}
+
+function (c: edit &Counter) set(n: int32) {
+    c.value = n;
+}
+
+function main(): int32 {
+    let c: Counter = { value: 7 };
+    c.set(10);
+    return c.get();
+}

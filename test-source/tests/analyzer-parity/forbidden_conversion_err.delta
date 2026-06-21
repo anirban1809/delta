@@ -1,0 +1,5 @@
+// Task 16: a forbidden numeric conversion (bool is not numeric) must be
+// rejected. Currently T(x) returns the target type without validating x.
+function main(): int32 {
+    return int32(true);
+}

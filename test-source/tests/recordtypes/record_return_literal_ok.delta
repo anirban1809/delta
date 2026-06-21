@@ -1,0 +1,13 @@
+type Vec3 = { x: int32; y: int32; z: int32; };
+
+function makeVec3(): Vec3 {
+    return { x: 23, y: 65, z: 55 };
+}
+
+function main(): int32 {
+    const value: Vec3 = makeVec3();
+    if (value.x != 23) { return 1; }
+    if (value.y != 65) { return 2; }
+    if (value.z != 55) { return 3; }
+    return 0;
+}

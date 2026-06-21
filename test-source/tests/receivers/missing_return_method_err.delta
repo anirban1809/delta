@@ -1,0 +1,6 @@
+type Counter = { value: int32; };
+
+// A value-returning method must return on every path.
+function (c: &Counter) get(): int32 {
+    let x: int32 = c.value;
+}

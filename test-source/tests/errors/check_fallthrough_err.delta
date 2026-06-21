@@ -1,0 +1,13 @@
+type OverflowError = { };
+
+function f(a: int32, b: int32): int32 | OverflowError {
+    const s = a + b as result;
+    check result {
+        let z: int32 = 0;
+    }
+    return s;
+}
+
+function main(): int32 {
+    return 0;
+}

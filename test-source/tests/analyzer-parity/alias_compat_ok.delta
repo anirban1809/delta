@@ -1,0 +1,13 @@
+// Task 12c: a record alias and its target must be interchangeable.
+// Currently an alias carries its own Name, so typesMatch rejects target↔alias.
+type Vec = { x: int32; };
+type Point = Vec;
+
+function make(): Point {
+    const v: Vec = { x: 1 };
+    return v;
+}
+
+function main(): int32 {
+    return 0;
+}

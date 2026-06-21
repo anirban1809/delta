@@ -1,0 +1,6 @@
+type Counter = { value: int32; };
+
+function main(): int32 {
+    let c: Counter = { value: 1 };
+    return c.nope();
+}

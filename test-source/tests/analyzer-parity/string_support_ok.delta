@@ -1,0 +1,9 @@
+// Task 6: string type + string literals must be supported.
+// Currently ResolveType("string") is invalid and StringLiteral returns invalid.
+function greet(): string {
+    return "hello";
+}
+
+function main(): int32 {
+    return 0;
+}

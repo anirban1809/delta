@@ -1,0 +1,20 @@
+type NarrowingError = { };
+
+function safeNarrow(big: int64): int32 | NarrowingError {
+    const small = int32(big) as result;
+    check result {
+        return error as { };
+    }
+    return small;
+}
+
+function main(): int32 {
+    const v = safeNarrow(42) as result;
+    check result {
+        return 1;
+    }
+    if (v == 42) {
+        return 0;
+    }
+    return 2;
+}

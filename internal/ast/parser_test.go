@@ -63,7 +63,7 @@ func TestFormatReturnStatementMultipleValues(t *testing.T) {
 
 	formatted := FormatAST(file)
 	expected := []string{
-		"ReturnStatement",
+		"ReturnStatement error=false",
 		"Value 0\n          IntegerLiteral value=\"1\"",
 		"Value 1\n          Identifier name=\"result\"",
 	}
@@ -72,6 +72,74 @@ func TestFormatReturnStatementMultipleValues(t *testing.T) {
 		if !strings.Contains(formatted, item) {
 			t.Fatalf("expected formatted AST to contain %q:\n%s", item, formatted)
 		}
+	}
+}
+
+func TestFormatErrorReturnStatement(t *testing.T) {
+	file := File{
+		Declarations: []Declaration{
+			FunctionDeclaration{
+				Name: "parse",
+				Body: &BlockStatement{
+					Statements: []Statement{
+						ReturnStatement{
+							Error: true,
+							Values: []Expression{
+								ObjectLiteralExpression{},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	formatted := FormatAST(file)
+	if !strings.Contains(formatted, "ReturnStatement error=true") {
+		t.Fatalf("expected formatted error return to show its flag:\n%s", formatted)
+	}
+}
+
+func TestParserFallibleExpressionStatement(t *testing.T) {
+	file, errorBag := parseForTest(`
+function ensure(x: int32): void {
+    return;
+}
+
+function main(): int32 {
+    ensure(5) as result;
+    return 0;
+}
+`)
+	if len(errorBag.Errors) != 0 {
+		t.Fatalf("expected no parser errors, got %#v", errorBag.Errors)
+	}
+
+	mainDecl, ok := file.Declarations[1].(FunctionDeclaration)
+	if !ok {
+		t.Fatalf("expected main function, got %T", file.Declarations[1])
+	}
+	if len(mainDecl.Body.Statements) != 2 {
+		t.Fatalf("statement count = %d, want 2", len(mainDecl.Body.Statements))
+	}
+
+	fallible, ok := mainDecl.Body.Statements[0].(FallibleStatement)
+	if !ok {
+		t.Fatalf(
+			"expected FallibleStatement, got %T",
+			mainDecl.Body.Statements[0],
+		)
+	}
+	if fallible.Result.Name != "result" {
+		t.Fatalf("result name = %q, want result", fallible.Result.Name)
+	}
+
+	inner, ok := fallible.Inner.(ExpressionStatement)
+	if !ok {
+		t.Fatalf("expected inner ExpressionStatement, got %T", fallible.Inner)
+	}
+	if _, ok := inner.Value.(FunctionCallExpression); !ok {
+		t.Fatalf("expected function call, got %T", inner.Value)
 	}
 }
 
@@ -126,20 +194,96 @@ type Cat = Animal & { color: int32; };
 		t.Fatalf("expected 4 declarations, got %d", len(file.Declarations))
 	}
 
+	record := file.Declarations[0].(TypeDeclaration).RHS.(RecordRHS)
+	if record.Type.Name.Name != "Animal" {
+		t.Fatalf("record type = %q, want Animal", record.Type.Name.Name)
+	}
+	assertTypeReferenceFields(t, record.Type, "int32", "int32")
+	alias := file.Declarations[1].(TypeDeclaration).RHS.(AliasRHS)
+	if alias.Type.Name.Name != "Alias" {
+		t.Fatalf("alias type = %q, want Alias", alias.Type.Name.Name)
+	}
+	assertTypeReferenceFields(t, alias.Type, "Animal")
+	spread := file.Declarations[2].(TypeDeclaration).RHS.(CompositionRHS)
+	if spread.Type.Name.Name != "Dog" {
+		t.Fatalf("spread type = %q, want Dog", spread.Type.Name.Name)
+	}
+	assertTypeReferenceFields(t, spread.Type, "Animal", "bool")
+	if spread.Operands[1].Inline.Type.Name.Name != "Dog" {
+		t.Fatalf(
+			"spread inline type = %q, want Dog",
+			spread.Operands[1].Inline.Type.Name.Name,
+		)
+	}
+	assertTypeReferenceFields(t, spread.Operands[1].Inline.Type, "bool")
+	intersection := file.Declarations[3].(TypeDeclaration).RHS.(CompositionRHS)
+	if intersection.Type.Name.Name != "Cat" {
+		t.Fatalf(
+			"intersection type = %q, want Cat",
+			intersection.Type.Name.Name,
+		)
+	}
+	assertTypeReferenceFields(t, intersection.Type, "Animal", "int32")
+	if intersection.Operands[1].Inline.Type.Name.Name != "Cat" {
+		t.Fatalf(
+			"intersection inline type = %q, want Cat",
+			intersection.Operands[1].Inline.Type.Name.Name,
+		)
+	}
+	assertTypeReferenceFields(
+		t,
+		intersection.Operands[1].Inline.Type,
+		"int32",
+	)
+
 	formatted := FormatAST(file)
 	expected := []string{
 		`TypeDeclaration name="Animal"`,
-		"RecordRHS",
+		`RecordRHS type="Animal"`,
 		`Field 0 name="species"`,
 		`TypeDeclaration name="Alias"`,
-		"AliasRHS",
-		`CompositionRHS style="spread"`,
-		`CompositionRHS style="intersection"`,
+		`AliasRHS type="Alias"`,
+		`CompositionRHS style="spread" type="Dog"`,
+		`CompositionRHS style="intersection" type="Cat"`,
+		`Inline type="Dog"`,
+		`Inline type="Cat"`,
+		`TypeField 0 type="Animal"`,
+		`TypeField 1 type="bool"`,
 		`Field 0 name="color"`,
 	}
 	for _, item := range expected {
 		if !strings.Contains(formatted, item) {
 			t.Fatalf("expected formatted AST to contain %q:\n%s", item, formatted)
+		}
+	}
+}
+
+func assertTypeReferenceFields(
+	t *testing.T,
+	typ TypeReference,
+	expected ...string,
+) {
+	t.Helper()
+	actual := make([]string, 0, len(expected))
+	for field := typ.Fields; field != nil; field = field.Fields {
+		actual = append(actual, field.Name.Name)
+	}
+	if len(actual) != len(expected) {
+		t.Fatalf(
+			"type %q fields = %v, want %v",
+			typ.Name.Name,
+			actual,
+			expected,
+		)
+	}
+	for index := range expected {
+		if actual[index] != expected[index] {
+			t.Fatalf(
+				"type %q fields = %v, want %v",
+				typ.Name.Name,
+				actual,
+				expected,
+			)
 		}
 	}
 }

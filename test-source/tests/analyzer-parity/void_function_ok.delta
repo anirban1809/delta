@@ -1,0 +1,10 @@
+// Task 9: a function with no declared return types is void. It must be
+// accepted without being forced to end in a return statement. (There is no
+// `void` keyword — absence of a return type is what makes a function void.)
+function noop() {
+    const x: int32 = 1;
+}
+
+function main(): int32 {
+    return 0;
+}

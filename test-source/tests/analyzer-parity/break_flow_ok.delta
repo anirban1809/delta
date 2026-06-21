@@ -1,0 +1,16 @@
+// Task 8: break/continue must count as terminating control flow so a `check`
+// block that diverges only via `break` is accepted. Currently break returns
+// FlowContinues, so this is wrongly reported as "no exit path".
+type OverflowError = { };
+
+function main(): int32 {
+    let total: int32 = 0;
+    for (let i: int32 = 0; i < 5; i++) {
+        const s = total + i as result;
+        check result {
+            break;
+        }
+        total = s;
+    }
+    return 0;
+}

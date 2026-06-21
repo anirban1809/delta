@@ -1,0 +1,14 @@
+type OverflowError = { };
+
+function safeAdd(a: int64, b: int64): int64 | OverflowError {
+    const sum = a + b as result;
+    const echo = sum;
+    check result {
+        return error as { };
+    }
+    return sum;
+}
+
+function main(): int32 {
+    return 0;
+}

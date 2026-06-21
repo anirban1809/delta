@@ -1,0 +1,23 @@
+type OverflowError = { x: int32; };
+
+function accumulate(a: int64, b: int64): int64 | OverflowError {
+    let acc: int64 = a;
+    let x: OverflowError = {x:34};
+    
+    acc = acc + b as result;
+    check result {
+        return error as x;
+    }
+    return acc;
+}
+
+function main(): int32 {
+    const total = accumulate(10, 20) as result;
+    check result {
+        return 1;
+    }
+    if (total == 30) {
+        return 0;
+    }
+    return 2;
+}

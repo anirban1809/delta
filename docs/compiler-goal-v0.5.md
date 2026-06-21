@@ -5,13 +5,15 @@ Status: target, not started.
 Predecessor: [compiler-status.md](compiler-status.md) — the v0 baseline this goal extends.
 Spec basis: [main-spec.md](main-spec.md) plus the section files under [spec-sections/](spec-sections/), in particular §1, §3, §5, §6, §9, §11, §12, §13, §14.
 
+> **Update (2026-06-21) — classes deferred for the MVP.** The `class` keyword is **deferred to post-v0.5**. Its role is split between `type` records (Phase K — data + composition) and **receiver methods** (Phase L — behavior + `edit` mutation marking). The driver is the memory model: under structural-tier inference (§14.1) the entire ownership story — tiers, `move`/`clone`/copy, automatic LIFO disposal, references and lifetimes — applies to records identically to classes; the only class-only capabilities are user-authored `dispose()` and user-declared `unique` leaf resources, both deferred (leaf resources are stdlib-provided in v0.5). See [plans/goal-v0.5/phase-l-receiver-methods.md](plans/goal-v0.5/phase-l-receiver-methods.md). Phase E (classes) below is retained for historical context but is **not** part of v0.5.
+
 ## Goal
 
 A user can write a **multi-file** Delta project that:
 
 1. Splits across modules using `import` and `export`, with at least one user module and one standard library module.
-2. Defines classes with private state and public methods.
-3. Mutates instances through `edit &` references and reads them through `&` references.
+2. Defines `type` record types with data fields and attaches behavior with receiver methods (`function (t: &T) m()` / `function (t: edit &T) m()`).
+3. Mutates values through `edit &` references and reads them through `&` references.
 4. Transfers ownership with `move` and copies cloneable state with `clone`.
 5. Performs trapping numeric computation across the full primitive type set from §5–§6.
 6. Recovers from fallible operations with `as result` and `check`.
@@ -24,7 +26,7 @@ A user can write a **multi-file** Delta project that:
 - Cross-scope shadowing rejection.
 - Move-state tracking (no use-after-move; no conditional moves).
 - Reference exclusivity at call sites.
-- Class capability rules (`const` binding cannot call `edit` methods).
+- Receiver-method capability rules (a `const` binding or `&T` reference cannot call an `edit`-receiver method).
 - Import/export visibility (a non-`export` declaration is invisible to importers).
 
 This is the smallest milestone past the v0 baseline that commits the compiler to Delta's safety identity *and* establishes the module system the rest of the spec depends on. It excludes the full string family, generics, interfaces, decorators, tagged unions, arrays, and slices — those are later milestones.
@@ -36,32 +38,34 @@ The acceptance program is a three-file project. If `delta build main.delta` prod
 ### `counter.delta`
 
 ```delta
-export class Counter {
-    private value: int64;
+// `value` is heap-backed so Counter is cloneable (non-copyable) and the `move` /
+// use-after-move criteria below stay meaningful. A plain `type Counter = { value: int64; }`
+// would be *copyable* by structure (no `string`/`Array` exist yet in v0.5 to make a
+// data record move-only). See Phase L's "records are copyable by default" note.
+export type Counter = { value: heap int64; };
 
-    public static new(start: int64): Counter {
-        return Counter { value: start };
-    }
+export function makeCounter(start: int64): Counter {
+    return { value: start };
+}
 
-    public get(): int64 {
-        return this.value;
-    }
+export function (c: &Counter) get(): int64 {
+    return c.value;                 // heap auto-deref
+}
 
-    public edit add(delta: int64): void | OverflowError {
-        this.value = this.value + delta as result;
-        check result {
-            return error as OverflowError { };
-        }
-        // this.value is now valid (committed only on fall-through past the check block)
-        return;
+export function (c: edit &Counter) add(amount: int64): void | OverflowError {
+    c.value = c.value + amount as result;
+    check result {
+        return error as OverflowError { };
     }
+    // c.value is now valid (committed only on fall-through past the check block)
+    return;
 }
 ```
 
 ### `main.delta`
 
 ```delta
-import { Counter } from "./counter";
+import { Counter, makeCounter } from "./counter";   // methods travel with the type
 import { info } from "std/log";
 
 function bump(c: edit &Counter, amount: int64): void | OverflowError {
@@ -81,8 +85,8 @@ function consume(c: Counter): int64 {
 }
 
 function main(): int32 {
-    let a = Counter.new(10);
-    let b = Counter.new(20);
+    let a = makeCounter(10);
+    let b = makeCounter(20);
 
     bump(edit &a, 5) as result;
     check result {
@@ -178,7 +182,9 @@ The full feature surface required for the acceptance program, grouped by spec se
 - Variadic parameter syntax `...args` for extern declarations only.
 - `cstringview` *just enough* to pass a `"..."` literal to a C variadic — literals lower to `const char*` with a trailing NUL. The full string family (`string`, `stringview`, template literals, `StringBuilder`, `.slice()`, `ByteOffset`) is out of scope.
 
-### Phase E — Classes (§9, §11)
+### Phase E — Classes (§9, §11) — *deferred to post-v0.5*
+
+> Retained for historical context only. The `class` keyword is not part of v0.5; its role is filled by Phase K (records) + Phase L (receiver methods). The surface below describes what a future classes phase reintroduces.
 
 - `class Name { ... }` declarations.
 - Fields private by default; explicit `public` / `private` access modifiers.
@@ -254,6 +260,19 @@ The standard library is plain Delta source shipped with the compiler. v0.5 inclu
   - Each writes to stderr with a level prefix (`[INFO] `, `[WARN] `, `[ERROR] `), followed by the message, `: `, the value, and a newline.
 - Deliberately excluded from v0.5 logging surface: log-level filtering (compile-time or runtime), structured fields, formatters, sinks other than stderr, timestamps, message-only overloads (the `(message, value)` shape is the only form until templates land). These are straightforward additions once the string family arrives.
 
+### Phase K — Custom record types (`type`) (§8)
+
+- `type Name = { f1: T1; ... };` nominal record declarations, aliases (`type Y = X;`), and composition (`...` spread, `&` intersection).
+- Object literals pinned by typed context; field read/write; compiler-derived structural `==`.
+- The records-based substitute for class *data*. Detailed in [plans/goal-v0.5/phase-k-record-types.md](plans/goal-v0.5/phase-k-record-types.md). (Already partially landed — see commit history.)
+
+### Phase L — Receiver methods (§8.5 amended, §9.5, §15)
+
+- Receiver methods on records in two reference-only forms: `function (t: &T) m(...)` (read-only) and `function (t: edit &T) m(...)` (mutable). No by-value receiver.
+- Named receiver replaces `this`; call form `value.m(args)` with auto-referencing of the receiver; capability dispatch (a `const` binding or `&T` cannot call an `edit`-receiver method).
+- Methods travel with the type across modules (importing `T` makes its exported methods callable); per-method `export`; method/field single namespace; same-module ("no orphan") rule.
+- The records-based substitute for class *behavior*. Detailed in [plans/goal-v0.5/phase-l-receiver-methods.md](plans/goal-v0.5/phase-l-receiver-methods.md).
+
 ## Out of scope (deferred)
 
 - Full string family (`string`, `stringview`, `cstring`, template literals, `StringBuilder`, `.slice()`, `ByteOffset`).
@@ -265,37 +284,36 @@ The standard library is plain Delta source shipped with the compiler. v0.5 inclu
 - `Wrap<T>` and `Saturate<T>` numeric tags.
 - Generics, interfaces, decorators.
 - Tagged unions (`type U = A | B`) and `switch type`.
-- `type` record declarations.
-- `for...of`, arrays, slices, object literals (beyond class literals).
-- User-supplied `uses Disposable`, `uses Copyable`, `uses Cloneable` hooks.
-- Inheritance, nested classes, static fields, user-defined `==`.
+- `for...of`, arrays, slices.
+- The `class` keyword and everything class-only: invariant-protected construction, user-authored `dispose()`, user-declared `unique` leaf resources, static methods, private-by-default fields, inheritance, nested classes, static fields, user-defined `==`. Deferred to post-v0.5; records (Phase K) + receiver methods (Phase L) cover the MVP. Leaf resources needing custom teardown are stdlib-provided.
 - Incremental compilation, release/debug modes, sanitizers, bundled clang. (Name mangling *is* in scope — see Phase I.)
 
 ## Recommended phasing
 
 Implementing all of A–J in one pass is too large to land cleanly. The recommendation is to split along the line where the error model ends and the ownership story begins. Modules and the standard library land **early in v0.5a** because every later phase benefits from being able to factor code across files, and `std/log` is the cleanest way to give Delta programs visible output without each one re-declaring `printf`.
 
-### v0.5a — Modules, numeric breadth, classes as inline values, error model
+### v0.5a — Modules, numeric breadth, records, error model
 
-Phases **I (modules), D (extern), J (std/log), A, B, C, E** — roughly in that order. At the end of v0.5a:
+Phases **I (modules), D (extern), J (std/log), A, B, C, K** — roughly in that order. At the end of v0.5a:
 
 - Multi-file projects build: `delta build main.delta` discovers and compiles transitively imported `.delta` files, emits one C TU per module, and links them through a single clang invocation.
 - The embedded `std/log` module is importable and works as the canonical way to emit diagnostic output.
 - The full primitive type surface is type-checked and lowered correctly.
 - Definite assignment, return coverage, and shadowing are enforced.
 - Fallible signatures and `check` / `as result` are end-to-end, including the tagged-result C lowering.
-- Classes work as inline value types with public/private members, static functions, and `edit` methods.
+- `type` records work as inline value types with fields, composition, object literals, and structural `==`.
 - `extern "c"` allows declaring C functions for use by stdlib and (where needed) user code.
 
-The intentionally-unsound gap at the end of v0.5a: passing a class by value emits a plain struct copy. There is no `move`, no `clone`, no reference checker yet, so the compiler does not stop you from using a "moved-from" binding. v0.5b closes this gap.
+The intentionally-unsound gap at the end of v0.5a: passing a record by value emits a plain struct copy. There is no `move`, no `clone`, no reference checker yet, so the compiler does not stop you from using a "moved-from" binding. v0.5b closes this gap. (Phase K records hold only primitives until `heap T` lands, so the gap is silent rather than unsound at this point.)
 
-### v0.5b — Ownership, references, heap indirection
+### v0.5b — Ownership, references, receiver methods, heap indirection
 
-Phases **F, G, H**. At the end of v0.5b:
+Phases **F (ownership), G (references), L (receiver methods), H (`heap T`)**. At the end of v0.5b:
 
 - Move state is tracked per binding; use-after-move is a compile error.
 - `move x` and `clone x` are the only ways to transfer or duplicate move-only values.
 - `&` and `edit &` parameters work, with root-based exclusivity at call sites.
+- Receiver methods attach behavior to records, with capability-checked `&` / `edit &` receivers and auto-referencing at call sites.
 - `heap T` enables owning indirection with automatic disposal.
 - The struct-copy hole from v0.5a becomes a compile error and is replaced by the real ownership story.
 

@@ -1,0 +1,20 @@
+type ShiftCountError = { };
+
+function safeShift(a: int32, n: int32): int32 | ShiftCountError {
+    const s = a << n as result;
+    check result {
+        return error as { };
+    }
+    return s;
+}
+
+function main(): int32 {
+    const s = safeShift(1, 4) as result;
+    check result {
+        return 1;
+    }
+    if (s == 16) {
+        return 0;
+    }
+    return 2;
+}

@@ -1,0 +1,13 @@
+// Task 12b: a nested object literal must be validated against the enclosing
+// field's record type. Currently it is checked with no expected type and
+// fails with "cannot infer type from literal".
+type Inner = { a: int32; };
+type Outer = { inner: Inner; };
+
+function make(): Outer {
+    return { inner: { a: 1 } };
+}
+
+function main(): int32 {
+    return 0;
+}

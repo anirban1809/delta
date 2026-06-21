@@ -63,7 +63,17 @@
           "description": "Trace LSP traffic between client and server."
         }
       }
-    }
+    },
+    "commands": [
+      {
+        "command": "delta.restartServer",
+        "title": "Delta: Restart Language Server"
+      },
+      {
+        "command": "delta.showServerOutput",
+        "title": "Delta: Show Language Server Output"
+      }
+    ]
   },
   "capabilities": {
     "untrustedWorkspaces": {

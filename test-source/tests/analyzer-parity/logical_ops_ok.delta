@@ -1,0 +1,9 @@
+// Task 3: logical && and || must be accepted on bool operands.
+// Currently they fall through to "unknown binary operator".
+function f(a: bool, b: bool): bool {
+    return a && b || !a;
+}
+
+function main(): int32 {
+    return 0;
+}

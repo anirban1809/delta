@@ -15,6 +15,8 @@ const (
 	SymbolFunction SymbolKind = iota
 	SymbolFileConst
 	SymbolParameter
+	SymbolReturn
+	SymbolError
 	SymbolLocalConst
 	SymbolLocalLet
 	SymbolTypeDecl
@@ -33,6 +35,14 @@ type Scope struct {
 	Parent      *Scope
 	Symbols     map[string]Symbol
 	assignments []Symbol
+	results     map[string]*pendingResult
+	pending     map[string]*pendingResult
+}
+
+type pendingResult struct {
+	Name     string
+	Position ast.Position
+	Bindings []string
 }
 
 // AddSymbol stores sym under its Name. Callers are responsible for
@@ -106,6 +116,13 @@ type Analyzer struct {
 	// in AnalyzeFunctionDeclaration; nil at file scope.
 	currentFunctionSig *FunctionSignature
 
+	// Records maps each user-defined record type name to its fully
+	// resolved field list — alias targets followed, spread/intersection
+	// composition flattened. Populated at the end of Analyze() and consumed
+	// by LSP field completion ("show me the fields of this record-typed
+	// value"). Unlike the maps below, it holds resolved fields, not raw AST.
+	Records map[string][]ResolvedRecordField
+
 	// contains all the custom record type declarations
 	recordTypes map[string]ast.RecordRHS
 
@@ -117,6 +134,13 @@ type Analyzer struct {
 
 	// to keep track of what type declarations have been initialized.
 	typeInits map[string]ast.ObjectLiteralExpression
+
+	// tracks the symbols of fallible functions for validation metadata
+	fallibleFunctions map[string]Symbol
+
+	// allowFallibleExpr is set while analyzing the inner statement of an
+	// `as result` form. A fallible call anywhere else is rejected.
+	allowFallibleExpr bool
 }
 
 // pushScopeNode wires a freshly-constructed Scope into the analyzer's
@@ -211,6 +235,119 @@ func (a *Analyzer) isAssigned(scope *Scope, sym Symbol) bool {
 	return false
 }
 
+func (a *Analyzer) isFunctionFallible(sym Symbol) bool {
+	return sym.Kind == SymbolFunction &&
+		sym.Signature != nil &&
+		len(sym.Signature.ErrorTypes) > 0
+}
+
+func (a *Analyzer) pendingBinding(
+	scope *Scope,
+	name string,
+) (*pendingResult, bool) {
+	for current := scope; current != nil; current = current.Parent {
+		if result, ok := current.pending[name]; ok {
+			return result, true
+		}
+	}
+	return nil, false
+}
+
+func (a *Analyzer) pendingResult(
+	scope *Scope,
+	name string,
+) (*Scope, *pendingResult, bool) {
+	for current := scope; current != nil; current = current.Parent {
+		if result, ok := current.results[name]; ok {
+			return current, result, true
+		}
+	}
+	return nil, nil, false
+}
+
+func (a *Analyzer) expressionCanFail(
+	expr ast.Expression,
+	scope *Scope,
+) bool {
+	switch expr := expr.(type) {
+	case ast.FunctionCallExpression:
+		if ident, ok := expr.Callee.(ast.Identifier); ok {
+			if target, isType := ResolveTypeName(ident.Name); isType &&
+				(target.IsInteger() || target.Kind == TypeChar) {
+				if len(expr.Arguments) != 1 {
+					return false
+				}
+				from := a.TypeOf(expr.Arguments[0], scope)
+				return ClassifyConversion(from, target) == ConvTrap
+			}
+			return a.isFunctionFallible(a.GetSym(scope, ident.Name))
+		}
+	case ast.BinaryExpression:
+		left := a.TypeOf(expr.Left, scope)
+		switch expr.Operator {
+		case "+", "-", "*":
+			return left.IsInteger()
+		case "/", "%", "<<", ">>":
+			return left.IsInteger()
+		}
+	case ast.PostfixUnaryExpression:
+		return a.TypeOf(expr.Operand, scope).IsInteger()
+	}
+	return false
+}
+
+func fallibleInnerExpression(stmt ast.Statement) ast.Expression {
+	switch stmt := stmt.(type) {
+	case ast.VariableDeclarationStatement:
+		return stmt.Value
+	case ast.AssignmentStatement:
+		return stmt.Value
+	case ast.ExpressionStatement:
+		return stmt.Value
+	}
+	return nil
+}
+
+func fallibleBindings(stmt ast.Statement) []string {
+	switch stmt := stmt.(type) {
+	case ast.VariableDeclarationStatement:
+		return []string{stmt.Name}
+	case ast.AssignmentStatement:
+		return []string{stmt.Target.Name}
+	}
+	return nil
+}
+
+func blockDiverges(block ast.BlockStatement) bool {
+	for _, stmt := range block.Statements {
+		if statementDiverges(stmt) {
+			return true
+		}
+	}
+	return false
+}
+
+func statementDiverges(stmt ast.Statement) bool {
+	switch stmt := stmt.(type) {
+	case ast.ReturnStatement, ast.BreakStatement, ast.ContinueStatement:
+		return true
+	case ast.IfStatement:
+		return blockDiverges(stmt.ThenBlock) &&
+			blockDiverges(stmt.ElseBlock)
+	case ast.SwitchStatement:
+		if stmt.Default == nil || !blockDiverges(*stmt.Default.Body) {
+			return false
+		}
+		for _, c := range stmt.Cases {
+			if !blockDiverges(*c.Body) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 // errorAt records a semantic diagnostic at the given AST position.
 func (a *Analyzer) errorAt(pos ast.Position, message string) {
 	a.ErrorBag.AddError(diagnostics.SourceError{
@@ -251,6 +388,19 @@ func (a *Analyzer) AnalyzeExpr(expr ast.Expression, scope *Scope) bool {
 			a.errorAt(
 				expression.Position,
 				fmt.Sprintf("unknown identifier: %s", expression.Name),
+			)
+			return false
+		}
+
+		if result, ok := a.pendingBinding(scope, expression.Name); ok {
+			a.errorAt(
+				expression.Position,
+				fmt.Sprintf(
+					"%s is pending from `as %s`; check %s before reading it",
+					expression.Name,
+					result.Name,
+					result.Name,
+				),
 			)
 			return false
 		}
@@ -308,7 +458,6 @@ func (a *Analyzer) AnalyzeExpr(expr ast.Expression, scope *Scope) bool {
 		}
 
 	case ast.FunctionCallExpression:
-
 		switch callee := expression.Callee.(type) {
 		case ast.Identifier:
 			intTypes := []string{"int8", "int16", "int32", "int64"}
@@ -336,10 +485,21 @@ func (a *Analyzer) AnalyzeExpr(expr ast.Expression, scope *Scope) bool {
 			calleeSymbol := a.GetSym(scope, callee.Name)
 
 			ok := true
-			if calleeSymbol.Kind != SymbolFunction {
+			if calleeSymbol.Kind != SymbolFunction && !calleeSymbol.Type.IsInteger() {
 				a.errorAt(
 					callee.Position,
 					fmt.Sprintf("cannot invoke %s, not a callable function.", calleeSymbol.Name),
+				)
+				ok = false
+			}
+			if a.isFunctionFallible(calleeSymbol) &&
+				!a.allowFallibleExpr {
+				a.errorAt(
+					expression.Position,
+					fmt.Sprintf(
+						"fallible call to %s must be followed by `as result`",
+						callee.Name,
+					),
 				)
 				ok = false
 			}
@@ -695,6 +855,12 @@ func (a *Analyzer) typeOfCall(e ast.FunctionCallExpression, scope *Scope) Type {
 		}
 
 		if want.Kind != argT.Kind {
+			validIntConv := want.IsInteger() && argT.IsInteger() &&
+				want.BitWidth() > argT.BitWidth()
+			if validIntConv {
+				continue
+			}
+
 			a.errorAt(e.Position, fmt.Sprintf(
 				"argument %d of %s: expected %s, got %s",
 				i+1, ident.Name, want, argT,
@@ -767,7 +933,7 @@ func (a *Analyzer) typeOfConversion(
 	return target
 }
 
-// todo: refactor the complexity
+// TODO : refactor the complexity
 func (a *Analyzer) convertCompToRecord(
 	c ast.CompositionRHS,
 	scope *Scope,
@@ -784,7 +950,10 @@ func (a *Analyzer) convertCompToRecord(
 					if !ok {
 						cT, ok := a.compRecordTypes[s.Name]
 						if !ok {
-							a.errorAt(operand.Named.Name.Position, fmt.Sprintf("invalid type %s", ident))
+							a.errorAt(
+								operand.Named.Name.Position,
+								fmt.Sprintf("invalid type %s", ident),
+							)
 							return ast.RecordRHS{}, false
 						}
 						return a.convertCompToRecord(cT, scope)
@@ -901,10 +1070,14 @@ func (a *Analyzer) AnalyzeVarDecl(
 	scope *Scope,
 ) bool {
 	a.AnalyzeExpr(decl.Value, scope)
+
+	// set kind
 	kind := SymbolLocalConst
 	if decl.Mutable {
 		kind = SymbolLocalLet
 	}
+
+	// check if the symbol is valid
 	if a.FindSymbol(scope, decl.Name) {
 		a.errorAt(
 			decl.Position,
@@ -913,9 +1086,27 @@ func (a *Analyzer) AnalyzeVarDecl(
 		return false
 	}
 
+	// resolve type names for symbol
 	varType, _ := ResolveTypeName(decl.Type.Name.Name)
-	objValue, ok := decl.Value.(ast.ObjectLiteralExpression)
 
+	objValue, ok := decl.Value.(ast.ObjectLiteralExpression)
+	objectValueToVerify := objValue
+
+	if (varType.Kind == TypeEmpty) && ok {
+		a.errorAt(
+			decl.Position,
+			"no typed context available for object literal",
+		)
+		return false
+	}
+
+	// verify type if expr is an ObjectLiteralExpression
+	if ok && a.verifyObjectType(varType, objectValueToVerify, scope) {
+		// keep track of all record type initializations
+		a.typeInits[decl.Name] = objValue
+	}
+
+	// verify all the fields of the record type
 	for _, e := range objValue.Elements {
 		switch e := e.(type) {
 		case ast.SpreadElement:
@@ -927,20 +1118,13 @@ func (a *Analyzer) AnalyzeVarDecl(
 				return false
 			}
 
+			// not sure what this does, verify if this is needed
 			obj := a.typeInits[src.Name]
 			objValue.Elements = append(objValue.Elements, obj.Elements...)
 		}
 	}
 
-	if (varType.Kind == TypeEmpty) && ok {
-		a.errorAt(decl.Position, "no typed context available for object literal")
-		return false
-	}
-
-	if ok && a.verifyObjectType(varType, objValue, scope) {
-		a.typeInits[decl.Name] = objValue
-	}
-
+	// validating if the decl type is a valid record type
 	if varType.Kind == TypeInvalid {
 		sym := a.GetSym(scope, decl.Type.Name.Name)
 		if sym.Kind == SymbolTypeDecl {
@@ -953,15 +1137,25 @@ func (a *Analyzer) AnalyzeVarDecl(
 		}
 	}
 
+	// for inferring the types if not annotated
 	if varType.Kind == TypeEmpty {
 		varType = a.TypeOf(decl.Value, scope)
 	}
 
+	// create and add the symbol to the registry
 	symbol := Symbol{
-		Name:    decl.Name,
-		Kind:    kind,
-		Type:    varType,
-		DefPos:  decl.Position,
+		Name: decl.Name,
+		Kind: kind,
+		Type: varType,
+		DefPos: ast.Position{
+			Line: decl.Position.Line,
+			Column: decl.Position.Column + func() int {
+				if decl.Mutable {
+					return len("let ")
+				}
+				return len("const ")
+			}(),
+		},
 		Display: renderBindingDisplay(kind, decl.Name, varType),
 	}
 	scope.AddSymbol(symbol)
@@ -971,6 +1165,7 @@ func (a *Analyzer) AnalyzeVarDecl(
 		return true
 	}
 
+	// recording the assignment of the symbol, to check later if they already have been assigned.
 	scope.assignments = append(scope.assignments, symbol)
 	return true
 }
@@ -1012,11 +1207,34 @@ func (a *Analyzer) verifyObjectType(
 	expr ast.ObjectLiteralExpression,
 	scope *Scope,
 ) bool {
+	// Step 1: Collapse aliases to the original record name. Record aliases
+	// represent the same nominal type, so they are compatible with each other.
+	canonicalRecordName := func(name string) string {
+		seen := make(map[string]struct{})
+		for {
+			// Type cycles are diagnosed separately. This guard prevents an
+			// invalid alias cycle from making object validation loop forever.
+			if _, ok := seen[name]; ok {
+				return name
+			}
+			seen[name] = struct{}{}
+
+			alias, ok := a.aliasRecordTypes[name]
+			if !ok {
+				return name
+			}
+			name = alias.Target.Name.Name
+		}
+	}
+
+	// Step 2: Resolve the target type to the complete record shape against
+	// which the object literal will be checked. Compositions are flattened so
+	// their inherited and inline fields are validated like ordinary fields.
 	v, ok := a.recordTypes[t.Name]
 	if !ok {
 		aT, ok := a.aliasRecordTypes[t.Name]
 		if ok {
-			v = a.recordTypes[aT.Target.Name.Name]
+			v = a.recordTypes[canonicalRecordName(aT.Target.Name.Name)]
 		} else {
 			cT, ok := a.compRecordTypes[t.Name]
 			if ok {
@@ -1028,11 +1246,14 @@ func (a *Analyzer) verifyObjectType(
 		}
 	}
 
+	// Step 3: Track every field supplied by an explicit initializer or spread.
+	// This supports duplicate detection now and missing-field detection later.
 	visited := make(map[string]struct{})
 
 	for _, e := range expr.Elements {
 		switch e := e.(type) {
 		case ast.FieldInit:
+			// An object literal may provide each target field exactly once.
 			if _, ok := visited[e.Name]; ok {
 				a.errorAt(e.Position, fmt.Sprintf("duplicate field %s", e.Name))
 				return false
@@ -1042,22 +1263,106 @@ func (a *Analyzer) verifyObjectType(
 				a.errorAt(e.Position, fmt.Sprintf("unknown field %s", e.Name))
 				return false
 			}
+
+			// Resolve the declared type of this field from the target record.
+			var fieldType Type
+			for _, field := range v.Fields {
+				if field.Name.Name == e.Name {
+					fieldType = a.resolveField(field).Type
+					break
+				}
+			}
+
+			// A nested object literal has no standalone type. Its expected type
+			// comes from the enclosing record field, so validate it recursively.
+			if objectValue, ok := e.Value.(ast.ObjectLiteralExpression); ok {
+				if fieldType.Kind != TypeCustom {
+					a.errorAt(
+						e.Value.Pos(),
+						fmt.Sprintf(
+							"field %s expects %s, got object literal",
+							e.Name,
+							fieldType.String(),
+						),
+					)
+					return false
+				}
+				if !a.verifyObjectType(fieldType, objectValue, scope) {
+					return false
+				}
+				continue
+			}
+
+			// Ordinary field values are typed bottom-up and compared with the
+			// field declaration. Invalid types already have their own diagnostic.
+			valueType := a.TypeOf(e.Value, scope)
+			if valueType.Kind == TypeInvalid {
+				return false
+			}
+
+			// Primitive types match by kind. Record types additionally collapse
+			// aliases so an alias and its target remain interchangeable.
+			typesMatch := fieldType.Kind == valueType.Kind
+			if fieldType.Kind == TypeCustom && valueType.Kind == TypeCustom {
+				typesMatch = canonicalRecordName(fieldType.Name) ==
+					canonicalRecordName(valueType.Name)
+			}
+			if !typesMatch {
+				a.errorAt(
+					e.Value.Pos(),
+					fmt.Sprintf(
+						"field %s expects type %s, got %s",
+						e.Name,
+						fieldType.String(),
+						valueType.String(),
+					),
+				)
+				return false
+			}
+		case ast.SpreadElement:
+			// A spread contributes every field from its source value. The source
+			// must be the same nominal record type as the literal's target.
+			sourceType := a.TypeOf(e.Source, scope)
+			if sourceType.Kind == TypeInvalid {
+				return false
+			}
+
+			targetName := canonicalRecordName(t.Name)
+			sourceName := canonicalRecordName(sourceType.Name)
+			if sourceType.Kind != TypeCustom || sourceName != targetName {
+				a.errorAt(
+					e.Position,
+					fmt.Sprintf(
+						"type mismatch for spread operation, want %s, got %s",
+						t.Name,
+						sourceType.String(),
+					),
+				)
+				return false
+			}
+
+			// Mark every field supplied by the spread. A previously supplied
+			// field means two elements provide the same slot, which is illegal.
+			for _, field := range v.Fields {
+				name := field.Name.Name
+				if _, ok := visited[name]; ok {
+					a.errorAt(e.Position, fmt.Sprintf("duplicate field %s", name))
+					return false
+				}
+				visited[name] = struct{}{}
+			}
 		}
 	}
 
-	for i, field := range v.Fields {
-		if len(expr.Elements) <= i {
-			a.errorAt(field.Position, fmt.Sprintf("missing field %s", field.Name.Name))
+	// Step 4: Exact coverage is required. After all explicit fields and spreads
+	// have been processed, every field declared by the target must be present.
+	for _, field := range v.Fields {
+		if _, ok := visited[field.Name.Name]; !ok {
+			a.errorAt(
+				expr.Position,
+				fmt.Sprintf("missing field %s", field.Name.Name),
+			)
 			return false
-		}
-
-		e := expr.Elements[i]
-		switch e := e.(type) {
-		case ast.FieldInit:
-			if !fieldExistsInRecord(field.Name.Name, expr) {
-				a.errorAt(e.Position, fmt.Sprintf("missing field %s", field.Name.Name))
-				return false
-			}
 		}
 	}
 	return true
@@ -1070,6 +1375,430 @@ func (a *Analyzer) AnalyzeObjectLiteralExpr(
 	for _, element := range expr.Elements {
 		e := element.(ast.FieldInit)
 		a.AnalyzeExpr(e.Value, scope)
+	}
+}
+
+func (a *Analyzer) errorLiteralType(
+	expr ast.ObjectLiteralExpression,
+	errorTypes []Type,
+	scope *Scope,
+) (Type, bool) {
+	provided := map[string]struct{}{}
+	for _, element := range expr.Elements {
+		field, ok := element.(ast.FieldInit)
+		if !ok {
+			return Type{}, false
+		}
+		provided[field.Name] = struct{}{}
+	}
+
+	for _, errorType := range errorTypes {
+		record, ok := a.recordTypes[errorType.Name]
+		if !ok {
+			if alias, aliasOK := a.aliasRecordTypes[errorType.Name]; aliasOK {
+				record, ok = a.recordTypes[alias.Target.Name.Name]
+			} else if composition, compositionOK := a.compRecordTypes[errorType.Name]; compositionOK {
+				record, ok = a.convertCompToRecord(composition, scope)
+			}
+		}
+		if !ok || len(record.Fields) != len(provided) {
+			continue
+		}
+
+		matches := true
+		for _, field := range record.Fields {
+			if _, exists := provided[field.Name.Name]; !exists {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return Type{Name: errorType.Name, Kind: TypeCustom}, true
+		}
+	}
+
+	return Type{}, false
+}
+
+func (a *Analyzer) AnalyzeStatement(stmt ast.Statement, scope *Scope) {
+	switch stmt := stmt.(type) {
+	case ast.Comment:
+		return
+
+	case ast.VariableDeclarationStatement:
+		if ok := a.AnalyzeVarDecl(stmt, scope); !ok {
+			return
+		}
+
+	case ast.IfStatement:
+		exprType := a.TypeOf(stmt.Condition, scope)
+
+		if exprType.Kind == TypeInvalid {
+			return
+		}
+
+		if exprType.Kind != TypeBool {
+			a.errorAt(stmt.Condition.Pos(), fmt.Sprintf("condition inside if statement must be boolean, found %s", exprType.String()))
+			return
+		}
+
+		a.AnalyzeExpr(stmt.Condition, scope)
+		thenAssigned := a.AnalyzeScope(stmt.ThenBlock, scope)
+		elseAssigned := a.AnalyzeScope(stmt.ElseBlock, scope)
+
+		// Definite-assignment join: a binding is assigned after the
+		// `if` only if every path that flows past it assigned it. A
+		// branch that always returns never reaches the code following
+		// the `if`, so it doesn't constrain the join (contributes ⊤).
+		switch {
+		case blockReturns(stmt.ThenBlock) && blockReturns(stmt.ElseBlock):
+			// No path flows past the if; nothing to propagate.
+		case blockReturns(stmt.ThenBlock):
+			scope.assignments = append(scope.assignments, elseAssigned...)
+		case blockReturns(stmt.ElseBlock):
+			scope.assignments = append(scope.assignments, thenAssigned...)
+		default:
+			scope.assignments = append(scope.assignments,
+				intersectAssignments(thenAssigned, elseAssigned)...)
+		}
+
+	case ast.AssignmentStatement:
+		expr := stmt.Value
+		a.AnalyzeExpr(expr, scope)
+		if !a.FindSymbol(scope, stmt.Target.Name) {
+			a.errorAt(
+				stmt.Target.Position,
+				fmt.Sprintf("unknown identifier: %s", stmt.Target.Name),
+			)
+			break
+		}
+
+		symbol := a.GetSym(scope, stmt.Target.Name)
+		a.recordRef(stmt.Target.Position, symbol)
+		scope.assignments = append(scope.assignments, symbol)
+
+		if symbol.Kind != SymbolLocalLet {
+			message := fmt.Sprintf("cannot assign to const: %s", stmt.Target.Name)
+			switch symbol.Kind {
+			case SymbolFunction:
+				message = fmt.Sprintf("cannot assign to function: %s", stmt.Target.Name)
+			case SymbolParameter:
+				message = fmt.Sprintf("cannot assign to const parameter: %s", stmt.Target.Name)
+			}
+
+			a.errorAt(stmt.Target.Position, message)
+		}
+
+		if stmt.Operator != "" && !symbol.Type.IsInteger() {
+			a.errorAt(stmt.Target.Position, fmt.Sprintf(
+				"compound assignment `%s=` requires an integer binding, got %s",
+				stmt.Operator, symbol.Type,
+			))
+		}
+
+		switch e := stmt.TargetExpression.(type) {
+		case ast.ObjectLiteralExpression:
+			a.AnalyzeObjectLiteralExpr(expr.(ast.ObjectLiteralExpression), scope)
+			a.verifyObjectType(symbol.Type, e, scope)
+			return
+
+		case ast.MemberAccessExpression:
+			recvT := a.TypeOf(e.Receiver, scope)
+			if ident, ok := e.Receiver.(ast.Identifier); ok {
+				_, initOk := a.typeInits[ident.Name]
+				if !initOk {
+					a.errorAt(stmt.Position, fmt.Sprintf("partial initialization of %s is not allowed, %s is uninitialized", recvT.Name, recvT.Name))
+					return
+				}
+			}
+
+			memberT := a.TypeOf(e, scope)
+			valT := a.TypeOf(stmt.Value, scope)
+
+			v, ok := stmt.Value.(ast.ObjectLiteralExpression)
+			if ok {
+				a.typeInits[recvT.Name] = v
+				return
+			}
+
+			if memberT != valT {
+				a.errorAt(stmt.Target.Position, fmt.Sprintf("assignment value type must match the binding type, want %s, received %s", memberT.String(), valT.String()))
+			}
+
+			return
+		}
+
+		if symbol.Type != a.TypeOf(expr, scope) && (symbol.Type.Kind != TypeCustom) {
+			a.errorAt(stmt.Target.Position, fmt.Sprintf("assignment value type must match the binding type, want %s, received %s", symbol.Type.String(), a.TypeOf(expr, scope).String()))
+		}
+
+	case ast.FallibleStatement:
+		expr := fallibleInnerExpression(stmt.Inner)
+		if expr == nil || !a.expressionCanFail(expr, scope) {
+			a.errorAt(
+				stmt.Position,
+				"this expression cannot fail; remove `as result`",
+			)
+		}
+
+		previous := a.allowFallibleExpr
+		a.allowFallibleExpr = true
+		a.AnalyzeStatement(stmt.Inner, scope)
+		a.allowFallibleExpr = previous
+
+		if scope.results == nil {
+			scope.results = map[string]*pendingResult{}
+		}
+		if scope.pending == nil {
+			scope.pending = map[string]*pendingResult{}
+		}
+
+		result := &pendingResult{
+			Name:     stmt.Result.Name,
+			Position: stmt.Position,
+			Bindings: fallibleBindings(stmt.Inner),
+		}
+		scope.results[result.Name] = result
+		for _, binding := range result.Bindings {
+			scope.pending[binding] = result
+		}
+
+	case ast.CheckStatement:
+		resultScope, result, ok := a.pendingResult(scope, stmt.Result.Name)
+		if !ok {
+			a.errorAt(
+				stmt.Position,
+				fmt.Sprintf(
+					"check %s has no matching preceding `as result`",
+					stmt.Result.Name,
+				),
+			)
+			a.AnalyzeScope(*stmt.Body, scope)
+			return
+		}
+
+		a.AnalyzeScope(*stmt.Body, scope)
+		if !blockDiverges(*stmt.Body) {
+			a.errorAt(
+				stmt.Position,
+				fmt.Sprintf(
+					"check %s must diverge on every path",
+					stmt.Result.Name,
+				),
+			)
+			return
+		}
+
+		delete(resultScope.results, result.Name)
+		for _, binding := range result.Bindings {
+			delete(resultScope.pending, binding)
+		}
+
+	case ast.ReturnStatement:
+		// A return outside any function (shouldn't happen at the AST level,
+		// but guard anyway) — emit and skip.
+		if a.currentFunctionSig == nil {
+			a.errorAt(stmt.Position, "return outside of function body")
+			return
+		}
+		if stmt.Error {
+			errorTypes := a.currentFunctionSig.ErrorTypes
+			if len(errorTypes) == 0 {
+				a.errorAt(
+					stmt.Position,
+					"return error is not allowed: function has no error set",
+				)
+				return
+			}
+			if len(stmt.Values) != 1 {
+				a.errorAt(
+					stmt.Position,
+					"return error requires exactly one object literal",
+				)
+				return
+			}
+			object, ok := stmt.Values[0].(ast.ObjectLiteralExpression)
+			if !ok {
+				a.errorAt(
+					stmt.Position,
+					"return error requires an object literal",
+				)
+				return
+			}
+
+			errorType, ok := a.errorLiteralType(object, errorTypes, scope)
+			if !ok {
+				a.errorAt(
+					stmt.Position,
+					"returned error literal does not match the function error set",
+				)
+				return
+			}
+			a.verifyObjectType(errorType, object, scope)
+			return
+		}
+		if !stmt.Error {
+			returnTypes := a.currentFunctionSig.ReturnTypes
+			checkReturnType := false
+			for _, returnType := range returnTypes {
+				if returnType.Kind == TypeVoid && len(returnTypes) > 1 {
+					checkReturnType = true
+					a.errorAt(stmt.Position, "multiple return values cannot be combined with void")
+				}
+			}
+			if checkReturnType {
+				return
+			}
+
+			if len(returnTypes) == 1 && returnTypes[0].Kind == TypeVoid {
+				returnTypes = returnTypes[:len(returnTypes)-1]
+			}
+
+			if len(stmt.Values) != len(returnTypes) {
+				a.errorAt(stmt.Position, fmt.Sprintf("return arity mismatch: expected %d, got %d", len(returnTypes), len(stmt.Values)))
+				return
+			}
+
+			for i, expr := range stmt.Values {
+				a.AnalyzeExpr(expr, scope)
+				exprType := a.TypeOf(expr, scope)
+
+				switch expr.(type) {
+				case ast.IntegerLiteral:
+					if exprType.Kind == TypeEmpty {
+						exprType = Type{Name: "int32", Kind: TypeInt32}
+					}
+				}
+
+				if exprType.Kind == TypeInvalid {
+					if objectLiteralExpr, ok := expr.(ast.ObjectLiteralExpression); ok {
+						retT := returnTypes[i]
+						if !a.verifyObjectType(retT, objectLiteralExpr, scope) {
+							return
+						}
+						exprType = retT
+					}
+				}
+
+				if exprType.Name != returnTypes[i].Name {
+					a.errorAt(stmt.Position, fmt.Sprintf("mismatched return type for expression, received %s, want %s", exprType.String(), returnTypes[i].Name))
+				}
+
+			}
+
+		}
+
+	case ast.ExpressionStatement:
+		a.AnalyzeExpr(stmt.Value, scope)
+
+	case ast.SwitchStatement:
+		scrutinee := stmt.Scrutinee
+
+		if ok := a.AnalyzeExpr(scrutinee, scope); !ok {
+			return
+		}
+
+		scrutineeType := a.TypeOf(scrutinee, scope)
+		scrutineeT := scrutineeType.String()
+		if !strings.Contains(scrutineeT, "int") && !(scrutineeT == "char") {
+			a.errorAt(scrutinee.Pos(), fmt.Sprintf("type of scrutinee must be int or char, received %s", scrutineeT))
+			return
+		}
+
+		caseLabels := []ast.Expression{}
+
+		for _, c := range stmt.Cases {
+			for _, l := range c.Labels {
+				caseLabels = append(caseLabels, l)
+			}
+		}
+
+		seen := make(map[string]struct{})
+		dup := false
+
+		var dupPos ast.Position
+		for _, l := range caseLabels {
+
+			lT := a.TypeOf(l, scope)
+			// A bare integer-literal label adopts the scrutinee's integer
+			// type, mirroring integer-literal coercion in binary
+			// expressions. Negative labels (UnaryExpression) and char
+			// labels are not coerced.
+			if isIntegerLiteral(l) && scrutineeType.IsInteger() {
+				lT = scrutineeType
+			}
+			if scrutineeT != lT.String() {
+				a.errorAt(l.Pos(), fmt.Sprintf("incompatible type in case, want %s, got %s", scrutineeT, lT.String()))
+				break
+			}
+
+			var key string
+			switch lit := l.(type) {
+			case ast.IntegerLiteral:
+				if !strings.Contains(scrutineeT, "int") {
+					break
+				}
+
+				key = "int:" + lit.Value
+			case ast.CharacterLiteral:
+				if !strings.Contains(scrutineeT, "char") {
+					break
+				}
+
+				key = "char:" + lit.Value
+			default:
+				return
+			}
+			if _, exists := seen[key]; exists {
+				dupPos = l.Pos()
+				dup = true
+				break
+			}
+			seen[key] = struct{}{}
+		}
+
+		if dup {
+			a.errorAt(dupPos, "duplicate case label detected")
+			return
+		}
+
+	case ast.ForStatement:
+		decl := stmt.Init.(ast.VariableDeclarationStatement)
+		if ok := a.AnalyzeVarDecl(decl, scope); !ok {
+			return
+		}
+
+		if !decl.Mutable && decl.Name != "" {
+			a.errorAt(stmt.Init.Pos(), "const is not allowed in the for loop initializer, use let instead")
+			return
+		}
+
+		if stmt.Cond != nil {
+			condType := a.TypeOf(stmt.Cond, scope)
+			if condType.Kind != TypeBool {
+				a.errorAt(stmt.Cond.Pos(), fmt.Sprintf("condition inside if statement must be boolean, found %s", condType.String()))
+				return
+			}
+		}
+
+		// The step runs once per iteration; analyze it so `i++` is
+		// validated and recorded for overflow-trapping codegen.
+		if stmt.Step != nil {
+			a.AnalyzeExpr(stmt.Step, scope)
+		}
+
+		a.AnalyzeScope(*stmt.Body, scope)
+
+	case ast.WhileStatement:
+		exprType := a.TypeOf(stmt.Condition, scope)
+
+		if exprType.Kind != TypeBool {
+			a.errorAt(stmt.Condition.Pos(), fmt.Sprintf("condition inside if statement must be boolean, found %s", exprType.String()))
+			return
+		}
+
+		a.AnalyzeExpr(stmt.Condition, scope)
+		a.AnalyzeScope(stmt.Body, scope)
 	}
 }
 
@@ -1089,279 +1818,7 @@ func (a *Analyzer) AnalyzeScope(
 	defer pop()
 
 	for _, stmt := range statements {
-		switch stmt := stmt.(type) {
-		case ast.Comment:
-			continue
-
-		case ast.VariableDeclarationStatement:
-			if ok := a.AnalyzeVarDecl(stmt, &scope); !ok {
-				continue
-			}
-
-		case ast.IfStatement:
-			exprType := a.TypeOf(stmt.Condition, &scope)
-
-			if exprType.Kind == TypeInvalid {
-				continue
-			}
-
-			if exprType.Kind != TypeBool {
-				a.errorAt(stmt.Condition.Pos(), fmt.Sprintf("condition inside if statement must be boolean, found %s", exprType.String()))
-				continue
-			}
-
-			a.AnalyzeExpr(stmt.Condition, &scope)
-			thenAssigned := a.AnalyzeScope(stmt.ThenBlock, &scope)
-			elseAssigned := a.AnalyzeScope(stmt.ElseBlock, &scope)
-
-			// Definite-assignment join: a binding is assigned after the
-			// `if` only if every path that flows past it assigned it. A
-			// branch that always returns never reaches the code following
-			// the `if`, so it doesn't constrain the join (contributes ⊤).
-			switch {
-			case blockReturns(stmt.ThenBlock) && blockReturns(stmt.ElseBlock):
-				// No path flows past the if; nothing to propagate.
-			case blockReturns(stmt.ThenBlock):
-				scope.assignments = append(scope.assignments, elseAssigned...)
-			case blockReturns(stmt.ElseBlock):
-				scope.assignments = append(scope.assignments, thenAssigned...)
-			default:
-				scope.assignments = append(scope.assignments,
-					intersectAssignments(thenAssigned, elseAssigned)...)
-			}
-
-		case ast.AssignmentStatement:
-			expr := stmt.Value
-			a.AnalyzeExpr(expr, &scope)
-			if !a.FindSymbol(&scope, stmt.Target.Name) {
-				a.errorAt(
-					stmt.Target.Position,
-					fmt.Sprintf("unknown identifier: %s", stmt.Target.Name),
-				)
-				break
-			}
-
-			symbol := a.GetSym(&scope, stmt.Target.Name)
-			a.recordRef(stmt.Target.Position, symbol)
-			scope.assignments = append(scope.assignments, symbol)
-
-			if symbol.Kind != SymbolLocalLet {
-				message := fmt.Sprintf("cannot assign to const: %s", stmt.Target.Name)
-				switch symbol.Kind {
-				case SymbolFunction:
-					message = fmt.Sprintf("cannot assign to function: %s", stmt.Target.Name)
-				case SymbolParameter:
-					message = fmt.Sprintf("cannot assign to const parameter: %s", stmt.Target.Name)
-				}
-
-				a.errorAt(stmt.Target.Position, message)
-			}
-
-			if stmt.Operator != "" && !symbol.Type.IsInteger() {
-				a.errorAt(stmt.Target.Position, fmt.Sprintf(
-					"compound assignment `%s=` requires an integer binding, got %s",
-					stmt.Operator, symbol.Type,
-				))
-			}
-
-			switch e := stmt.TargetExpression.(type) {
-			case ast.ObjectLiteralExpression:
-				a.AnalyzeObjectLiteralExpr(expr.(ast.ObjectLiteralExpression), &scope)
-				a.verifyObjectType(symbol.Type, e, &scope)
-				continue
-
-			case ast.MemberAccessExpression:
-				recvT := a.TypeOf(e.Receiver, &scope)
-				if ident, ok := e.Receiver.(ast.Identifier); ok {
-					_, initOk := a.typeInits[ident.Name]
-					if !initOk {
-						a.errorAt(stmt.Position, fmt.Sprintf("partial initialization of %s is not allowed, %s is uninitialized", recvT.Name, recvT.Name))
-						continue
-					}
-				}
-
-				memberT := a.TypeOf(e, &scope)
-				valT := a.TypeOf(stmt.Value, &scope)
-
-				v, ok := stmt.Value.(ast.ObjectLiteralExpression)
-				if ok {
-					a.typeInits[recvT.Name] = v
-					continue
-				}
-
-				if memberT != valT {
-					a.errorAt(stmt.Target.Position, fmt.Sprintf("assignment value type must match the binding type, want %s, received %s", memberT.String(), valT.String()))
-				}
-
-				continue
-			}
-
-			if symbol.Type != a.TypeOf(expr, &scope) && (symbol.Type.Kind != TypeCustom) {
-				a.errorAt(stmt.Target.Position, fmt.Sprintf("assignment value type must match the binding type, want %s, received %s", symbol.Type.String(), a.TypeOf(expr, &scope).String()))
-			}
-
-		case ast.ReturnStatement:
-			// A return outside any function (shouldn't happen at the AST level,
-			// but guard anyway) — emit and skip.
-			if a.currentFunctionSig == nil {
-				a.errorAt(stmt.Position, "return outside of function body")
-				continue
-			}
-			returnTypes := a.currentFunctionSig.ReturnTypes
-
-			checkType := false
-			for _, returnType := range returnTypes {
-				if returnType.Kind == TypeVoid && len(returnTypes) > 1 {
-					checkType = true
-					a.errorAt(stmt.Position, "multiple return values cannot be combined with void")
-				}
-			}
-
-			if checkType {
-				continue
-			}
-
-			if len(returnTypes) == 1 && returnTypes[0].Kind == TypeVoid {
-				returnTypes = returnTypes[:len(returnTypes)-1]
-			}
-
-			if len(stmt.Values) != len(returnTypes) {
-				a.errorAt(stmt.Position, fmt.Sprintf("return arity mismatch: expected %d, got %d", len(returnTypes), len(stmt.Values)))
-				continue
-			}
-
-			for i, expr := range stmt.Values {
-				a.AnalyzeExpr(expr, &scope)
-				exprType := a.TypeOf(expr, &scope)
-
-				switch expr.(type) {
-				case ast.IntegerLiteral:
-					if exprType.Kind == TypeEmpty {
-						exprType = Type{Name: "int32", Kind: TypeInt32}
-					}
-				}
-
-				if exprType.Kind == TypeInvalid {
-					continue
-				}
-
-				if exprType != returnTypes[i] {
-					a.errorAt(stmt.Position, fmt.Sprintf("mismatched return type for expression, received %s, want %s", exprType.String(), returnTypes[i].String()))
-				}
-			}
-
-		case ast.ExpressionStatement:
-			a.AnalyzeExpr(stmt.Value, &scope)
-
-		case ast.SwitchStatement:
-			scrutinee := stmt.Scrutinee
-
-			if ok := a.AnalyzeExpr(scrutinee, &scope); !ok {
-				continue
-			}
-
-			scrutineeType := a.TypeOf(scrutinee, &scope)
-			scrutineeT := scrutineeType.String()
-			if !strings.Contains(scrutineeT, "int") && !(scrutineeT == "char") {
-				a.errorAt(scrutinee.Pos(), fmt.Sprintf("type of scrutinee must be int or char, received %s", scrutineeT))
-				continue
-			}
-
-			caseLabels := []ast.Expression{}
-
-			for _, c := range stmt.Cases {
-				for _, l := range c.Labels {
-					caseLabels = append(caseLabels, l)
-				}
-			}
-
-			seen := make(map[string]struct{})
-			dup := false
-
-			var dupPos ast.Position
-			for _, l := range caseLabels {
-
-				lT := a.TypeOf(l, &scope)
-				// A bare integer-literal label adopts the scrutinee's integer
-				// type, mirroring integer-literal coercion in binary
-				// expressions. Negative labels (UnaryExpression) and char
-				// labels are not coerced.
-				if isIntegerLiteral(l) && scrutineeType.IsInteger() {
-					lT = scrutineeType
-				}
-				if scrutineeT != lT.String() {
-					a.errorAt(l.Pos(), fmt.Sprintf("incompatible type in case, want %s, got %s", scrutineeT, lT.String()))
-					break
-				}
-
-				var key string
-				switch lit := l.(type) {
-				case ast.IntegerLiteral:
-					if !strings.Contains(scrutineeT, "int") {
-						break
-					}
-
-					key = "int:" + lit.Value
-				case ast.CharacterLiteral:
-					if !strings.Contains(scrutineeT, "char") {
-						break
-					}
-
-					key = "char:" + lit.Value
-				default:
-					continue
-				}
-				if _, exists := seen[key]; exists {
-					dupPos = l.Pos()
-					dup = true
-					break
-				}
-				seen[key] = struct{}{}
-			}
-
-			if dup {
-				a.errorAt(dupPos, "duplicate case label detected")
-				continue
-			}
-
-		case ast.ForStatement:
-			decl := stmt.Init.(ast.VariableDeclarationStatement)
-			if ok := a.AnalyzeVarDecl(decl, &scope); !ok {
-				continue
-			}
-
-			if !decl.Mutable && decl.Name != "" {
-				a.errorAt(stmt.Init.Pos(), "const is not allowed in the for loop initializer, use let instead")
-				continue
-			}
-
-			if stmt.Cond != nil {
-				condType := a.TypeOf(stmt.Cond, &scope)
-				if condType.Kind != TypeBool {
-					a.errorAt(stmt.Cond.Pos(), fmt.Sprintf("condition inside if statement must be boolean, found %s", condType.String()))
-					continue
-				}
-			}
-
-			// The step runs once per iteration; analyze it so `i++` is
-			// validated and recorded for overflow-trapping codegen.
-			if stmt.Step != nil {
-				a.AnalyzeExpr(stmt.Step, &scope)
-			}
-
-			a.AnalyzeScope(*stmt.Body, &scope)
-
-		case ast.WhileStatement:
-			exprType := a.TypeOf(stmt.Condition, &scope)
-
-			if exprType.Kind != TypeBool {
-				a.errorAt(stmt.Condition.Pos(), fmt.Sprintf("condition inside if statement must be boolean, found %s", exprType.String()))
-				continue
-			}
-
-			a.AnalyzeExpr(stmt.Condition, &scope)
-			a.AnalyzeScope(stmt.Body, &scope)
-		}
+		a.AnalyzeStatement(stmt, &scope)
 	}
 
 	return scope.assignments
@@ -1461,7 +1918,10 @@ func (a *Analyzer) AnalyzeFuncDecl(
 		if paramType.Kind == TypeInvalid {
 			sym := a.GetSym(&functionScope, parameter.Type.Name.Name)
 			if sym.Kind == SymbolTypeDecl {
-				paramType = Type{Kind: TypeCustom, Name: parameter.Type.Name.Name}
+				paramType = Type{
+					Kind: TypeCustom,
+					Name: parameter.Type.Name.Name,
+				}
 			} else {
 				a.errorAt(
 					parameter.Type.Name.Position,
@@ -1476,6 +1936,67 @@ func (a *Analyzer) AnalyzeFuncDecl(
 			Type:    paramType,
 			DefPos:  parameter.Name.Position,
 			Display: renderBindingDisplay(SymbolParameter, name, paramType),
+		}
+		functionScope.AddSymbol(symbol)
+	}
+
+	for _, retT := range decl.ReturnTypes {
+		name := retT.Name.Name
+		returnType, _ := ResolveTypeName(name)
+
+		if returnType.Kind == TypeInvalid {
+			sym := a.GetSym(&functionScope, name)
+			if sym.Kind == SymbolTypeDecl || sym.Kind == SymbolReturn {
+				returnType = Type{Kind: TypeCustom, Name: name}
+			} else {
+				a.errorAt(
+					retT.Name.Position,
+					fmt.Sprintf("unknown type: %s", name),
+				)
+			}
+		}
+
+		symbol := Symbol{
+			Name:    name,
+			Kind:    SymbolReturn,
+			Type:    returnType,
+			DefPos:  retT.Name.Position,
+			Display: renderBindingDisplay(SymbolParameter, name, returnType),
+		}
+		functionScope.AddSymbol(symbol)
+	}
+
+	for _, errT := range decl.ErrorTypes {
+		name := errT.Name.Name
+		returnType, _ := ResolveTypeName(name)
+
+		if returnType.IsInteger() || returnType.IsFloat() {
+			a.errorAt(
+				errT.Name.Position,
+				"primitives as error types are not allowed, must be a record type",
+			)
+			continue
+		}
+
+		if returnType.Kind == TypeInvalid {
+			sym := a.GetSym(&functionScope, name)
+			if sym.Kind == SymbolTypeDecl || sym.Kind == SymbolError {
+				returnType = Type{Kind: TypeCustom, Name: name}
+			} else {
+				a.errorAt(
+					errT.Name.Position,
+					fmt.Sprintf("unknown type: %s", name),
+				)
+				continue
+			}
+		}
+
+		symbol := Symbol{
+			Name:    name,
+			Kind:    SymbolError,
+			Type:    returnType,
+			DefPos:  errT.Name.Position,
+			Display: renderBindingDisplay(SymbolParameter, name, returnType),
 		}
 		functionScope.AddSymbol(symbol)
 	}
@@ -1499,12 +2020,14 @@ func (a *Analyzer) AnalyzeFuncDecl(
 
 func buildSignature(decl ast.FunctionDeclaration) *FunctionSignature {
 	sig := &FunctionSignature{
-		Parameters:  make([]Type, 0, len(decl.Parameters)),
-		ReturnTypes: make([]Type, 0, len(decl.ReturnTypes)),
-		ErrorTypes:  make([]Type, 0, len(decl.ErrorTypes)),
+		ParameterNames: make([]string, 0, len(decl.Parameters)),
+		Parameters:     make([]Type, 0, len(decl.Parameters)),
+		ReturnTypes:    make([]Type, 0, len(decl.ReturnTypes)),
+		ErrorTypes:     make([]Type, 0, len(decl.ErrorTypes)),
 	}
 	for _, p := range decl.Parameters {
 		paramType, _ := ResolveTypeName(p.Type.Name.Name)
+		sig.ParameterNames = append(sig.ParameterNames, p.Name.Name)
 		sig.Parameters = append(
 			sig.Parameters,
 			paramType,
@@ -1685,7 +2208,10 @@ func (a *Analyzer) reportTypeCycle(
 	)
 }
 
-func (a *Analyzer) ValidateCompositionRHS(d ast.CompositionRHS, name string) bool {
+func (a *Analyzer) ValidateCompositionRHS(
+	d ast.CompositionRHS,
+	name string,
+) bool {
 	recordFields := []ast.RecordField{}
 	for _, operand := range d.Operands {
 		if operand.Named != nil {
@@ -1695,7 +2221,13 @@ func (a *Analyzer) ValidateCompositionRHS(d ast.CompositionRHS, name string) boo
 				alias, ok := a.aliasRecordTypes[typeName]
 				if !ok {
 					if t, _ := ResolveTypeName(typeName); !ok {
-						a.errorAt(d.Position, fmt.Sprintf("%s is not a valid record type", t.String()))
+						a.errorAt(
+							d.Position,
+							fmt.Sprintf(
+								"%s is not a valid record type",
+								t.String(),
+							),
+						)
 						return false
 					} else {
 						a.errorAt(d.Position, fmt.Sprintf("unknown type %s", typeName))
@@ -1719,7 +2251,13 @@ func (a *Analyzer) ValidateCompositionRHS(d ast.CompositionRHS, name string) boo
 			seen[field.Name.Name] = struct{}{}
 			continue
 		}
-		a.errorAt(field.Position, fmt.Sprintf("collision detected: duplicate field %s", field.Name.Name))
+		a.errorAt(
+			field.Position,
+			fmt.Sprintf(
+				"collision detected: duplicate field %s",
+				field.Name.Name,
+			),
+		)
 		return false
 	}
 
@@ -1761,8 +2299,11 @@ func (a *Analyzer) Analyze() {
 				Name:      declaration.Name,
 				Kind:      SymbolFunction,
 				Signature: funcSig,
-				DefPos:    declaration.Position,
-				Display:   funcDisp,
+				DefPos: ast.Position{
+					Line:   declaration.Position.Line,
+					Column: declaration.Position.Column + len("function "),
+				},
+				Display: funcDisp,
 			})
 
 		case ast.ConstDeclaration:
@@ -1817,9 +2358,10 @@ func (a *Analyzer) Analyze() {
 			}
 
 			a.GlobalScope.AddSymbol(Symbol{
-				Name:   decl.Name.Name,
-				Kind:   SymbolTypeDecl,
-				DefPos: decl.Position,
+				Name:    decl.Name.Name,
+				Kind:    SymbolTypeDecl,
+				DefPos:  decl.Name.Position,
+				Display: "type " + decl.Name.Name,
 			})
 
 		case ast.FunctionDeclaration:
@@ -1883,4 +2425,98 @@ func (a *Analyzer) Analyze() {
 	}
 
 	a.detectTypeCycles()
+	a.buildRecordRegistry()
+}
+
+// buildRecordRegistry resolves every user-defined record type to its flat
+// field list and stores it in a.Records for LSP field completion. It runs
+// after the type-declaration maps are fully populated and emits no
+// diagnostics (any malformed type was already reported during analysis).
+func (a *Analyzer) buildRecordRegistry() {
+	a.Records = map[string][]ResolvedRecordField{}
+	add := func(name string) {
+		if _, done := a.Records[name]; done {
+			return
+		}
+		if fields, ok := a.resolveRecordFields(name, map[string]bool{}); ok {
+			a.Records[name] = fields
+		}
+	}
+	for name := range a.recordTypes {
+		add(name)
+	}
+	for name := range a.aliasRecordTypes {
+		add(name)
+	}
+	for name := range a.compRecordTypes {
+		add(name)
+	}
+}
+
+// resolveRecordFields returns the resolved field list for a record type
+// name, following alias chains and flattening spread/intersection
+// composition. seen guards against cycles (already diagnosed by
+// detectTypeCycles). It does not emit diagnostics.
+func (a *Analyzer) resolveRecordFields(
+	name string,
+	seen map[string]bool,
+) ([]ResolvedRecordField, bool) {
+	if seen[name] {
+		return nil, false
+	}
+	seen[name] = true
+
+	if rhs, ok := a.recordTypes[name]; ok {
+		out := make([]ResolvedRecordField, 0, len(rhs.Fields))
+		for _, f := range rhs.Fields {
+			out = append(out, a.resolveField(f))
+		}
+		return out, true
+	}
+	if alias, ok := a.aliasRecordTypes[name]; ok {
+		return a.resolveRecordFields(alias.Target.Name.Name, seen)
+	}
+	if comp, ok := a.compRecordTypes[name]; ok {
+		var out []ResolvedRecordField
+		for _, op := range comp.Operands {
+			if op.Named != nil {
+				sub, ok := a.resolveRecordFields(
+					op.Named.Name.Name,
+					copySeen(seen),
+				)
+				if ok {
+					out = append(out, sub...)
+				}
+			} else if op.Inline != nil {
+				for _, f := range op.Inline.Fields {
+					out = append(out, a.resolveField(f))
+				}
+			}
+		}
+		return out, true
+	}
+	return nil, false
+}
+
+// resolveField resolves a single record field's declared type. Primitive
+// type names resolve through ResolveTypeName; anything else is treated as a
+// (record) custom type carried by name.
+func (a *Analyzer) resolveField(f ast.RecordField) ResolvedRecordField {
+	ft, ok := ResolveTypeName(f.Type.Name.Name)
+	if !ok {
+		ft = Type{Kind: TypeCustom, Name: f.Type.Name.Name}
+	}
+	return ResolvedRecordField{
+		Name:     f.Name.Name,
+		Type:     ft,
+		Position: f.Name.Position,
+	}
+}
+
+func copySeen(seen map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(seen))
+	for k, v := range seen {
+		out[k] = v
+	}
+	return out
 }

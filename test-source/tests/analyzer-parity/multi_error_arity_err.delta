@@ -1,0 +1,12 @@
+// Task 15: the error set `ErrA, ErrB` declares two error values, so returning
+// a single error literal is an arity error — not a structural union match.
+type ErrA = { a: bool; };
+type ErrB = { b: bool; };
+
+function f(): int32 | ErrA, ErrB {
+    return error as { a: true };
+}
+
+function main(): int32 {
+    return 0;
+}

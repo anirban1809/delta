@@ -1,0 +1,11 @@
+type Counter = { value: int32; };
+
+function (c: &Counter) get(): int32 {
+    return c.value;
+}
+
+function main(): int32 {
+    let c: Counter = { value: 9 };
+    let x = c.get();
+    return x;
+}

@@ -1,0 +1,11 @@
+type Base = { id: int32; };
+type Node = { ...Base; weight: int32; };
+
+function (n: &Node) total(): int32 {
+    return n.id + n.weight;
+}
+
+function main(): int32 {
+    let n: Node = { id: 2, weight: 5 };
+    return n.total();
+}

@@ -1,0 +1,16 @@
+type Vec3 = { x: int32; y: int32; z: int32; };
+type Transform = { position: Vec3; visible: bool; };
+
+function makeTransform(): Transform {
+    return {
+        position: { x: 3, y: 5, z: 8 },
+        visible: true,
+    };
+}
+
+function main(): int32 {
+    const transform: Transform = makeTransform();
+    if (transform.position.x != 3) { return 1; }
+    if (!transform.visible)        { return 2; }
+    return 0;
+}

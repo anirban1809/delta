@@ -1,0 +1,10 @@
+type OverflowError = { };
+
+function mightFail(x: int32): int32 | OverflowError {
+    return x;
+}
+
+function main(): int32 {
+    mightFail(5);
+    return 0;
+}

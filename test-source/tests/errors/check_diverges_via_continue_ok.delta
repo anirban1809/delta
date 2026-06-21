@@ -1,0 +1,13 @@
+type OverflowError = { };
+
+function main(): int32 {
+    let total: int32 = 0;
+    for (let i: int32 = 0; i < 5; i++) {
+        const s = total + i as result;
+        check result {
+            continue;
+        }
+        total = s;
+    }
+    return 0;
+}

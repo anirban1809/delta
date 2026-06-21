@@ -35,6 +35,99 @@
     "note": "phase K — object literal pinned by the enclosing function's declared return type"
   },
   {
+    "file": "record_return_value_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a function returns a named record value and the caller reads its fields"
+  },
+  {
+    "file": "record_return_alias_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a function returns a record alias that remains compatible with the underlying record type"
+  },
+  {
+    "file": "record_return_type_mismatch_err.delta",
+    "expect": "fail",
+    "contains": "want Vec3",
+    "note": "phase K — a record-returning function rejects a primitive return value"
+  },
+  {
+    "file": "record_return_literal_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a function directly returns a record literal pinned by its declared return type"
+  },
+  {
+    "file": "record_return_alias_literal_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a function return annotation can pin a record literal through an alias"
+  },
+  {
+    "file": "record_return_literal_missing_field_err.delta",
+    "expect": "fail",
+    "contains": "missing field",
+    "note": "phase K — a returned record literal must initialize every field required by the return type"
+  },
+  {
+    "file": "record_return_literal_field_order_ok.delta",
+    "expect": "pass",
+    "note": "phase K — returned record literals match fields by name, allow source reordering, and allow a trailing comma"
+  },
+  {
+    "file": "record_return_empty_literal_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a function can return an empty literal pinned to an empty record type"
+  },
+  {
+    "file": "record_return_composition_literal_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a return-context literal can construct a record produced by composition"
+  },
+  {
+    "file": "record_return_nested_literal_ok.delta",
+    "expect": "pass",
+    "note": "phase K — the outer return type and record field types pin nested record literals"
+  },
+  {
+    "file": "record_return_literal_spread_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a returned record literal accepts a complete same-type value spread"
+  },
+  {
+    "file": "record_return_literal_unknown_field_err.delta",
+    "expect": "fail",
+    "contains": "unknown field",
+    "note": "phase K — a returned record literal rejects fields absent from the declared return type"
+  },
+  {
+    "file": "record_return_literal_duplicate_field_err.delta",
+    "expect": "fail",
+    "contains": "duplicate field",
+    "note": "phase K — a returned record literal rejects an explicitly repeated field"
+  },
+  {
+    "file": "record_return_literal_field_type_err.delta",
+    "expect": "fail",
+    "contains": "int32",
+    "note": "phase K — each returned record literal field value must match the field type supplied by context"
+  },
+  {
+    "file": "record_return_literal_cross_type_spread_err.delta",
+    "expect": "fail",
+    "contains": "spread",
+    "note": "phase K — a returned record literal rejects a spread from a distinct nominal record"
+  },
+  {
+    "file": "record_return_literal_spread_collision_err.delta",
+    "expect": "fail",
+    "contains": "duplicate field",
+    "note": "phase K — a returned record literal rejects a field supplied both by spread and explicitly"
+  },
+  {
+    "file": "record_return_nested_literal_missing_field_err.delta",
+    "expect": "fail",
+    "contains": "missing field",
+    "note": "phase K — nested record literals pinned through return context enforce complete field coverage"
+  },
+  {
     "file": "literal_unpinned_err.delta",
     "expect": "fail",
     "contains": "typed context",

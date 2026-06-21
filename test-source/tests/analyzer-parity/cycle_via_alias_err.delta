@@ -1,0 +1,8 @@
+// Task 14: a record cycle whose back-edge is an alias (A contains B, and B is
+// an alias of A).
+type A = { b: B; };
+type B = A;
+
+function main(): int32 {
+    return 0;
+}

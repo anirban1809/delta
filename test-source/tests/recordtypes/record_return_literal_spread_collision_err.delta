@@ -1,0 +1,9 @@
+type Vec3 = { x: int32; y: int32; z: int32; };
+
+function invalidVec3(source: Vec3): Vec3 {
+    return { ...source, x: 89 };
+}
+
+function main(): int32 {
+    return 0;
+}

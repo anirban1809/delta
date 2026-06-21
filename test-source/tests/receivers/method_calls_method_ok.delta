@@ -1,0 +1,14 @@
+type Counter = { value: int32; };
+
+function (c: &Counter) get(): int32 {
+    return c.value;
+}
+
+function (c: &Counter) doubled(): int32 {
+    return c.get() + c.get();
+}
+
+function main(): int32 {
+    let c: Counter = { value: 3 };
+    return c.doubled();
+}

@@ -1,0 +1,12 @@
+type Counter = { value: int32; };
+type MathError = { code: int32; };
+
+// A fallible method's error must be handled with `as result` at the call site.
+function (c: &Counter) checked(): int32 | MathError {
+    return c.value;
+}
+
+function main(): int32 {
+    let c: Counter = { value: 1 };
+    return c.checked();
+}

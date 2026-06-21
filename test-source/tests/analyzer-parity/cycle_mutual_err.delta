@@ -1,0 +1,8 @@
+// Task 14: two records that each contain the other by value (A contains B,
+// B contains A).
+type A = { b: B; };
+type B = { a: A; };
+
+function main(): int32 {
+    return 0;
+}

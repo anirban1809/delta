@@ -1,0 +1,20 @@
+type DivideByZeroError = { };
+
+function safeDiv(a: int32, b: int32): int32 | DivideByZeroError {
+    const q = a / b as result;
+    check result {
+        return error as { };
+    }
+    return q;
+}
+
+function main(): int32 {
+    const r = safeDiv(10, 2) as result;
+    check result {
+        return 1;
+    }
+    if (r == 5) {
+        return 0;
+    }
+    return 2;
+}

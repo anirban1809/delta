@@ -1,0 +1,7 @@
+// Task 14: a pure alias cycle (X aliases Y, Y aliases X).
+type X = Y;
+type Y = X;
+
+function main(): int32 {
+    return 0;
+}

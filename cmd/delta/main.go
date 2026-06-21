@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"delta/internal/analyzer"
 	"delta/internal/ast"
 	"delta/internal/codegen"
 	"delta/internal/diagnostics"
 	"delta/internal/lsp"
 	"delta/internal/pipeline"
-	"delta/internal/semantics"
 	"delta/internal/token"
 	"delta/internal/tokenizer"
 	"delta/internal/toolchain"
@@ -54,14 +54,9 @@ func main() {
 }
 
 type compileResult struct {
-	File        ast.File
-	ErrorBag    *diagnostics.ErrorBag
-	Refs        map[ast.Position]semantics.Symbol
-	Conversions map[ast.Position]semantics.ConversionInfo
-	Divisions   map[ast.Position]semantics.Type
-	Shifts      map[ast.Position]semantics.Type
-	IncDecs     map[ast.Position]semantics.Type
-	SourcePath  string
+	File       ast.File
+	ErrorBag   *diagnostics.ErrorBag
+	SourcePath string
 }
 
 func compile(sourcePath string) (*compileResult, error) {
@@ -84,25 +79,15 @@ func compile(sourcePath string) (*compileResult, error) {
 		return &compileResult{File: file, ErrorBag: errorBag}, nil
 	}
 
-	analyzer := semantics.Analyzer{
-		AST:      file,
-		ErrorBag: errorBag,
-		GlobalScope: &semantics.Scope{
-			Parent:  nil,
-			Symbols: map[string]semantics.Symbol{},
-		},
+	validator := analyzer.Validator{
+		Errors: errorBag,
 	}
-	analyzer.Analyze()
+	validator.Check(file)
 
 	return &compileResult{
-		File:        file,
-		ErrorBag:    errorBag,
-		Refs:        analyzer.Refs,
-		Conversions: analyzer.Conversions,
-		Divisions:   analyzer.Divisions,
-		Shifts:      analyzer.Shifts,
-		IncDecs:     analyzer.IncDecs,
-		SourcePath:  sourcePath,
+		File:       file,
+		ErrorBag:   errorBag,
+		SourcePath: sourcePath,
 	}, nil
 }
 
@@ -169,7 +154,12 @@ func runBuild(args []string) {
 				os.Exit(2)
 			}
 			if sourcePath != "" {
-				fmt.Fprintf(os.Stderr, "multiple file paths given: %s and %s\n", sourcePath, arg)
+				fmt.Fprintf(
+					os.Stderr,
+					"multiple file paths given: %s and %s\n",
+					sourcePath,
+					arg,
+				)
 				os.Exit(2)
 			}
 			sourcePath = arg
@@ -234,7 +224,7 @@ func runBuild(args []string) {
 	}
 
 	// 1. Front-end.
-	result := pipeline.Compile(sourcePath, contents)
+	result := pipeline.Validate(sourcePath, contents)
 	if len(result.ErrorBag.Errors) > 0 {
 		for _, e := range result.ErrorBag.Errors {
 			fmt.Println(e.GetFormattedMessage())
@@ -244,14 +234,9 @@ func runBuild(args []string) {
 
 	// 2. Codegen.
 	emitter := codegen.Emitter{
-		File:         result.File,
-		ErrorBag:     result.ErrorBag,
-		PositionRefs: result.Refs,
-		Conversions:  result.Conversions,
-		Divisions:    result.Divisions,
-		Shifts:       result.Shifts,
-		IncDecs:      result.IncDecs,
-		SourcePath:   sourcePath,
+		File:       result.File,
+		ErrorBag:   result.ErrorBag,
+		SourcePath: sourcePath,
 	}
 
 	cBytes := emitter.Emit()
@@ -662,14 +647,9 @@ func runCodegenMatch(
 	}
 
 	emitter := codegen.Emitter{
-		File:         result.File,
-		ErrorBag:     result.ErrorBag,
-		PositionRefs: result.Refs,
-		Conversions:  result.Conversions,
-		Divisions:    result.Divisions,
-		Shifts:       result.Shifts,
-		IncDecs:      result.IncDecs,
-		SourcePath:   sourcePath,
+		File:       result.File,
+		ErrorBag:   result.ErrorBag,
+		SourcePath: sourcePath,
 	}
 
 	cBytes := emitter.Emit()
@@ -718,14 +698,9 @@ func runTrapTest(
 	tc testCase,
 ) (ok bool, reason string) {
 	emitter := codegen.Emitter{
-		File:         result.File,
-		ErrorBag:     result.ErrorBag,
-		PositionRefs: result.Refs,
-		Conversions:  result.Conversions,
-		Divisions:    result.Divisions,
-		Shifts:       result.Shifts,
-		IncDecs:      result.IncDecs,
-		SourcePath:   sourcePath,
+		File:       result.File,
+		ErrorBag:   result.ErrorBag,
+		SourcePath: sourcePath,
 	}
 
 	cBytes := emitter.Emit()

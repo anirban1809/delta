@@ -1,0 +1,10 @@
+// Task 1 (remaining): passing more arguments than the signature declares must
+// be a clean arity error. Currently the argument loop indexes sig.Parameters[i]
+// directly and panics (index out of range).
+function takesOne(a: int32): int32 {
+    return a;
+}
+
+function main(): int32 {
+    return takesOne(1, 2);
+}

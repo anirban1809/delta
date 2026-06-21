@@ -29,6 +29,14 @@ const (
 	Keyword_Default
 	Keyword_Break
 	Keyword_Type
+	Keyword_Error
+	Keyword_As
+	Keyword_Forward
+	Keyword_Check
+	Keyword_Import
+	Keyword_Export
+	Keyword_From
+	Keyword_Edit
 
 	Type_Int32
 
@@ -127,8 +135,6 @@ func (k Kind) String() string {
 		return "break"
 	case Keyword_Type:
 		return "type"
-	// case Type_Int32:
-	// 	return "int32"
 	case Symbol_LeftParen:
 		return "("
 	case Symbol_RightParen:
@@ -201,6 +207,22 @@ func (k Kind) String() string {
 		return ".."
 	case Symbol_Ellipsis:
 		return "..."
+	case Keyword_As:
+		return "as"
+	case Keyword_Error:
+		return "error"
+	case Keyword_Forward:
+		return "forward"
+	case Keyword_Check:
+		return "check"
+	case Keyword_Import:
+		return "import"
+	case Keyword_Export:
+		return "export"
+	case Keyword_From:
+		return "from"
+	case Keyword_Edit:
+		return "edit"
 	default:
 		return "unknown"
 	}
@@ -240,7 +262,34 @@ func LookupIdent(s string) Kind {
 		return Keyword_Break
 	case "type":
 		return Keyword_Type
+	case "as":
+		return Keyword_As
+	case "error":
+		return Keyword_Error
+	case "forward":
+		return Keyword_Forward
+	case "check":
+		return Keyword_Check
+	case "import":
+		return Keyword_Import
+	case "export":
+		return Keyword_Export
+	case "from":
+		return Keyword_From
+	case "edit":
+		return Keyword_Edit
 	default:
 		return Kind_Identifier
+	}
+}
+
+// Keywords returns the source-language keywords accepted by LookupIdent.
+// Boolean literals are included because editors present them alongside
+// keywords in expression completion.
+func Keywords() []string {
+	return []string{
+		"function", "return", "const", "let", "if", "else", "while", "for",
+		"switch", "case", "default", "continue", "break", "type",
+		"as", "error", "forward", "check", "true", "false", "edit",
 	}
 }

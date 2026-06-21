@@ -39,6 +39,10 @@ type FunctionParameter struct {
 
 type FunctionDeclaration struct {
 	Position
+	// Receiver is nil for free functions. When non-nil the declaration is a
+	// receiver method: its Type is a reference (`&T` / `edit &T`) to the
+	// record the method is attached to. The receiver name replaces `this`.
+	Receiver    *FunctionParameter
 	Name        string
 	ReturnTypes []TypeReference
 	ErrorTypes  []TypeReference
@@ -48,8 +52,23 @@ type FunctionDeclaration struct {
 
 func (FunctionDeclaration) declarationNode() {}
 
+type TypeKind int
+
+const (
+	Primitive TypeKind = iota
+	Custom
+)
+
 type TypeReference struct {
-	Name Identifier
+	Name   Identifier
+	Kind   TypeKind
+	Fields []*TypeReference // only populated in case of custom user defined record types, nil for other cases.
+
+	// Reference is true for `&T` and `edit &T`. Edit is true only for the
+	// mutable, exclusive form `edit &T` (and implies Reference). Both are
+	// false for an ordinary by-value type.
+	Reference bool
+	Edit      bool
 }
 
 type BlockStatement struct {
@@ -69,6 +88,7 @@ type Statement interface {
 
 type ReturnStatement struct {
 	Position
+	Error  bool
 	Values []Expression
 }
 
@@ -140,6 +160,9 @@ type FunctionCallExpression struct {
 	Position
 	Callee    Expression
 	Arguments []Expression
+
+	// to check if the error returned by the resulting expression has been caught using the "as result" syntax
+	Caught bool
 }
 
 func (FunctionCallExpression) expressionNode() {}
@@ -279,6 +302,22 @@ type SwitchCase struct {
 	Body     *BlockStatement
 }
 
+type FallibleStatement struct {
+	Position
+	Inner  Statement
+	Result Identifier
+}
+
+func (FallibleStatement) statementNode() {}
+
+type CheckStatement struct {
+	Position
+	Result Identifier
+	Body   *BlockStatement
+}
+
+func (CheckStatement) statementNode() {}
+
 type TypeDeclaration struct {
 	Position
 	Name     Identifier
@@ -295,6 +334,7 @@ type TypeRHS interface {
 
 type RecordRHS struct {
 	Position
+	Type   TypeReference
 	Fields []RecordField
 }
 
@@ -302,6 +342,7 @@ func (RecordRHS) typeRHSNode() {}
 
 type AliasRHS struct {
 	Position
+	Type   TypeReference
 	Target TypeReference
 }
 
@@ -309,6 +350,7 @@ func (AliasRHS) typeRHSNode() {}
 
 type CompositionRHS struct {
 	Position
+	Type     TypeReference
 	Operands []CompositionOperand
 	Style    CompositionStyle
 }

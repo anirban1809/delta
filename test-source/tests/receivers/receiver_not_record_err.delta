@@ -1,0 +1,4 @@
+// A method receiver must reference a record type, not a primitive.
+function (c: &int32) doubled(): int32 {
+    return 0;
+}

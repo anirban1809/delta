@@ -1,0 +1,7 @@
+// Task 11: file-scope const initializers must be type-checked against the
+// declared type. Pass 2 currently has no ConstDeclaration case.
+const MAX: int32 = true;
+
+function main(): int32 {
+    return 0;
+}

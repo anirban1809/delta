@@ -1,6 +1,6 @@
 # Delta Compiler Status
 
-Date: 2026-06-07
+Date: 2026-06-14
 
 This document describes the current implementation status of the Delta compiler
 against the design in `docs/main-spec.md` and `docs/spec-sections/`. It is a
@@ -59,17 +59,30 @@ Section 2:
    checks are AST-walk heuristics, not a control-flow graph — the CFG +
    reusable dataflow framework sketched in the Phase B plan was not built
    (see "Semantic Analysis Status" and "Deviations From The Phase B Plan").
+   This now also covers the Phase K user-defined **record types**: `type`
+   declarations (record, alias, and spread/intersection composition),
+   object literals pinned by their typed context (one-level bidirectional
+   inference), member access and field assignment, whole-value
+   definite-assignment, declaration-time cycle detection, and
+   compiler-derived structural `==`/`!=` (see "Record Types (Phase K)").
+   This now also covers the Phase C **recoverable error model**: fallible
+   function signatures (`T | E1, E2`), the `expr as result` binding form
+   over fallible calls and Phase A trap sites, `check result { ... }`
+   error-handling blocks (every internal path must diverge),
+   `return error as { ... }` propagation, pending-state tracking, and
+   unbound-fallible rejection (see "Error Model (Phase C)").
 5. C code generation (single-TU, with trapping runtime helpers for checked
-   conversions and arithmetic; see "Codegen Status" below for the covered
-   surface)
+   conversions and arithmetic, and tagged result-struct lowering for the
+   error model; see "Codegen Status" below for the covered surface)
 6. Clang invocation (single-call compile + link to `build/<basename>`)
 
-The remaining planned stages are not implemented yet:
+A first slice of **checked error-state analysis** has now landed as part of
+Phase C (fallible-call binding, pending-read rejection, check-block
+divergence). The remaining planned stages are not implemented yet:
 
 1. typed AST (the current analyzer computes types but does not yet emit a
    separate typed AST node tree)
 2. ownership and lifetime analysis
-3. checked error-state analysis
 
 ## Implemented Language Surface
 
@@ -101,8 +114,14 @@ Implemented token categories:
 - Character literals using single quotes (with `\n`, `\t`, `\xNN`, `\u{...}`
   escapes).
 - Keywords: `function`, `return`, `const`, `let`, `if`, `else`, `while`,
-  `for`, `switch`, `case`, `default`, `break`, `continue`.
-- Delimiters: `(`, `)`, `{`, `}`, `:`, `;`, `,`.
+  `for`, `switch`, `case`, `default`, `break`, `continue`, `type`, and the
+  Phase C error-model keywords `as`, `check`, and `error`. (`forward` is also
+  reserved as a keyword in the tokenizer but is not yet recognized by the
+  parser.) `result` is **not** a keyword — it is the user-chosen identifier
+  that follows `as`.
+- Delimiters: `(`, `)`, `{`, `}`, `:`, `;`, `,`, `.` (member access, a
+  first-class punctuation token), and `...` (spread/ellipsis, lexed with
+  longest-match lookahead so a future `..` range is not consumed early).
 - Arithmetic operators: `+`, `-`, `*`, `/`, `%`.
 - Bitwise operators: `&`, `|`, `^`, `~`, `<<`, `>>` (a lone `&` is bitwise-and;
   `&&` remains logical-and).
@@ -122,7 +141,7 @@ Not implemented yet:
 - Template string literals.
 - Raw string literals.
 - Import/export/decorator/extern tokens.
-- Type declaration, class, enum, interface, reference, move, clone, heap, and error
+- Class, enum, interface, reference, move, clone, heap, and error
   handling tokens.
 - Remaining compound assignment operators (`/=`, `%=`, `&=`, `|=`, `^=`,
   `<<=`, `>>=`).
@@ -153,6 +172,22 @@ Implemented:
 
 - Rejection of file-scope `let`.
 
+- `type` declarations for user-defined record types, in all three RHS
+  forms (Phase K):
+
+  ```delta
+  type Vec3   = { x: float64; y: float64; z: float64; }; // record
+  type Position = Vec3;                                   // alias
+  type Dog    = { ...Animal; goodBoy: bool; };            // spread composition
+  type Cat    = Animal & { color: int32; };              // intersection composition
+  ```
+
+  The anonymous object-type literal `{ f: T; ... }` is accepted **only**
+  on a `type` RHS (or as a spread/intersection operand within one);
+  using it in a parameter, field, return, or binding position is a parser
+  error (§8.3). Field defaults, methods, and per-field visibility inside a
+  record body are rejected at the parser (§8.5 / §8.11).
+
 Partially aligned with the design:
 
 - Section 3 allows file-scope `const` and rejects file-scope `let`; this is
@@ -160,15 +195,19 @@ Partially aligned with the design:
 - The parser currently treats primitive type names like `int32` as identifiers
   in type positions, which matches the current AST shape but is not a complete
   type system yet.
-- Multiple return types and error types are currently parsed and formatted as
-  type references only. The compiler does not yet validate return arity, error
-  type shape, or fallible control flow.
+- Multiple return types are parsed, formatted, and validated (return arity and
+  per-value types). As of Phase C, declared **error types** are also validated:
+  each entry in the `T | E1, E2` error set must resolve to a user-declared
+  record type (see "Error Model (Phase C)"), the set is normalized
+  (deduplicated), and fallible control flow (`as result` / `check` /
+  `return error as`) is checked end-to-end.
 
 Not implemented yet:
 
 - `export` declarations.
 - `import` declarations.
-- `type`, `class`, `interface`, and `enum` declarations.
+- `class`, `interface`, and `enum` declarations (`type` records are done;
+  tagged-union `type X = A | B;` is not).
 - `extern "c"` blocks.
 - Decorators.
 - Arrow-bound functions and lambdas.
@@ -181,7 +220,10 @@ Implemented inside function and control-flow blocks:
 - `return` statements.
 - Local `const` and `let` variable declarations.
 - Assignment statements, including compound `+=`, `-=`, `*=` (which lower to
-  overflow-checked helper calls; see "Codegen Status").
+  overflow-checked helper calls; see "Codegen Status"). The target may be an
+  identifier or, since Phase K, a member-access L-value `v.field = expr;`
+  (legal only when `v` is a mutable `let` binding that is already fully
+  initialized).
 - Expression statements (including postfix `i++;` / `i--;` as statements).
 - `if` / `else` statements.
 - `while` statements.
@@ -196,6 +238,28 @@ Implemented inside function and control-flow blocks:
 - `break` and `continue` statements (rejected outside a loop).
 - Local `let name: T;` declarations **without** an initializer (the binding's
   type comes from the annotation and definite-assignment tracks first use).
+  This includes record-typed bindings (`let v: Vec3;`), which are
+  definite-assigned only by a **whole-value** assignment (`v = { ... };`);
+  reading or writing any field before that is rejected (Phase K).
+- The Phase C error-model statement forms:
+  - `expr as result;` / `const x = expr as result;` / `let x = expr as result;`
+    / `lvalue = expr as result;` — the fallible-binding form. The inner `expr`
+    must be fallible (a call to a function with a non-empty error set, or a
+    Phase A trap-set operation — checked arithmetic, division, shift, or a
+    narrowing/sign-flip/float→int/int→char conversion). `result` is the
+    user-chosen result name. The bound success value(s) become **pending**
+    until a matching `check`. Applying `as result` to a provably-infallible
+    expression is rejected ("this expression cannot fail").
+  - `check result { ... }` — the error-handling block. It runs only on the
+    error path, and every control-flow path inside it must end in a diverging
+    terminator (`return`, `return error as`, `break`, or `continue`); a
+    fall-through path is rejected. After the block, the pending bindings become
+    valid for normal use. The result name must match a preceding `as result`.
+  - `return error as { ... };` — the propagation form, producing a fallible
+    value in the error state. The `{ ... }` is an object-literal initializer
+    pinned by the enclosing function's declared error set (the error type is
+    **not** named at the `return` site — it is inferred from the set), and is
+    legal only inside a function that declares a non-empty error set.
 
 Aligned with the design:
 
@@ -212,7 +276,6 @@ Not implemented yet:
 - `switch type` (variant dispatch), and `switch` over strings, enums, or
   floats.
 - Range case labels (`case 1..10:`) and const-expression case labels.
-- `check` blocks.
 - `panic`, `process.exit`, and `unreachable` intrinsics (the Phase B "stretch"
   goal; the trap runtime exists but is not yet user-callable, and no
   divergence concept feeds return-coverage).
@@ -270,13 +333,23 @@ Implemented:
   makeAdder()(3)
   ```
 
+- Member-access expressions `receiver.field` (Phase K), for reading a field
+  of a record-typed expression. The legacy `Type.from(x)` conversion path is
+  now a special case of the generic member-access node.
+
+- Object-literal expressions `{ f: v, ... }` (Phase K). These carry shape but
+  no name; the analyzer pins their record type from the surrounding typed
+  context (binding annotation, call-site parameter type, or return type) and
+  enforces exact field coverage (no missing / unknown / duplicate fields,
+  order-insensitive). Value-level spread `{ ...base }` / `{ ...a, ...b }` is
+  supported; the spread source must be the same record type as the target.
+  An object literal with no typed context to pin against is a structured
+  error.
+
 Not implemented yet:
 
-- `as result`.
 - `move`, `clone`, `&`, and `edit &` expressions.
-- Member access.
 - Index expressions.
-- Object literals.
 - Array literals.
 - Lambda expressions.
 - Ternary or other expression forms, if later adopted.
@@ -291,11 +364,24 @@ The AST currently separates declarations, statements, and expressions:
   - `ReturnTypes []TypeReference`
   - `ErrorTypes []TypeReference`
 - `ConstDeclaration`
+- `TypeDeclaration` (Phase K), with a `RHS` of one of:
+  - `RecordRHS` (`Fields []RecordField`) — inline `{ f: T; ... }`
+  - `AliasRHS` (`Target TypeReference`) — `type Y = X;`
+  - `CompositionRHS` (`Operands`, `Style` = spread or intersection) — each
+    operand is a named `TypeReference` or an inline `RecordRHS`
+- `RecordField` (`Name`, `Type TypeReference`)
 - `FunctionParameter`
 - `TypeReference`
 - `BlockStatement`
 - `ReturnStatement`
   - stores `Values []Expression` (supports multi-expression returns)
+  - carries an `Error bool` flag (set by `return error as { ... };`, in which
+    case `Values` holds the pinned error object literal) — Phase C
+- `FallibleStatement` (`Inner Statement`, `Result Identifier`) — the
+  `... as result;` binding form, wrapping the inner declaration / assignment /
+  expression statement — Phase C
+- `CheckStatement` (`Result Identifier`, `Body *BlockStatement`) — the
+  `check result { ... }` block — Phase C
 - `Comment` (preserved at file and block scope; skipped by the analyzer)
 - `VariableDeclarationStatement` (the `Value` expression is now optional, so
   `let name: T;` parses with `Value == nil`)
@@ -322,6 +408,10 @@ The AST currently separates declarations, statements, and expressions:
 - `PostfixUnaryExpression` (`Operand` + `Operator` of `"++"` / `"--"`)
 - `BinaryExpression`
 - `FunctionCallExpression`
+- `MemberAccessExpression` (`Receiver`, `Member`) — Phase K
+- `ObjectLiteralExpression` (`Elements []ObjectLiteralElement`), where each
+  element is a `FieldInit` (`Name`, `Value`) or a `SpreadElement` (`Source`)
+  — Phase K
 
 This is enough for an untyped parser milestone. It is not yet the typed AST
 described in the pipeline design.
@@ -542,6 +632,100 @@ dataflow (e.g. `for`-body return-coverage assumes the loop runs at least
 once, and there is no divergence/`panic` edge). See "Deviations From The
 Phase B Plan" below.
 
+Implemented (record types, Phase K):
+
+- A new type kind `TypeCustom`, carrying a `*CustomRecord` (name, C name,
+  and a resolved field list). Two record references are equal as types iff
+  they point at the same `*CustomRecord` (nominal identity); aliases reuse
+  the target's `*CustomRecord`, so an alias and its target interchange
+  freely.
+- Type-declaration registration runs in interleaved passes alongside the
+  existing function/const passes: a declare pass registers each record name
+  (so declarations may forward-reference one another), a resolve pass types
+  record fields, follows alias chains, and merges composition operands, and
+  a cycle pass rejects recursive records.
+- Alias resolution (`type Y = X;`) is a structural alias to a single named
+  type, including alias chains; alias cycles are caught by the cycle pass.
+- Composition (`...` spread and `&` intersection) is uniform: all operands'
+  field sets are collected, any field-name collision across operands is an
+  error, non-record operands are rejected, and the result is a fresh nominal
+  record. Direct self-reference and mutual cycles are rejected at
+  declaration time with a diagnostic naming every type on the cycle and
+  suggesting `heap<T>` to break it (`heap T` is not implemented until Phase
+  H).
+- One-level **bidirectional inference**: typing now threads an *expected*
+  type into expression checks at the pinning sites (binding annotation,
+  call-site argument, return value, and each field value of a pinned object
+  literal). This is what lets a shape-only object literal acquire a nominal
+  record type. (The expected type is currently consulted for the record
+  path; primitive binding inference still adopts the initializer's type —
+  the "annotations are informational" gap persists for primitives.)
+- Object-literal typing: an unpinned literal is a structured error ("needs a
+  typed context"); a literal pinned to a non-record type is rejected; a
+  pinned literal is checked for exact field coverage with per-field-name
+  missing / unknown / duplicate diagnostics and per-field value typing.
+  Value spreads contribute the source's field set, require the source to be
+  the same record type as the target, and participate in collision and
+  coverage checks.
+- Member-access typing (`v.f`): the receiver is resolved to a record type and
+  `f` looked up on its field list (read yields the field's type; an unknown
+  field or a non-record receiver is an error). `TypeInvalid` receivers
+  return `TypeInvalid` to suppress cascades. The legacy `Type.from(x)` path
+  is preserved.
+- Field assignment (`v.f = e;`): permitted only when the receiver is a `let`
+  binding (a `const` receiver reuses the "cannot assign to const"
+  diagnostic) and the binding is definitely assigned; the value is checked
+  against the field type. Definite-assignment treats record bindings whole
+  (per §8.4 there is no partial initialization), so no per-field bits are
+  tracked.
+- Compiler-derived structural equality: `==` / `!=` between two values of the
+  same record type is accepted iff every field type supports `==` (numeric,
+  `bool`, `char`, and — recursively — record fields). The requirement is
+  recorded so codegen knows which per-type helpers to synthesize. Ordering
+  operators (`<`, `>`, `<=`, `>=`) on record operands are rejected (§8.9).
+
+Implemented (error model, Phase C):
+
+- **Error types are user-declared record types**, not a built-in predeclared
+  set. This is the major deviation from the Phase C plan, which called for
+  `OverflowError` / `DivideByZeroError` / etc. predeclared in a primordial
+  scope. Instead each error type is an ordinary in-file `type E = { ... };`
+  record (Phase K). The fixtures declare their own `type OverflowError = {};`.
+- Signature validation: every entry in a function's `T | E1, E2` error set
+  must resolve to a record type (a primitive in the error slot is rejected
+  with "must be a record type", an undeclared name with "unknown type"). The
+  error set is normalized (duplicates removed) and stored on the
+  `FunctionSignature.ErrorTypes`. A `void | E` success-with-error signature is
+  legal.
+- `as result` typing: the inner expression must be fallible — a call to a
+  function with a non-empty error set, or one of the Phase A trap-set
+  operations (checked arithmetic, integer `/`/`%`, `<<`/`>>`, and trapping
+  `T(x)` conversions). `as result` on a provably-infallible expression is
+  rejected ("cannot fail"). A fallible expression is only permitted inside the
+  `as result` form; a bare/unbound fallible call elsewhere is rejected
+  ("fallible call ... must be followed by `as result`"), including
+  `let x = fallibleCall();` without `as result`.
+- Pending-state tracking: the success binding(s) introduced by `as result`
+  enter a per-scope **pending** map; any read of a pending binding before its
+  matching `check` is rejected ("`x` is pending from `as result`; check
+  `result` before reading it"). The matching `check result { ... }` transitions
+  the bindings to valid on the fall-through path past the block.
+- `check` block validation: the result name must match a still-pending
+  preceding `as result` (a name mismatch or a `check` with no preceding
+  `as result` is rejected), and the block body must fully diverge — every path
+  must end in a diverging terminator (`return`, `return error as`, `break`, or
+  `continue`); a fall-through or partial-divergence (`if` without `else`) path
+  is rejected ("must diverge").
+- `return error as { ... }` validation: legal only inside a function with a
+  non-empty declared error set; the `{ ... }` object literal is pinned by that
+  error set. `return error as` from a function with no error set, or an error
+  literal that does not match a member of the declared set, is rejected
+  ("error set").
+
+These error-model flow checks reuse the same AST-walk machinery as Phase B
+(there is still no CFG); check-block divergence is the structural
+return-coverage walk applied to the block body.
+
 Not implemented yet (semantics):
 
 - A control-flow graph and a reusable dataflow framework (the planned
@@ -573,9 +757,11 @@ write-and-invoke step.
 
 Implemented (exercised by 17 golden-file fixtures under
 `test-source/tests/codegen/`, the 23-case `test-source/tests/primitives/`
-suite, and the 61-case `test-source/tests/controlflow/` suite — the latter
-two run `pass`/`fail`/`trap` verbs end-to-end through clang. Suites are
-auto-discovered by `delta test` from any `test-source/tests/<dir>/tests.json`):
+suite, the 61-case `test-source/tests/controlflow/` suite, and the 30-case
+`test-source/tests/recordtypes/` suite (11 `pass`, 18 `fail`, and 1
+`codegen_match` snapshot) — the numeric suites run `pass`/`fail`/`trap` verbs
+end-to-end through clang. Suites are auto-discovered by `delta test` from any
+`test-source/tests/<dir>/tests.json`):
 
 - Single-file lowering to `build/c/<basename>.c`, then clang invocation
   to produce `build/<basename>`. Generated `.c` is preserved on failure.
@@ -638,6 +824,51 @@ auto-discovered by `delta test` from any `test-source/tests/<dir>/tests.json`):
   re-group differently than the AST demands. (Helper-lowered operators —
   division, shift, compound assignment — emit as self-delimiting calls and
   need no parens.)
+- Record types (Phase K):
+  - A `buildRecordTable` pre-pass resolves every `TypeDeclaration` into a
+    canonical `recordInfo` (Delta name, C name `delta__<Record>`, and the
+    declaration-order field list). Aliases share the target's `recordInfo`
+    and emit no new struct.
+  - One `typedef struct delta__<Record> { ... }` per canonical record, in
+    dependency (topological) order so a record embedded by value is defined
+    before the record that contains it. Records flow through C by value:
+    parameters, returns, and locals are plain struct values.
+  - Object literals lower to C compound literals
+    `(delta__Vec3){ .x = ..., ... }` with fields emitted in **declaration**
+    order regardless of source order, so output is stable. Value spreads are
+    expanded fieldwise — for each target field not given explicitly, the
+    matching projection of the spread source is emitted.
+  - Member access `v.f` and field assignment `v.f = e;` lower to plain C
+    `v.f` (records live inline, no deref).
+  - Structural equality: one `static inline bool delta__<Record>_eq(...)` is
+    synthesized per record actually compared (recursing into record-typed
+    fields via the field's own `_eq` helper). `a == b` lowers to
+    `delta__<Record>_eq(a, b)` and `a != b` to its negation; the snapshot
+    fixture `record_eq_helper_emitted_ok` asserts exactly one helper is
+    emitted and no spurious ones.
+- Error model (Phase C):
+  - One tagged result struct per distinct success shape, synthesized on demand
+    and cached: `typedef struct delta_result_<shape> { uint8_t tag; T value; }`
+    (the `value` member is omitted for a `void` success shape). `tag == 0`
+    means success; a non-zero tag means error. **Error-payload fields are not
+    materialized** — the error side is tag-only in v0.5, even when the error
+    record declares fields, so `return error as { code: 1, line: 0 }` lowers to
+    a tag-only error value.
+  - A fallible Delta function `T | E_set` lowers to a C function returning
+    `delta_result_<shape>`; success returns `{ .tag = 0, .value = ... }` and
+    `return error as { ... };` lowers to `{ .tag = 1 }`.
+  - `_result`-suffixed variants of the Phase A trap helpers (conversion,
+    division, shift, arithmetic) return a result struct (`{ .tag = 1 }` on what
+    would have trapped, `{ .tag = 0, .value = ... }` otherwise) instead of
+    calling `delta_panic`. Codegen selects the `_result` variant when the
+    analyzer marks the op as `as result`-wrapped, and these helpers are emitted
+    only when used.
+  - The `as result` binding plus its matching `check` block lower together: a
+    temporary `delta_result_<shape>` holds the inner expression, an
+    `if (__result.tag != 0) { <check body> }` runs the check block, and the
+    success value commits to the user's binding/storage **after** the check
+    (so pending values only become visible once the error path is proven to
+    diverge).
 - Comments in Delta source are dropped from the emitted C.
 
 Pending (planned in `docs/plans/c-codegen-v0.md`):
@@ -671,7 +902,10 @@ are tracked here so the gaps are not mistaken for finished work:
   Definite-assignment is a per-`Scope` assignment list with an `if`/`else`
   intersection join, and return-coverage is the structural
   `blockReturns`/`statementReturns` AST walk. Phase C and Phase F were
-  meant to layer on this CFG; that infrastructure still has to be written.
+  meant to layer on this CFG; Phase C nonetheless landed on the same AST-walk
+  machinery (check-block divergence is the structural return-coverage walk
+  applied to the block body), so the CFG infrastructure still has to be written
+  before the flow analysis is sound in general.
 - **`break`/`continue` are not transparent to `switch`** (plan Decisions 7
   and 8). Codegen lowers a Delta `switch` to a native C `switch` and a Delta
   `break` to a literal C `break;`. A `break` inside a `switch` nested in a
@@ -703,47 +937,123 @@ are tracked here so the gaps are not mistaken for finished work:
 ## Editor Integration
 
 `delta` now ships a Language Server subcommand and a bundled VS Code
-extension that surface live diagnostics in the editor.
+extension that surface live diagnostics and position-based queries in the
+editor.
 
 Implemented:
 
-- `delta lsp` subcommand: a single-threaded JSON-RPC over stdio server that
-  speaks the LSP subset needed for diagnostics-only operation.
+- `delta lsp` subcommand: a single-threaded JSON-RPC over stdio server.
   - Handles `initialize`, `initialized`, `shutdown`, `exit`,
-    `textDocument/didOpen`, `textDocument/didChange`, `textDocument/didClose`.
+    `textDocument/didOpen`, `textDocument/didChange`, `textDocument/didClose`,
+    `textDocument/hover`, `textDocument/definition`,
+    `textDocument/completion`, `textDocument/signatureHelp`,
+    `textDocument/documentSymbol`, `textDocument/references`,
+    `textDocument/prepareRename`, `textDocument/rename`,
+    `textDocument/semanticTokens/full`, `textDocument/inlayHint`,
+    `textDocument/foldingRange`, `textDocument/selectionRange`, and
+    `textDocument/codeAction`.
   - Advertises `textDocumentSync: { openClose: true, change: 1 }` (full
-    document sync).
+    document sync), plus `hoverProvider`, `definitionProvider`, and
+    `completionProvider`.
   - On each open/change, runs `pipeline.Compile` over the document text and
-    publishes `textDocument/publishDiagnostics`. On close, clears them.
+    publishes `textDocument/publishDiagnostics`. On close, clears them. The
+    latest result (and the last cleanly-parsed result) is cached per URI so
+    hover/definition/completion can answer without recompiling.
   - Unknown requests respond with `MethodNotFound`; unknown notifications are
     ignored. Pipeline panics are caught so a malformed buffer cannot crash the
     server.
+- Hover and go-to-definition resolve through the analyzer's `Refs` map
+  (use-site → symbol) and `RootScope` scope tree. `internal/lsp/position.go`
+  walks the **full current AST surface** — including the Phase B control-flow
+  nodes (`for`, `switch`/`case`/`default`, postfix `++`/`--`) and the Phase K
+  record nodes (`type` declarations and their record/alias/composition RHS,
+  member access, object literals, member-access assignment targets) — so
+  these features resolve everywhere they appear. Hover renders each symbol's
+  `Display` string (e.g. `let i: int32`, `type Vec3`) as a fenced `delta`
+  code block.
+- Go-to-definition also resolves **type-name references** to their `type`
+  declaration: a value use-site resolves through the `Refs` map, while a
+  type reference (an annotation, field type, alias target, or composition
+  operand) — which carries no `Refs` entry — falls back to a scope lookup
+  that lands on the `SymbolTypeDecl`. The jump targets the type name itself
+  (`SymbolTypeDecl.DefPos` is the declaration's name position); clicking the
+  declaration site stays a no-op.
+- Completion has two modes:
+  - **Member access** (triggered by `.`): after a record-typed receiver
+    (`v.`, `a.b.`), it offers that record's fields and nothing else, each
+    labeled `name: type`. The receiver chain is resolved through the
+    analyzer's resolved-record registry (`Analyzer.Records`, which follows
+    alias chains and flattens spread/intersection composition); nested
+    chains walk field types one segment at a time, and a non-record receiver
+    yields no items.
+  - **Default**: in-scope symbols (functions, consts, locals, parameters,
+    and `type` names) plus the Delta keyword set (`function`, `const`,
+    `let`, `type`, `if`/`else`/`while`/`for`, `switch`/`case`/`default`/
+    `break`/`continue`, `return`, `true`/`false`). Locals are gated on
+    declaration order; globals and parameters are always visible.
+  - Function items insert argument snippets using declared parameter names.
+    Statement completion supplies snippets for bindings and common control
+    flow. Type positions offer primitive and user-defined types without
+    unrelated value symbols.
+  - Completion uses the expected binding or call-argument type to rank
+    compatible values first. Inside a typed record literal it offers fields
+    that have not already been initialized. After `check` it offers unmatched
+    result names from preceding `as result` bindings.
+  - Record fields are also offered after a simple record-returning function
+    call such as `makeUser().`.
+- Signature help shows parameter names and types, return types, and declared
+  error types, with the active parameter tracked across nested calls.
+- Document symbols expose functions, file constants, record types, and record
+  fields. Find-references and rename operate over the current file for value
+  and type symbols, with prepare-rename validation.
+- Member hover and go-to-definition resolve record fields to their declared
+  type and source position.
+- Semantic tokens distinguish types, functions, parameters, variables, and
+  fields. Inlay hints show inferred local binding types. AST block ranges feed
+  folding and selection-range requests.
+- Code actions currently provide quick fixes for adding a required
+  `as result` binding and removing an unnecessary one.
 - `internal/lsp/diagnostics.go` adapts `SourceError` to LSP `Diagnostic`:
   1-based positions become 0-based, severities map to LSP 1/2, `source` is
   `"delta"`, optional `Expected`/`Help` are appended to the message body.
 - VS Code extension at `editors/vscode/`:
-  - TextMate grammar covering keywords, literals, comments, strings, type
-    annotations, and function-name highlights.
+  - TextMate grammar covering comments, strings, numeric literals (incl. hex /
+    binary / octal and scientific-notation floats), the full keyword set,
+    booleans, function-name and `type`-name declaration highlights, and type
+    annotations.
   - `language-configuration.json` for comment toggling and bracket
-    autoclosing.
+    autoclosing, plus brace indentation rules.
   - `src/extension.ts` spawns `delta lsp` over stdio via
     `vscode-languageclient` and surfaces server stderr in a "Delta Language
     Server" output channel.
   - Settings: `delta.server.path` (absolute path override; empty means PATH)
     and `delta.trace.server` (LSP trace level).
+  - A server status-bar item, restart/output commands, automatic restart when
+    the configured server path changes, and workspace-relative server paths.
 
-The analyzer now exposes the two pieces the LSP needs for position-based
-queries: `Analyzer.Refs` (use-site `Position` → resolved `Symbol`) and
-`Analyzer.RootScope` (a `ScopeNode` tree with source ranges and
-`FindDeepest(pos)`). Each `Symbol` carries a `Display` string for hover.
-This is enough machinery to land hover and go-to-definition next, but
-those LSP endpoints are not wired up yet.
+The analyzer exposes the pieces the LSP needs for position-based queries:
+`Analyzer.Refs` (use-site `Position` → resolved `Symbol`), `Analyzer.RootScope`
+(a `ScopeNode` tree with source ranges and `FindDeepest(pos)`), and
+`Analyzer.Records` (record type name → resolved `[]ResolvedRecordField`, with
+aliases followed and composition flattened, built at the end of `Analyze()`).
+Each `Symbol` carries a `Display` string for hover, including
+`SymbolTypeDecl` (rendered as `type <Name>`).
 
 Not implemented yet (LSP):
 
-- Hover, go-to-definition, document symbols, completion, signature help,
-  rename, code actions, formatting — the analyzer outputs are ready;
-  wiring through `internal/lsp` remains.
+- Field completion at the cursor is text-driven: the receiver chain before
+  the `.` is recovered by scanning the line prefix, and only the leading
+  segment is resolved as a binding (subsequent segments walk field types).
+  It does not consult the typed AST, so it does not see fields of a record
+  returned by a call (`f().field`) or any non-binding receiver expression.
+- A general typed-expression index. Member completion recognizes binding
+  chains and simple function-call receivers, but arbitrary expression
+  receivers still require a persisted typed AST or expression-type map.
+- Field rename/find-references. Value and type symbols are supported, while
+  field-wide refactoring needs receiver-type identity at every member and
+  object-literal field occurrence.
+- Source formatting. The current AST formatter is a debug tree renderer, not a
+  round-tripping source formatter.
 - Incremental document sync.
 - Multi-file analysis / project graph.
 - Cancellation, progress reporting, persistent caches.
@@ -797,7 +1107,8 @@ Pending:
 
 - A materialized typed AST distinct from the parser's untyped one.
 - Ownership and lifetime analysis.
-- Checked error-state analysis.
+- Remaining checked error-state analysis (a v0 slice landed in Phase C; a
+  CFG-based divergence model and error-payload materialization are still open).
 - Structured codegen diagnostics in the `ErrorBag` and fail-closed
   guards for out-of-scope constructs (see "Codegen Status").
 - `#line` directives in the generated C for source mapping.
@@ -814,18 +1125,23 @@ Done:
 
 ### Syntax
 
+Implemented:
+
+- `type` record declarations: records, aliases, spread/intersection
+  composition, object literals, member access (Phase K).
+
 Pending:
 
 - Template string literals.
 - Raw string literals.
-- Type declarations.
+- Tagged-union `type` declarations (`type X = A | B;`).
 - Classes.
 - Interfaces and traits.
-- Enums and tagged unions.
+- Enums.
 - Imports and exports.
 - External C declarations.
 - Decorators.
-- Arrays, slices, and object literals.
+- Arrays and slices.
 
 ### Semantics
 
@@ -863,17 +1179,25 @@ Implemented (v0):
 - Control flow (Phase B): `for`, `switch`/`case`/`default`, `break`/
   `continue`, and postfix `++`/`--` typing; AST-walk definite-assignment,
   return-coverage, and cross-scope shadowing rejection.
+- Record types (Phase K): `TypeCustom` with nominal identity, `type`
+  record/alias/composition registration with declaration-time cycle
+  detection, one-level bidirectional inference for object-literal pinning,
+  field-coverage and value-spread checks, member access and field
+  assignment with whole-binding definite-assignment, and compiler-derived
+  structural `==`/`!=` (with ordering rejected).
 
 Pending:
 
 - A real control-flow graph + reusable dataflow framework to replace the
-  AST-walk flow heuristics (needed before Phase C/F layer on).
+  AST-walk flow heuristics (Phase C reused them; still needed to make the flow
+  analysis sound and before Phase F layers on).
 - A divergence concept (`panic`/`process.exit`/`unreachable`) feeding
   return-coverage.
 - Scoping `for`-`init` bindings to the loop (today they leak into the
   enclosing scope).
-- One-level bidirectional type inference (annotation-driven typing of
-  initializers).
+- Extending one-level bidirectional inference to primitive bindings
+  (annotation-driven typing of initializers); it lands for the record path
+  in Phase K but primitive bindings still adopt the initializer's type.
 - Validation of declared function error types and any fallible-call
   semantics.
 - Support for function-typed values as callees.
@@ -894,16 +1218,33 @@ Pending:
 
 ### Error Model
 
+Implemented (Phase C):
+
+- Fallible function signatures `T | E1, E2` with error-set validation and
+  normalization (each error type must resolve to a user-declared record type).
+- The `expr as result` binding form over fallible calls and Phase A trap-set
+  operations, with provably-infallible rejection.
+- `check result { ... }` blocks with full-divergence enforcement.
+- `return error as { ... }` propagation pinned by the declared error set.
+- Pending-state tracking and pending-read rejection.
+- Unbound-fallible-call rejection.
+- Tagged result-struct codegen (tag-only error side) and `_result` trap-helper
+  variants.
+
 Pending:
 
-- Full fallible function signature semantics.
-- Semantic validation for parsed function error signatures.
-- `as result`.
-- `check` blocks.
-- `return error as`.
-- Error type shape validation.
-- Explicit error ignoring.
-- Checked error-state analysis.
+- A built-in / predeclared error-type set (Phase C uses user-declared record
+  types instead, a deviation from the plan).
+- Materializing error-payload fields through codegen (the error side is
+  tag-only today).
+- Naming the error type at the `return error as` site and error-type
+  *reshaping* / widening across function boundaries.
+- `as result` over a `main` that itself declares an error set (entry-shim
+  translation of a propagated error into an exit code).
+- Explicit error ignoring (`ignore expr;`).
+- Allocation-failure errors (`AllocError`, needs Phase H).
+- A CFG-based divergence model (`panic`/`process.exit`/`unreachable`) feeding
+  check-block divergence and return-coverage.
 
 ## Recommended Implementation Plan
 
@@ -1116,9 +1457,10 @@ After the basic compiler can build small programs, expand in this order:
 
 1. Imports and module graph.
 2. File-scope exports.
-3. Type declarations and object literals.
+3. ~~Type declarations and object literals.~~ — done (Phase K records).
 4. Arrays and strings.
-5. Error handling with `as result` and `check`.
+5. ~~Error handling with `as result` and `check`.~~ — done (Phase C; error
+   types are user-declared records, error side is tag-only).
 6. Ownership and move semantics.
 7. References.
 8. Classes and disposal.
@@ -1153,12 +1495,46 @@ largest items are the real CFG + dataflow framework (the current flow checks
 are heuristics), the transparent-`switch` `break`/`continue` rewrite, the
 `panic`/divergence stretch goal, and `for`-`init` loop scoping.
 
+The **Phase K (record types)** slice has also landed, taken ahead of the
+remaining error-model and module work because it adds a large, demonstrable
+language surface without depending on them. User-defined records — `type`
+declarations (record / alias / spread + intersection composition), object
+literals pinned by their typed context, member access, field assignment,
+whole-value definite-assignment, declaration-time cycle detection, and
+compiler-derived structural `==`/`!=` — now flow end-to-end through
+tokenize → parse → analyze → C → clang. This required the first real piece
+of one-level bidirectional inference (an *expected* type threaded into the
+pinning sites) and struct / compound-literal / equality-helper codegen. It
+is verified by the 30-case `test-source/tests/recordtypes/` suite, and the
+Phase K acceptance program (Vec3 / Animal / Dog with composition, value
+spread, structural equality, field read/write) compiles and exits with
+status `9`. The machinery here (the `MemberAccessExpression` node, the
+bidirectional `typeOfExpr` plumbing, struct emission, and the
+coverage/collision analyzer logic) is the foundation Phase E (classes) will
+reuse. Out-of-scope items deferred to later phases: recursive records
+(`heap T`, Phase H), `&T`/`edit &T` field and parameter types (Phase G),
+tagged unions, and `string`-bearing record equality.
+
+The **Phase C (error model)** slice has also landed. Fallible function
+signatures (`T | E1, E2`), the `expr as result` binding form over fallible
+calls and Phase A trap sites, `check result { ... }` blocks (every internal
+path must diverge), `return error as { ... }` propagation, pending-state
+tracking, and unbound-fallible rejection now flow end-to-end through
+tokenize → parse → analyze → C → clang, lowering to tagged result structs.
+This is verified by the `test-source/tests/errors/` suite, and the Phase C
+acceptance program (`safeAdd` with nested `as result` / `check`) compiles and
+runs. The largest deviation from the Phase C plan is that **error types are
+user-declared in-file record types**, not a built-in predeclared error set,
+and `return error as { ... }` is anonymous (pinned by the function's declared
+error set) rather than naming the type; the error side of the result struct is
+also tag-only (error-payload fields are not yet materialized). See "Error
+Model (Phase C)" and the "Error Model" pending list for the open items.
+
 Cross-cutting codegen hardening also remains open and can land alongside
 the phase work: populate `*ErrorBag` from `codegen.Emit` (today emitter
 errors go to `println`), add fail-closed guards and entry-point
 validation at the codegen boundary, and add a negative
-`expect: "build_fail"` test verb. After that, the next milestone is
-**Phase C (the error model)** — `check` blocks, `as result`, and
-fallible-flow analysis — followed by the larger sections of the design
-(ownership and lifetimes, modules), incorporated one pass at a time
-following phases C–J without restarting the compiler.
+`expect: "build_fail"` test verb. After that, the next milestones are the
+larger sections of the design (ownership and lifetimes, modules, classes),
+incorporated one pass at a time following phases D–J without restarting the
+compiler.

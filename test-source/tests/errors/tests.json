@@ -1,0 +1,190 @@
+[
+  {
+    "file": "signature_single_error_ok.delta",
+    "expect": "pass",
+    "note": "phase C — `int32 | OverflowError` where OverflowError is an in-file error record type"
+  },
+  {
+    "file": "signature_multi_error_ok.delta",
+    "expect": "pass",
+    "note": "phase C — error set of two in-file record types `int32 | OverflowError, DivideByZeroError`"
+  },
+  {
+    "file": "signature_void_with_error_ok.delta",
+    "expect": "pass",
+    "note": "phase C — `void | OverflowError`: empty success shape with a non-empty error set is legal"
+  },
+  {
+    "file": "signature_redundant_error_ok.delta",
+    "expect": "pass",
+    "note": "phase C — `OverflowError, OverflowError` is deduplicated during error-set normalization; no diagnostic"
+  },
+  {
+    "file": "signature_many_errors_ok.delta",
+    "expect": "pass",
+    "note": "phase C — a five-member error set; each entry resolves to an in-file error record type"
+  },
+  {
+    "file": "signature_unknown_error_err.delta",
+    "expect": "fail",
+    "contains": "unknown type",
+    "note": "phase C — `int32 | NoSuchError` where NoSuchError is never declared; the error slot must resolve to a known type"
+  },
+  {
+    "file": "signature_primitive_as_error_err.delta",
+    "expect": "fail",
+    "contains": "record type",
+    "note": "phase C — `int32 | int64`: a primitive in the error slot is rejected; error types must be record types"
+  },
+  {
+    "file": "error_type_with_fields_ok.delta",
+    "expect": "pass",
+    "note": "phase C — an error record with fields; `return error as { code: 1, line: 0 }` is pinned by the declared error set"
+  },
+  {
+    "file": "as_result_add_ok.delta",
+    "expect": "pass",
+    "note": "phase C — overflowing add bound with `as result`, checked, success value used (§23)"
+  },
+  {
+    "file": "as_result_div_ok.delta",
+    "expect": "pass",
+    "note": "phase C — `a / b as result` promotes the divide-by-zero trap to recoverable form (error type DivideByZeroError)"
+  },
+  {
+    "file": "as_result_narrow_ok.delta",
+    "expect": "pass",
+    "note": "phase C — `int32(big) as result` catches a narrowing-conversion trap (error type NarrowingError)"
+  },
+  {
+    "file": "as_result_shift_ok.delta",
+    "expect": "pass",
+    "note": "phase C — `a << n as result` catches a shift-count trap (error type ShiftCountError)"
+  },
+  {
+    "file": "as_result_call_ok.delta",
+    "expect": "pass",
+    "note": "phase C — binding a fallible *call* with `as result` and propagating across two nested calls"
+  },
+  {
+    "file": "as_result_void_form_ok.delta",
+    "expect": "pass",
+    "note": "phase C — `f() as result;` statement form for a `void | E` success shape (no value bound)"
+  },
+  {
+    "file": "as_result_assign_to_storage_ok.delta",
+    "expect": "pass",
+    "note": "phase C — assignment-form `acc = acc + b as result;` commits to the storage path after the check"
+  },
+  {
+    "file": "as_result_on_non_fallible_err.delta",
+    "expect": "fail",
+    "contains": "cannot fail",
+    "note": "phase C — `as result` on a provably-infallible call is a hard error (§5.5)"
+  },
+  {
+    "file": "pending_valid_after_check_ok.delta",
+    "expect": "pass",
+    "note": "phase C — the success binding becomes valid on the fall-through path past a fully-diverging check"
+  },
+  {
+    "file": "pending_read_before_check_err.delta",
+    "expect": "fail",
+    "contains": "pending",
+    "note": "phase C — reading the success binding before its `check` block is a pending-read error"
+  },
+  {
+    "file": "pending_read_between_err.delta",
+    "expect": "fail",
+    "contains": "pending",
+    "note": "phase C — reading the pending binding between `as result` and `check` is rejected"
+  },
+  {
+    "file": "check_diverges_via_return_ok.delta",
+    "expect": "pass",
+    "note": "phase C — every path inside the check block ends in `return` (both arms of an inner if)"
+  },
+  {
+    "file": "check_diverges_via_propagate_ok.delta",
+    "expect": "pass",
+    "note": "phase C — check block diverges via `return error as { };` (§22)"
+  },
+  {
+    "file": "check_diverges_via_break_ok.delta",
+    "expect": "pass",
+    "note": "phase C — check block inside a loop diverges via `break` (a diverging terminator)"
+  },
+  {
+    "file": "check_diverges_via_continue_ok.delta",
+    "expect": "pass",
+    "note": "phase C — check block inside a loop diverges via `continue`"
+  },
+  {
+    "file": "check_fallthrough_err.delta",
+    "expect": "fail",
+    "contains": "diverge",
+    "note": "phase C — a check block whose body falls off the end is rejected (§24)"
+  },
+  {
+    "file": "check_partial_diverge_err.delta",
+    "expect": "fail",
+    "contains": "diverge",
+    "note": "phase C — `if (cond) { return ...; }` with no else leaves a fall-through path in the check block"
+  },
+  {
+    "file": "check_without_as_result_err.delta",
+    "expect": "fail",
+    "contains": "as result",
+    "note": "phase C — `check result { ... }` with no preceding `as result` binding the name is rejected"
+  },
+  {
+    "file": "check_name_mismatch_err.delta",
+    "expect": "fail",
+    "contains": "as result",
+    "note": "phase C — `as r1` followed by `check r2 { ... }` has no matching result name"
+  },
+  {
+    "file": "return_error_ok.delta",
+    "expect": "pass",
+    "note": "phase C — `return error as { };` directly in a branch; caller checks and re-propagates"
+  },
+  {
+    "file": "return_error_multi_set_ok.delta",
+    "expect": "pass",
+    "note": "phase C — a two-error function propagates each member of its declared error set"
+  },
+  {
+    "file": "return_error_not_in_set_err.delta",
+    "expect": "fail",
+    "contains": "error set",
+    "note": "phase C — an error literal matching DivideByZeroError is rejected when the function only declares OverflowError"
+  },
+  {
+    "file": "return_error_in_non_fallible_err.delta",
+    "expect": "fail",
+    "contains": "error set",
+    "note": "phase C — `return error as { ... }` from a function with no declared error set is rejected"
+  },
+  {
+    "file": "unbound_fallible_call_err.delta",
+    "expect": "fail",
+    "contains": "fallible",
+    "note": "phase C — a bare fallible call with no `as result` is rejected (§23)"
+  },
+  {
+    "file": "unbound_fallible_let_err.delta",
+    "expect": "fail",
+    "contains": "fallible",
+    "note": "phase C — `let x = fallibleCall();` without `as result` is rejected"
+  },
+  {
+    "file": "multiple_results_sequential_ok.delta",
+    "expect": "pass",
+    "note": "phase C — two sequential `as result` / `check` pairs reuse the name `result`; first success feeds the second"
+  },
+  {
+    "file": "acceptance_program_ok.delta",
+    "expect": "pass",
+    "note": "phase C — the plan acceptance program (safeAdd + nested checks), info() dropped (Phase J)"
+  }
+]

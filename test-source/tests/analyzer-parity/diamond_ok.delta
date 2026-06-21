@@ -1,0 +1,7 @@
+// Task 14 control: using the same type in two fields is sharing, not a cycle.
+type Leaf = { v: int32; };
+type Pair = { a: Leaf; b: Leaf; };
+
+function main(): int32 {
+    return 0;
+}

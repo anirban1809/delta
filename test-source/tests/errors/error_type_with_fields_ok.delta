@@ -1,0 +1,19 @@
+type ParseError = { code: int32; line: int32; };
+
+function parse(x: int32): int32 | ParseError {
+    if (x < 0) {
+        return error as { code: 1, line: 0 };
+    }
+    return x;
+}
+
+function main(): int32 {
+    const r = parse(5) as result;
+    check result {
+        return 1;
+    }
+    if (r == 5) {
+        return 0;
+    }
+    return 2;
+}

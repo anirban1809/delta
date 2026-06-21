@@ -1,0 +1,10 @@
+// Task 5: an integer literal must adopt the type of the other operand.
+// `x + 1` where x is int64 should type-check (1 coerces to int64), not error
+// on int64 vs int32.
+function f(x: int64): int64 {
+    return x + 1;
+}
+
+function main(): int32 {
+    return 0;
+}

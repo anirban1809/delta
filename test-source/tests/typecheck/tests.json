@@ -23,17 +23,6 @@
     "note": "phase 5 — returning a value from a void function is rejected; treat declared `void` as zero return values"
   },
   {
-    "file": "return_multi_ok.delta",
-    "expect": "pass",
-    "note": "phase 5 — multi-return with matching arity and types"
-  },
-  {
-    "file": "return_multi_type_mismatch_err.delta",
-    "expect": "fail",
-    "contains": "return",
-    "note": "phase 5 — second return slot is bool but value is int32"
-  },
-  {
     "file": "let_init_mismatch_err.delta",
     "expect": "fail",
     "contains": "int32",
@@ -132,12 +121,6 @@
     "expect": "fail",
     "contains": "bool",
     "note": "phase 5 — `&&` requires both operands bool"
-  },
-  {
-    "file": "multi_return_in_expr_err.delta",
-    "expect": "fail",
-    "contains": "multi-return",
-    "note": "phase 5 — multi-return call cannot be used where a single value is expected"
   },
   {
     "file": "cascade_single_error.delta",

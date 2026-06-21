@@ -1,0 +1,10 @@
+type Counter = { value: int32; };
+
+function (c: &Counter) get(): int32 {
+    return c.value;
+}
+
+// Overloading is not supported: a second method of the same name is rejected.
+function (c: &Counter) get(): int32 {
+    return c.value;
+}

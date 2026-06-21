@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"delta/internal/analyzer"
 	"delta/internal/ast"
 	"delta/internal/diagnostics"
 	"delta/internal/semantics"
@@ -15,6 +16,7 @@ type Result struct {
 	ErrorBag    *diagnostics.ErrorBag
 	Refs        map[ast.Position]semantics.Symbol
 	RootScope   *semantics.ScopeNode
+	Records     map[string][]semantics.ResolvedRecordField
 	Conversions map[ast.Position]semantics.ConversionInfo
 	Divisions   map[ast.Position]semantics.Type
 	Shifts      map[ast.Position]semantics.Type
@@ -43,10 +45,30 @@ func Compile(name string, contents []byte) *Result {
 		ErrorBag:    bag,
 		Refs:        analyzer.Refs,
 		RootScope:   analyzer.RootScope,
+		Records:     analyzer.Records,
 		Conversions: analyzer.Conversions,
 		Divisions:   analyzer.Divisions,
 		Shifts:      analyzer.Shifts,
 		IncDecs:     analyzer.IncDecs,
+	}
+}
+
+func Validate(name string, contents []byte) *Result {
+	bag := &diagnostics.ErrorBag{File: name, Source: string(contents)}
+	tokens, _ := tokenizer.Tokenize(string(contents), bag)
+	if len(bag.Errors) > 0 {
+		return &Result{ErrorBag: bag}
+	}
+	parser := ast.Parser{Tokens: tokens, ErrorBag: bag}
+	file := parser.Parse()
+	if len(bag.Errors) > 0 {
+		return &Result{File: file, ErrorBag: bag}
+	}
+	validator := analyzer.Validator{Errors: bag}
+	validator.Check(file)
+	return &Result{
+		File:     file,
+		ErrorBag: bag,
 	}
 }
 
