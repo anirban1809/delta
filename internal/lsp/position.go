@@ -73,11 +73,8 @@ func walkDeclaration(d ast.Declaration, visit func(ast.Identifier) bool) bool {
 	switch decl := d.(type) {
 	case ast.FunctionDeclaration:
 		if !visit(ast.Identifier{
-			Position: ast.Position{
-				Line:   decl.Position.Line,
-				Column: decl.Position.Column + len("function "),
-			},
-			Name: decl.Name,
+			Position: decl.NamePosition,
+			Name:     decl.Name,
 		}) {
 			return false
 		}

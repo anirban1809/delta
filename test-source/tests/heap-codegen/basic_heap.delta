@@ -1,0 +1,32 @@
+type AllocError = { };
+type Payload = { count: int64; stride: int64; };
+type BoxedCounter = { payload: heap<Payload>; };
+
+function makeBoxedCounter(count: int64, stride: int64): BoxedCounter | AllocError {
+    let p = new Payload { count: count, stride: stride } as result;
+    check result {
+        return error as { };
+    }
+    return { payload: move p };
+}
+
+function (bc: &BoxedCounter) total(): int64 {
+    return bc.payload.count + bc.payload.stride;
+}
+
+function payloadTotal(payload: Payload): int64 {
+    return payload.count + payload.stride;
+}
+
+function (bc: edit &BoxedCounter) step() {
+    bc.payload.count += bc.payload.stride;
+}
+
+function main(): int32 {
+    let bc = makeBoxedCounter(int64(10), int64(3)) as result;
+    check result {
+        return 1;
+    }
+    bc.step();
+    return int32(payloadTotal(bc.payload));
+}

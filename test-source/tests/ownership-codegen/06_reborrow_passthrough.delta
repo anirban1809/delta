@@ -1,0 +1,16 @@
+// Doc case: Borrow re-passed to a nested call -> pointer forwarded unchanged (no new `&`).
+// Target C: int32_t delta__relay(delta__Counter* counter) { return delta__inspect(counter); }
+type Counter = { value: int32; };
+
+function inspect(counter: &Counter): int32 {
+    return counter.value;
+}
+
+function relay(counter: edit &Counter): int32 {
+    return inspect(counter);
+}
+
+function main(): int32 {
+    let counter: Counter = { value: 7 };
+    return relay(counter);
+}

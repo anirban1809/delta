@@ -1,0 +1,6 @@
+// dispose cannot declare ordinary parameters. Expects fail ("parameter").
+unique type Handle = { id: int32; };
+
+function (value: edit &Handle) dispose(force: bool) { }
+
+function main(): int32 { return 0; }

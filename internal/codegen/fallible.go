@@ -69,18 +69,27 @@ func (e *Emitter) addResultHelper(name, body string) string {
 // carries.
 func (e *Emitter) emitFallibleExpression(expr ast.Expression) (string, string) {
 	switch expr := expr.(type) {
+	case ast.NewExpression:
+		inner := ""
+		if expr.Type != nil {
+			inner = typeRefName(*expr.Type)
+		} else {
+			inner = e.inferType(expr.Value)
+		}
+		return e.emitExpr(expr, "heap<"+inner+">", ExprContext{Fallible: true}), "heap<" + inner + ">"
+
 	case ast.FunctionCallExpression:
 		if callee, ok := expr.Callee.(ast.Identifier); ok {
 			// (a) A call to a fallible function already returns a result struct.
 			if e.funcFallible[callee.Name] {
-				return e.emitExpr(expr, ""), e.funcReturns[callee.Name]
+				return e.emitExpr(expr, "", ExprContext{}), e.funcReturns[callee.Name]
 			}
 			// (b) A conversion taken as a result, e.g. int8(x) as r.
 			if isConversionType(callee.Name) {
 				from := e.inferType(expr.Arguments[0])
 				to := callee.Name
 				name := e.convResultHelper(from, to)
-				return fmt.Sprintf("%s(%s)", name, e.emitExpr(expr.Arguments[0], "")), to
+				return fmt.Sprintf("%s(%s)", name, e.emitExpr(expr.Arguments[0], "", ExprContext{})), to
 			}
 		}
 
@@ -90,19 +99,19 @@ func (e *Emitter) emitFallibleExpression(expr ast.Expression) (string, string) {
 		if name, ok := e.binaryResultHelper(expr.Operator, t); ok {
 			return fmt.Sprintf(
 				"%s(%s, %s)",
-				name, e.emitExpr(expr.Left, ""), e.emitExpr(expr.Right, ""),
+				name, e.emitExpr(expr.Left, "", ExprContext{}), e.emitExpr(expr.Right, "", ExprContext{}),
 			), t
 		}
 	}
 
 	// Not a recognised fallible producer: emit it plainly. The analyzer should
 	// have rejected this, so this is only a safe fallback.
-	return e.emitExpr(expr, ""), e.inferType(expr)
+	return e.emitExpr(expr, "", ExprContext{}), e.inferType(expr)
 }
 
 // emitFallible lowers a `<stmt> as result;` into the result-struct temp, and
 // records the commit that the matching check block will run.
-func (e *Emitter) emitFallible(stmt ast.FallibleStatement) string {
+func (e *Emitter) emitFallible(stmt ast.FallibleStatement, context *BlockContext) string {
 	// Step 1: find the expression that produces the fallible value.
 	var inner ast.Expression
 	switch s := stmt.Inner.(type) {
@@ -129,18 +138,27 @@ func (e *Emitter) emitFallible(stmt ast.FallibleStatement) string {
 	switch s := stmt.Inner.(type) {
 	case ast.VariableDeclarationStatement:
 		e.localTypes[s.Name] = successType
-		qualifier := ""
+		if context != nil && e.needsDrop(successType) {
+			e.owners[context.block] = append(
+				e.owners[context.block], &owned{n: s.Name, t: successType},
+			)
+		}
+		declType := e.cType(successType)
 		if !s.Mutable {
-			qualifier = "const "
+			if isHeapName(successType) {
+				declType += " const"
+			} else {
+				declType = "const " + declType
+			}
 		}
 		commit = fmt.Sprintf(
-			"%s%s %s = %s.value;",
-			qualifier, e.cType(successType), s.Name, temp,
+			"%s %s = %s.value;",
+			declType, s.Name, temp,
 		)
 	case ast.AssignmentStatement:
 		target := s.Target.Name
 		if _, ok := s.TargetExpression.(ast.MemberAccessExpression); ok {
-			target = e.emitExpr(s.TargetExpression, "")
+			target = e.emitExpr(s.TargetExpression, "", ExprContext{})
 		}
 		commit = fmt.Sprintf("%s = %s.value;", target, temp)
 	}
@@ -165,7 +183,7 @@ func (e *Emitter) emitCheck(stmt ast.CheckStatement) string {
 	}
 
 	// Step 1: take the error branch when the tag is non-zero.
-	out := e.pad() + "if (" + pending.Temp + ".tag != 0)" + e.emitBlock(*stmt.Body)
+	out := e.pad() + "if (" + pending.Temp + ".tag != 0)" + e.emitBlock(stmt.Body, nil)
 
 	// Step 2: once the error path is ruled out, commit the success value.
 	if pending.Commit != "" {

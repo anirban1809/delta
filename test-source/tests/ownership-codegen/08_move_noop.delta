@@ -1,0 +1,13 @@
+// Doc case: `move` lowers to the underlying value, no runtime op. With no dispose and only a
+// Copyable field, Handle owns no cleanup, so NO _drop exists anywhere — `move` is purely the
+// bare value and nothing is dropped.
+// Target C: consume(value); return 0;
+unique type Handle = { id: int32; };
+
+function consume(value: Handle) { }
+
+function main(): int32 {
+    let value: Handle = { id: 7 };
+    consume(move value);
+    return 0;
+}

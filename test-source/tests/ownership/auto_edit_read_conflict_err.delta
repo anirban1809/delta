@@ -1,0 +1,10 @@
+// An implicit `edit &` and `&` on the same root conflict within one call (exclusivity). Expects fail ("exclusive").
+type Counter = { value: int32; };
+
+function conflict(writer: edit &Counter, reader: &Counter) { }
+
+function main(): int32 {
+    let counter: Counter = { value: 7 };
+    conflict(counter, counter);
+    return 0;
+}

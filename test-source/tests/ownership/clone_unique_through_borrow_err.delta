@@ -1,0 +1,9 @@
+// Borrowing a Unique value does not make its referent Cloneable. Expects fail ("unique").
+unique type Handle = { id: int32; };
+
+function invalid(value: &Handle) {
+    const duplicate = clone value as result;
+    check result { return; }
+}
+
+function main(): int32 { return 0; }

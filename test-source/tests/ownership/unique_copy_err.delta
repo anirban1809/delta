@@ -1,0 +1,8 @@
+// Unique records cannot be copied. Expects fail ("unique").
+unique type Handle = { id: int32; };
+
+function main(): int32 {
+    const a: Handle = { id: 7 };
+    const b = a;
+    return 0;
+}

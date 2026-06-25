@@ -1,0 +1,16 @@
+// Moving an outer binding with no revival invalidates the loop back-edge. Expects fail ("loop").
+unique type Handle = { id: int32; };
+
+function consume(value: Handle) { }
+
+function test(flag: bool) {
+    let value: Handle = { id: 7 };
+    while (flag) {
+        consume(move value);
+	}
+}
+
+function main(): int32 {
+    test(false);
+    return 0;
+}

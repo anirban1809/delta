@@ -37,6 +37,11 @@ const (
 	Keyword_Export
 	Keyword_From
 	Keyword_Edit
+	Keyword_New
+	Keyword_Clone
+	Keyword_Move
+	Keyword_Unique
+	Keyword_Heap
 
 	Type_Int32
 
@@ -223,6 +228,17 @@ func (k Kind) String() string {
 		return "from"
 	case Keyword_Edit:
 		return "edit"
+	case Keyword_New:
+		return "new"
+	case Keyword_Move:
+		return "move"
+	case Keyword_Clone:
+		return "clone"
+	case Keyword_Unique:
+		return "unique"
+	case Keyword_Heap:
+		return "heap"
+
 	default:
 		return "unknown"
 	}
@@ -278,6 +294,17 @@ func LookupIdent(s string) Kind {
 		return Keyword_From
 	case "edit":
 		return Keyword_Edit
+	case "new":
+		return Keyword_New
+	case "move":
+		return Keyword_Move
+	case "clone":
+		return Keyword_Clone
+	case "unique":
+		return Keyword_Unique
+	case "heap":
+		return Keyword_Heap
+
 	default:
 		return Kind_Identifier
 	}
@@ -290,6 +317,7 @@ func Keywords() []string {
 	return []string{
 		"function", "return", "const", "let", "if", "else", "while", "for",
 		"switch", "case", "default", "continue", "break", "type",
-		"as", "error", "forward", "check", "true", "false", "edit",
+		"as", "error", "forward", "check", "import", "export", "from",
+		"true", "false", "edit", "new", "move", "clone", "unique", "heap",
 	}
 }

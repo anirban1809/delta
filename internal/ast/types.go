@@ -31,10 +31,23 @@ type Comment struct {
 func (Comment) declarationNode() {}
 func (Comment) statementNode()   {}
 
+type ImportSpecifier struct {
+	Position
+	Name string
+}
+
+type ImportDeclaration struct {
+	Position
+	Specifiers []ImportSpecifier
+	Path       string
+}
+
+func (ImportDeclaration) declarationNode() {}
+
 type FunctionParameter struct {
 	Position
 	Name Identifier
-	Type TypeReference
+	Type TypeIdentifier
 }
 
 type FunctionDeclaration struct {
@@ -42,12 +55,16 @@ type FunctionDeclaration struct {
 	// Receiver is nil for free functions. When non-nil the declaration is a
 	// receiver method: its Type is a reference (`&T` / `edit &T`) to the
 	// record the method is attached to. The receiver name replaces `this`.
-	Receiver    *FunctionParameter
-	Name        string
-	ReturnTypes []TypeReference
-	ErrorTypes  []TypeReference
-	Parameters  []FunctionParameter
-	Body        *BlockStatement
+	Receiver     *FunctionParameter
+	Name         string
+	NamePosition Position
+	ReturnTypes  []TypeIdentifier
+	ErrorTypes   []TypeIdentifier
+	Parameters   []FunctionParameter
+	Body         *BlockStatement
+
+	// Exported is true when the declaration is prefixed with `export`.
+	Exported bool
 }
 
 func (FunctionDeclaration) declarationNode() {}
@@ -59,16 +76,18 @@ const (
 	Custom
 )
 
-type TypeReference struct {
+type TypeIdentifier struct {
 	Name   Identifier
 	Kind   TypeKind
-	Fields []*TypeReference // only populated in case of custom user defined record types, nil for other cases.
+	Fields []*TypeIdentifier // only populated in case of custom user defined record types, nil for other cases.
 
 	// Reference is true for `&T` and `edit &T`. Edit is true only for the
 	// mutable, exclusive form `edit &T` (and implies Reference). Both are
 	// false for an ordinary by-value type.
 	Reference bool
+	Inner     *TypeIdentifier // populated in case of indirection type such as heap<T> and array<T>; this should not be used for generics
 	Edit      bool
+	Unique    bool
 }
 
 type BlockStatement struct {
@@ -147,6 +166,28 @@ type UnaryExpression struct {
 
 func (UnaryExpression) expressionNode() {}
 
+type NewExpression struct {
+	Position
+	Type  *TypeIdentifier
+	Value Expression
+}
+
+func (NewExpression) expressionNode() {}
+
+type MoveExpression struct {
+	Position
+	Source Identifier
+}
+
+func (MoveExpression) expressionNode() {}
+
+type CloneExpression struct {
+	Position
+	Source Expression
+}
+
+func (CloneExpression) expressionNode() {}
+
 type BinaryExpression struct {
 	Position
 	Left     Expression
@@ -208,7 +249,7 @@ type VariableDeclarationStatement struct {
 	Position
 	Mutable bool
 	Name    string
-	Type    TypeReference
+	Type    TypeIdentifier
 	Value   Expression
 }
 
@@ -254,9 +295,10 @@ func (WhileStatement) statementNode() {}
 
 type ConstDeclaration struct {
 	Position
-	Name  Identifier
-	Type  TypeReference
-	Value Expression
+	Name     Identifier
+	Type     TypeIdentifier
+	Value    Expression
+	Exported bool
 }
 
 func (ConstDeclaration) declarationNode() {}
@@ -320,6 +362,8 @@ func (CheckStatement) statementNode() {}
 
 type TypeDeclaration struct {
 	Position
+	Unique   bool
+	Copyable bool
 	Name     Identifier
 	RHS      TypeRHS
 	Exported bool
@@ -334,7 +378,7 @@ type TypeRHS interface {
 
 type RecordRHS struct {
 	Position
-	Type   TypeReference
+	Type   TypeIdentifier
 	Fields []RecordField
 }
 
@@ -342,15 +386,15 @@ func (RecordRHS) typeRHSNode() {}
 
 type AliasRHS struct {
 	Position
-	Type   TypeReference
-	Target TypeReference
+	Type   TypeIdentifier
+	Target TypeIdentifier
 }
 
 func (AliasRHS) typeRHSNode() {}
 
 type CompositionRHS struct {
 	Position
-	Type     TypeReference
+	Type     TypeIdentifier
 	Operands []CompositionOperand
 	Style    CompositionStyle
 }
@@ -366,12 +410,12 @@ const (
 
 type CompositionOperand struct {
 	Position
-	Named  *TypeReference
+	Named  *TypeIdentifier
 	Inline *RecordRHS
 }
 
 type RecordField struct {
 	Position
 	Name Identifier
-	Type TypeReference
+	Type TypeIdentifier
 }

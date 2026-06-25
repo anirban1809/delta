@@ -1,0 +1,18 @@
+// A fresh owner declared and moved inside each iteration needs no revival. Expects pass.
+unique type Handle = { id: int32; };
+
+function consume(value: Handle) { }
+
+function test(flag: bool) {
+    let running = flag;
+    while (running) {
+        let value: Handle = { id: 7 };
+        consume(move value);
+        running = false;
+    }
+}
+
+function main(): int32 {
+    test(false);
+    return 0;
+}

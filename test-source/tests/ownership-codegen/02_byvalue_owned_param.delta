@@ -1,0 +1,16 @@
+// Doc case: By-value owned param — callee owns and drops it at its own scope exit.
+// Target C: consume's `value` param is dropped via delta__Handle_drop(&value) at consume exit;
+// caller moves into it and emits no drop.
+unique type Handle = { id: int32; };
+
+function (handle: edit &Handle) dispose() {
+    handle.id = 0;
+}
+
+function consume(value: Handle) { }
+
+function main(): int32 {
+    let value: Handle = { id: 7 };
+    consume(move value);
+    return 0;
+}

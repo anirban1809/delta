@@ -1,0 +1,14 @@
+// Call-scoped auto-borrows end before the next call (inspect, then increment, then inspect). Expects pass.
+type Counter = { value: int32; };
+
+function inspect(counter: &Counter): int32 { return counter.value; }
+function increment(counter: edit &Counter) {
+    counter.value = counter.value + 1;
+}
+
+function main(): int32 {
+    let counter: Counter = { value: 7 };
+    const before = inspect(counter);
+    increment(counter);
+    return before + inspect(counter);
+}

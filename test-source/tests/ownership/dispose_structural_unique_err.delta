@@ -1,0 +1,7 @@
+// Structurally-propagated uniqueness (Session contains a Unique Handle) does not authorize custom cleanup without an explicit `unique type`. Expects fail ("explicit").
+unique type Handle = { id: int32; };
+type Session = { handle: Handle; };
+
+function (session: edit &Session) dispose() { }
+
+function main(): int32 { return 0; }

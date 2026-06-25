@@ -1,0 +1,10 @@
+// A bare Owned argument cannot satisfy a by-value parameter. Expects fail ("non-copyable").
+type Box = { value: heap<int32>; };
+
+function consume(value: Box) { }
+
+function main(): int32 {
+    let value: Box = { value: new 7 };
+    consume(value);
+    return 0;
+}

@@ -1,0 +1,18 @@
+// Moving on every reaching branch yields a consistently Moved state. Expects pass.
+unique type Handle = { id: int32; };
+
+function consume(value: Handle) { }
+
+function test(flag: bool) {
+    let value: Handle = { id: 7 };
+    if (flag) {
+        consume(move value);
+    } else {
+        consume(move value);
+    }
+}
+
+function main(): int32 {
+    test(false);
+    return 0;
+}

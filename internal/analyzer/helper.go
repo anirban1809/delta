@@ -7,12 +7,46 @@ func getIdentName(i ast.Identifier) string {
 	return i.Name
 }
 
-func getTypeRefPos(t ast.TypeReference) ast.Position {
+func getTypeRefPos(t ast.TypeIdentifier) ast.Position {
 	return t.Name.Position
 }
 
-func getTypeRefName(t ast.TypeReference) string {
+func getTypeRefName(t ast.TypeIdentifier) string {
+	if t.Name.Name == "heap" && t.Inner != nil && t.Inner.Name.Name != "" {
+		return "heap<" + getTypeRefName(*t.Inner) + ">"
+	}
 	return t.Name.Name
+}
+
+func isHeapTypeName(name string) bool {
+	return len(name) > len("heap<>") &&
+		name[:5] == "heap<" &&
+		name[len(name)-1:] == ">"
+}
+
+func heapInnerName(name string) string {
+	if !isHeapTypeName(name) {
+		return ""
+	}
+	return name[5 : len(name)-1]
+}
+
+func isHeapType(t Type) bool {
+	return isHeapTypeName(t.Name)
+}
+
+// borrowRoot returns the base binding of a place expression — the variable at
+// the head of an identifier (`x`) or member-access path (`x.a.b`). The second
+// result is false when the expression is not rooted in a binding (e.g. a
+// literal or a call temporary), so it cannot be auto-borrowed by root.
+func borrowRoot(expr ast.Expression) (string, bool) {
+	switch e := expr.(type) {
+	case ast.Identifier:
+		return e.Name, true
+	case ast.MemberAccessExpression:
+		return borrowRoot(e.Receiver)
+	}
+	return "", false
 }
 
 func isNumeric(t Type) bool {
@@ -75,7 +109,7 @@ func bitWidth(t Type) int {
 	return 0
 }
 
-func isPrimitiveType(ref ast.TypeReference) bool {
+func isPrimitiveType(ref ast.TypeIdentifier) bool {
 	typeName := ref.Name.Name
 
 	switch typeName {

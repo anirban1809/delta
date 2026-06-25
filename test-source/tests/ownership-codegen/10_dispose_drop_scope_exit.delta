@@ -1,0 +1,16 @@
+// Doc case: Custom dispose + compiler _drop + scope-exit cleanup. A live unique local that is
+// never moved is dropped at scope exit.
+// Target C:
+//   static void delta__Handle_dispose(delta__Handle* handle) { ... }
+//   static void delta__Handle_drop(delta__Handle* value) { delta__Handle_dispose(value); }
+//   main: ... delta__Handle_drop(&handle); return 0;
+unique type Handle = { id: int32; };
+
+function (handle: edit &Handle) dispose() {
+    handle.id = 0;
+}
+
+function main(): int32 {
+    let handle: Handle = { id: 7 };
+    return 0;
+}

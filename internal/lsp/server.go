@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"strconv"
 	"strings"
 
+	"delta/internal/diagnostics"
 	"delta/internal/pipeline"
 )
 
@@ -24,14 +26,16 @@ type docState struct {
 	contents []byte
 	result   *pipeline.Result
 	lastGood *pipeline.Result
+	path     string
 }
 
 type Server struct {
-	in        *bufio.Reader
-	out       io.Writer
-	log       *log.Logger
-	documents map[string]*docState
-	shutdown  bool
+	in                   *bufio.Reader
+	out                  io.Writer
+	log                  *log.Logger
+	documents            map[string]*docState
+	publishedDiagnostics map[string]bool
+	shutdown             bool
 }
 
 // Run starts the LSP message loop. It reads JSON-RPC frames from in, dispatches
@@ -39,10 +43,11 @@ type Server struct {
 // framing layer go to errLog (stderr in production); never to out.
 func Run(in io.Reader, out io.Writer, errLog io.Writer) error {
 	s := &Server{
-		in:        bufio.NewReader(in),
-		out:       out,
-		log:       log.New(errLog, "delta-lsp: ", log.LstdFlags),
-		documents: map[string]*docState{},
+		in:                   bufio.NewReader(in),
+		out:                  out,
+		log:                  log.New(errLog, "delta-lsp: ", log.LstdFlags),
+		documents:            map[string]*docState{},
+		publishedDiagnostics: map[string]bool{},
 	}
 
 	for {
@@ -233,6 +238,7 @@ func (s *Server) handleDidOpen(msg *Message) {
 	}
 	s.documents[p.TextDocument.URI] = &docState{
 		contents: []byte(p.TextDocument.Text),
+		path:     pathFromURI(p.TextDocument.URI),
 	}
 	s.analyzeAndPublish(p.TextDocument.URI)
 }
@@ -253,6 +259,7 @@ func (s *Server) handleDidChange(msg *Message) {
 		s.documents[p.TextDocument.URI] = st
 	}
 	st.contents = []byte(p.ContentChanges[len(p.ContentChanges)-1].Text)
+	st.path = pathFromURI(p.TextDocument.URI)
 	s.analyzeAndPublish(p.TextDocument.URI)
 }
 
@@ -269,33 +276,80 @@ func (s *Server) handleDidClose(msg *Message) {
 // ---- pipeline + publish ----
 
 func (s *Server) analyzeAndPublish(uri string) {
-	st := s.documents[uri]
-	if st == nil {
-		return
-	}
-	diags := []Diagnostic{}
+	allDiagnostics := map[string][]Diagnostic{}
+	touched := map[string]bool{}
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
 				s.log.Printf("pipeline panic on %s: %v", uri, r)
 			}
 		}()
-		result := pipeline.Compile(uri, st.contents)
-		st.result = result
-		if result != nil && result.ErrorBag != nil {
-			diags = ToDiagnostics(result.ErrorBag.Errors)
+
+		overlays := s.documentOverlays()
+		fileTargets := s.fileDocumentURIs()
+		if len(fileTargets) == 0 {
+			if st := s.documents[uri]; st != nil {
+				result := pipeline.Compile(uri, st.contents)
+				st.result = result
+				if result != nil && result.ErrorBag != nil {
+					allDiagnostics[uri] = ToDiagnostics(result.ErrorBag.Errors)
+				}
+				updateLastGood(st, result)
+			}
+			touched[uri] = true
+			return
 		}
-		// Track the last result that parsed cleanly so completion can
-		// fall back when the user is mid-edit. Semantic errors are fine
-		// — they're often *why* the user is asking for completion.
-		if result != nil && !pipeline.HasParseErrors(result) {
-			st.lastGood = result
+
+		for _, targetURI := range fileTargets {
+			target := s.documents[targetURI]
+			if target == nil || target.path == "" {
+				continue
+			}
+			graph, bag := pipeline.AnalyzeProject(
+				target.path,
+				pipeline.AnalyzeOptions{Overlays: overlays},
+			)
+			if graph != nil {
+				for _, mod := range graph.Modules {
+					modURI := uriFromPath(mod.Path)
+					if st := s.documents[modURI]; st != nil {
+						result := pipeline.ResultForModule(mod)
+						st.result = result
+						updateLastGood(st, result)
+					}
+					touched[modURI] = true
+				}
+			} else if targetURI == uri {
+				result := pipeline.Compile(uri, target.contents)
+				target.result = result
+				updateLastGood(target, result)
+			}
+			if bag != nil {
+				for diagURI, diagnostics := range diagnosticsByURI(bag.Errors, targetURI) {
+					allDiagnostics[diagURI] = diagnostics
+					touched[diagURI] = true
+				}
+			}
+			touched[targetURI] = true
 		}
 	}()
-	s.publishDiagnostics(uri, diags)
+
+	for openURI := range s.documents {
+		touched[openURI] = true
+	}
+	for previous := range s.publishedDiagnostics {
+		touched[previous] = true
+	}
+	for diagURI := range touched {
+		s.publishDiagnostics(diagURI, allDiagnostics[diagURI])
+	}
 }
 
 func (s *Server) publishDiagnostics(uri string, diags []Diagnostic) {
+	if s.publishedDiagnostics == nil {
+		s.publishedDiagnostics = map[string]bool{}
+	}
+	s.publishedDiagnostics[uri] = len(diags) > 0
 	notif := Message{
 		JSONRPC: "2.0",
 		Method:  "textDocument/publishDiagnostics",
@@ -309,6 +363,80 @@ func (s *Server) publishDiagnostics(uri string, diags []Diagnostic) {
 	if err := s.writeFrame(notif); err != nil {
 		s.log.Printf("write publishDiagnostics: %v", err)
 	}
+}
+
+func updateLastGood(st *docState, result *pipeline.Result) {
+	if st == nil || result == nil {
+		return
+	}
+	if !pipeline.HasParseErrors(result) {
+		st.lastGood = result
+	}
+}
+
+func (s *Server) documentOverlays() map[string][]byte {
+	overlays := map[string][]byte{}
+	for uri, st := range s.documents {
+		if st == nil {
+			continue
+		}
+		path := st.path
+		if path == "" {
+			path = pathFromURI(uri)
+			st.path = path
+		}
+		if path == "" {
+			continue
+		}
+		overlays[path] = st.contents
+	}
+	return overlays
+}
+
+func (s *Server) fileDocumentURIs() []string {
+	var uris []string
+	for uri, st := range s.documents {
+		if st == nil {
+			continue
+		}
+		if st.path == "" {
+			st.path = pathFromURI(uri)
+		}
+		if st.path != "" {
+			uris = append(uris, uri)
+		}
+	}
+	return uris
+}
+
+func diagnosticsByURI(
+	errors []diagnostics.SourceError,
+	fallbackURI string,
+) map[string][]Diagnostic {
+	out := map[string][]Diagnostic{}
+	for _, err := range errors {
+		uri := uriFromPath(err.File)
+		if uri == "" {
+			uri = fallbackURI
+		}
+		out[uri] = append(out[uri], toDiagnostic(err))
+	}
+	return out
+}
+
+func pathFromURI(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "file" {
+		return ""
+	}
+	return u.Path
+}
+
+func uriFromPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	return (&url.URL{Scheme: "file", Path: path}).String()
 }
 
 // ---- response helpers ----

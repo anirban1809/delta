@@ -12,9 +12,8 @@
       "program": "${fileDirname}",
       "args": [
         "build",
-        "/Users/anirban/Documents/Code/delta/test-source/tests/analyzer-parity/forbidden_conversion_err.delta"
+        "/Users/anirban/Documents/Code/delta/test-source/tests/ownership-codegen/02_byvalue_owned_param.delta"
       ]
     }
   ]
 }
-

@@ -256,6 +256,9 @@ func incDecHelperBody(name, op, ct, step string) string {
 // <stdint.h> limit macros.
 
 func typeCode(name string) string {
+	if isHeapName(name) {
+		return "heap_" + typeCode(heapInner(name))
+	}
 	switch name {
 	case "int8":
 		return "i8"

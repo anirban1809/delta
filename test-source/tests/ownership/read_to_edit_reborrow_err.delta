@@ -1,0 +1,12 @@
+// A `&T` parameter cannot be upgraded to `edit &T` for a nested call. Expects fail ("capability").
+type Counter = { value: int32; };
+
+function increment(counter: edit &Counter) {
+    counter.value = counter.value + 1;
+}
+
+function relay(counter: &Counter) {
+    increment(counter);
+}
+
+function main(): int32 { return 0; }

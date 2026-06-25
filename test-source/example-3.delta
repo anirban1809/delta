@@ -1,1 +1,20 @@
+type Handle = {
+    value: int32;
+};
 
+function (h: edit &Handle) Extend(): Handle {
+    h.value = 34;
+    return {
+        value: h.value
+    };
+}
+
+function consume(e: &Handle): int32{
+    return 0;
+}
+
+function main(): int32{
+    let c = new Handle{value: 23};
+    const e = c.Extend();
+    return consume(c);
+}

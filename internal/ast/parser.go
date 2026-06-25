@@ -13,7 +13,7 @@ type Parser struct {
 	// declaredTypes maps a declared type name to its canonical
 	// TypeReference so that later references reuse the existing type
 	// instead of allocating a fresh one.
-	declaredTypes map[string]*TypeReference
+	declaredTypes map[string]*TypeIdentifier
 }
 
 func (p *Parser) Current() token.Token {
@@ -106,6 +106,17 @@ func isAssignmentOperator(kind token.Kind) bool {
 		token.Symbol_PlusEquals,
 		token.Symbol_MinusEquals,
 		token.Symbol_AsteriskEquals:
+		return true
+	default:
+		return false
+	}
+}
+
+func isIdentifierLike(kind token.Kind) bool {
+	switch kind {
+	case token.Kind_Identifier,
+		token.Keyword_From,
+		token.Keyword_Heap:
 		return true
 	default:
 		return false
@@ -282,6 +293,57 @@ func (p *Parser) ParseUnaryExpression() (Expression, bool) {
 	symbol := p.Current()
 
 	var expr Expression
+
+	if symbol.Kind == token.Keyword_New {
+		p.Advance()
+		if isIdentifierLike(p.Current().Kind) && p.Peek().Kind == token.Symbol_LeftBrace {
+			boxedType, ok := p.ParseTypeReference()
+			if !ok {
+				return nil, false
+			}
+			operand, ok := p.ParseObjectLiteralExpression()
+			if !ok {
+				return nil, false
+			}
+			return NewExpression{
+				Position: posOf(symbol),
+				Type:     &boxedType,
+				Value:    operand,
+			}, true
+		}
+		operand, ok := p.ParseUnaryExpression()
+		if !ok {
+			return nil, false
+		}
+		return NewExpression{
+			Position: posOf(symbol),
+			Value:    operand,
+		}, true
+	}
+
+	if symbol.Kind == token.Keyword_Clone {
+		p.Advance()
+		operand, ok := p.ParseUnaryExpression()
+		if !ok {
+			return nil, false
+		}
+		return CloneExpression{
+			Position: posOf(symbol),
+			Source:   operand,
+		}, true
+	}
+
+	if symbol.Kind == token.Keyword_Move {
+		p.Advance()
+		ident, ok := p.Expect(token.Kind_Identifier, "identifier expected")
+		if !ok {
+			return nil, false
+		}
+		return MoveExpression{
+			Position: posOf(ident),
+			Source:   Identifier{Position: posOf(ident), Name: ident.Lexeme},
+		}, true
+	}
 
 	if symbol.Kind == token.Symbol_Not ||
 		symbol.Kind == token.Symbol_Minus ||
@@ -595,10 +657,13 @@ func (p *Parser) ParseMemberAccessExpression(
 	receiver Expression,
 ) (Expression, bool) {
 	p.Advance() // consume dot
-	member, ok := p.Expect(token.Kind_Identifier, "member name expected")
-	if !ok {
+	p.skipComments()
+	if !isIdentifierLike(p.Current().Kind) {
+		current := p.Current()
+		p.addError(current.Line, current.Column, "member name expected")
 		return nil, false
 	}
+	member := p.Advance()
 	return MemberAccessExpression{
 		Position: posOf(member),
 		Receiver: receiver,
@@ -715,7 +780,7 @@ func (p *Parser) ParseReturnStatement(
 	}, true
 }
 
-func (p *Parser) ParseTypeReference() (TypeReference, bool) {
+func (p *Parser) ParseTypeReference() (TypeIdentifier, bool) {
 	p.skipComments()
 
 	// Optional reference prefix: `&T` (read-only) or `edit &T` (mutable,
@@ -738,7 +803,7 @@ func (p *Parser) ParseTypeReference() (TypeReference, bool) {
 			current.Column,
 			"`edit` may only qualify a reference (`edit &T`)",
 		)
-		return TypeReference{}, false
+		return TypeIdentifier{}, false
 	}
 
 	if p.Current().Kind == token.Symbol_LeftBrace {
@@ -748,22 +813,38 @@ func (p *Parser) ParseTypeReference() (TypeReference, bool) {
 			current.Column,
 			"anonymous object types are not allowed here (§8.3)",
 		)
-		return TypeReference{}, false
+		return TypeIdentifier{}, false
 	}
 
-	typeIdentifier, ok := p.Expect(
-		token.Kind_Identifier,
-		"type identifier expected",
-	)
-	if !ok {
-		return TypeReference{}, false
+	if !isIdentifierLike(p.Current().Kind) {
+		current := p.Current()
+		p.addError(current.Line, current.Column, "type identifier expected")
+		return TypeIdentifier{}, false
 	}
-	reference := TypeReference{
+	typeIdentifier := p.Advance()
+
+	// in case of generic types
+	var inner TypeIdentifier
+	if p.Current().Kind == token.Symbol_Less {
+		p.Advance() // consume less symbol
+		var ok bool
+		inner, ok = p.ParseTypeReference()
+		if !ok {
+			return TypeIdentifier{}, false
+		}
+		p.Expect(
+			token.Symbol_Greater,
+			"symbol > expected",
+		)
+	}
+
+	reference := TypeIdentifier{
 		Name: Identifier{
 			Position: posOf(typeIdentifier),
 			Name:     typeIdentifier.Lexeme,
 		},
 		Reference: isRef,
+		Inner:     &inner,
 		Edit:      edit,
 	}
 	// A reference to a previously declared type is a custom record type,
@@ -783,7 +864,7 @@ func (p *Parser) ParseVarDeclStatement() (Statement, bool) {
 		return VariableDeclarationStatement{}, false
 	}
 
-	typeReference := TypeReference{Name: Identifier{}}
+	typeReference := TypeIdentifier{Name: Identifier{}}
 	p.skipComments()
 	if p.Current().Kind == token.Symbol_Colon {
 		p.Advance() // consume colon
@@ -1668,8 +1749,8 @@ func (p *Parser) ParseFunctionDeclaration() (FunctionDeclaration, bool) {
 	}
 
 	p.skipComments()
-	returns := []TypeReference{}
-	errors := []TypeReference{}
+	returns := []TypeIdentifier{}
+	errors := []TypeIdentifier{}
 
 	if p.Current().Kind == token.Symbol_Colon {
 		p.Advance() // consume colon
@@ -1725,22 +1806,73 @@ func (p *Parser) ParseFunctionDeclaration() (FunctionDeclaration, bool) {
 	}
 
 	return FunctionDeclaration{
-		Position:    keywordPos,
-		Receiver:    receiver,
-		Name:        functionName.Lexeme,
-		Parameters:  parameters,
-		ReturnTypes: returns,
-		ErrorTypes:  errors,
-		Body:        &body,
+		Position:     keywordPos,
+		Receiver:     receiver,
+		Name:         functionName.Lexeme,
+		NamePosition: posOf(functionName),
+		Parameters:   parameters,
+		ReturnTypes:  returns,
+		ErrorTypes:   errors,
+		Body:         &body,
+	}, true
+}
+
+func (p *Parser) ParseImportDeclaration() (ImportDeclaration, bool) {
+	keyword := p.Advance()
+	if _, ok := p.Expect(token.Symbol_LeftBrace, "symbol { expected"); !ok {
+		return ImportDeclaration{}, false
+	}
+
+	specifiers := []ImportSpecifier{}
+	p.skipComments()
+	for p.Current().Kind != token.Symbol_RightBrace {
+		if p.Current().Kind == token.Kind_EOF {
+			p.addError(keyword.Line, keyword.Column, "unterminated import")
+			return ImportDeclaration{}, false
+		}
+		name, ok := p.Expect(token.Kind_Identifier, "import name expected")
+		if !ok {
+			return ImportDeclaration{}, false
+		}
+		specifiers = append(specifiers, ImportSpecifier{
+			Position: posOf(name),
+			Name:     name.Lexeme,
+		})
+		p.skipComments()
+		if p.Current().Kind == token.Symbol_Comma {
+			p.Advance()
+			p.skipComments()
+			continue
+		}
+		break
+	}
+
+	if _, ok := p.Expect(token.Symbol_RightBrace, "symbol } expected"); !ok {
+		return ImportDeclaration{}, false
+	}
+	if _, ok := p.Expect(token.Keyword_From, "from expected"); !ok {
+		return ImportDeclaration{}, false
+	}
+	path, ok := p.Expect(token.Kind_StringLiteral, "import path string expected")
+	if !ok {
+		return ImportDeclaration{}, false
+	}
+	if _, ok := p.Expect(token.Symbol_Semicolon, "symbol ; expected"); !ok {
+		return ImportDeclaration{}, false
+	}
+	return ImportDeclaration{
+		Position:   posOf(keyword),
+		Specifiers: specifiers,
+		Path:       path.Lexeme,
 	}, true
 }
 
 func (p *Parser) ParseConstDeclaration() (ConstDeclaration, bool) {
 	stmt, ok := p.ParseVarDeclStatement()
-	varDecl := stmt.(VariableDeclarationStatement)
 	if !ok {
 		return ConstDeclaration{}, false
 	}
+	varDecl := stmt.(VariableDeclarationStatement)
 
 	return ConstDeclaration{
 		Position: varDecl.Position,
@@ -2020,12 +2152,12 @@ func (p *Parser) ParseTypeRHS() (TypeRHS, bool) {
 }
 
 func (p *Parser) typeReferenceChain(
-	references []TypeReference,
-) []*TypeReference {
+	references []TypeIdentifier,
+) []*TypeIdentifier {
 	if len(references) == 0 {
 		return nil
 	}
-	fields := make([]*TypeReference, 0, len(references))
+	fields := make([]*TypeIdentifier, 0, len(references))
 	for _, reference := range references {
 		if existing := p.lookupType(
 			reference.Name.Name,
@@ -2040,29 +2172,29 @@ func (p *Parser) typeReferenceChain(
 	return fields
 }
 
-func (p *Parser) lookupType(name string) *TypeReference {
+func (p *Parser) lookupType(name string) *TypeIdentifier {
 	if name == "" {
 		return nil
 	}
 	return p.declaredTypes[name]
 }
 
-func (p *Parser) registerType(typ *TypeReference) {
+func (p *Parser) registerType(typ *TypeIdentifier) {
 	if p.declaredTypes == nil {
-		p.declaredTypes = map[string]*TypeReference{}
+		p.declaredTypes = map[string]*TypeIdentifier{}
 	}
 	p.declaredTypes[typ.Name.Name] = typ
 }
 
-func typeReferencesForRecord(fields []RecordField) []TypeReference {
-	references := make([]TypeReference, 0, len(fields))
+func typeReferencesForRecord(fields []RecordField) []TypeIdentifier {
+	references := make([]TypeIdentifier, 0, len(fields))
 	for _, field := range fields {
 		references = append(references, field.Type)
 	}
 	return references
 }
 
-func (p *Parser) populateTypeRHS(rhs TypeRHS, typ *TypeReference) TypeRHS {
+func (p *Parser) populateTypeRHS(rhs TypeRHS, typ *TypeIdentifier) TypeRHS {
 	switch rhs := rhs.(type) {
 	case RecordRHS:
 		typ.Fields = p.typeReferenceChain(
@@ -2071,11 +2203,11 @@ func (p *Parser) populateTypeRHS(rhs TypeRHS, typ *TypeReference) TypeRHS {
 		rhs.Type = *typ
 		return rhs
 	case AliasRHS:
-		typ.Fields = p.typeReferenceChain([]TypeReference{rhs.Target})
+		typ.Fields = p.typeReferenceChain([]TypeIdentifier{rhs.Target})
 		rhs.Type = *typ
 		return rhs
 	case CompositionRHS:
-		references := make([]TypeReference, 0, len(rhs.Operands))
+		references := make([]TypeIdentifier, 0, len(rhs.Operands))
 		for index, operand := range rhs.Operands {
 			if operand.Named != nil {
 				references = append(references, *operand.Named)
@@ -2106,7 +2238,13 @@ func (p *Parser) populateTypeRHS(rhs TypeRHS, typ *TypeReference) TypeRHS {
 }
 
 func (p *Parser) ParseTypeDeclaration() (TypeDeclaration, bool) {
-	keyword := p.Advance()
+	var isUnique bool = false
+
+	if p.Current().Kind == token.Keyword_Unique {
+		p.Advance() // consume unique keyword
+		isUnique = true
+	}
+	keyword := p.Advance() // consume type keyword
 	name, ok := p.Expect(token.Kind_Identifier, "type name expected")
 	if !ok {
 		return TypeDeclaration{}, false
@@ -2121,12 +2259,13 @@ func (p *Parser) ParseTypeDeclaration() (TypeDeclaration, bool) {
 	if _, ok := p.Expect(token.Symbol_Semicolon, "symbol ; expected"); !ok {
 		return TypeDeclaration{}, false
 	}
-	declaredType := &TypeReference{
+	declaredType := &TypeIdentifier{
 		Name: Identifier{
 			Position: posOf(name),
 			Name:     name.Lexeme,
 		},
-		Kind: Custom,
+		Unique: isUnique,
+		Kind:   Custom,
 	}
 	populatedRHS := p.populateTypeRHS(rhs, declaredType)
 	p.registerType(declaredType)
@@ -2134,6 +2273,7 @@ func (p *Parser) ParseTypeDeclaration() (TypeDeclaration, bool) {
 		Position: posOf(keyword),
 		Name:     declaredType.Name,
 		RHS:      populatedRHS,
+		Unique:   isUnique,
 	}, true
 }
 
@@ -2142,21 +2282,40 @@ func (p *Parser) ParseDeclaration() (Declaration, bool) {
 		return p.ParseComment(), true
 	}
 
+	if p.Current().Kind == token.Keyword_Import {
+		return p.ParseImportDeclaration()
+	}
+
+	exported := false
+	if p.Current().Kind == token.Keyword_Export {
+		p.Advance()
+		exported = true
+	}
+
+	if exported && p.Current().Kind == token.Kind_Identifier &&
+		p.Current().Lexeme == "class" {
+		current := p.Current()
+		p.addError(current.Line, current.Column, "export class is not supported yet")
+		return nil, false
+	}
+
 	if p.Current().Kind == token.Keyword_Function {
 		p.Advance()
 		declaration, ok := p.ParseFunctionDeclaration()
 		if !ok {
 			return nil, false
 		}
+		declaration.Exported = exported
 
 		return declaration, true
 	}
 
-	if p.Current().Kind == token.Keyword_Type {
+	if p.Current().Kind == token.Keyword_Unique || p.Current().Kind == token.Keyword_Type {
 		declaration, ok := p.ParseTypeDeclaration()
 		if !ok {
 			return nil, false
 		}
+		declaration.Exported = exported
 		return declaration, true
 	}
 
@@ -2176,8 +2335,15 @@ func (p *Parser) ParseDeclaration() (Declaration, bool) {
 		if !ok {
 			return nil, false
 		}
+		declaration.Exported = exported
 
 		return declaration, true
+	}
+
+	if exported {
+		current := p.Current()
+		p.addError(current.Line, current.Column, "export can only be used on function, const, and type declarations")
+		return nil, false
 	}
 
 	current := p.Current()
@@ -2195,6 +2361,9 @@ func (p *Parser) synchronizeDeclaration(start int) {
 		case token.Keyword_Function,
 			token.Keyword_Const,
 			token.Keyword_Type,
+			token.Keyword_Import,
+			token.Keyword_Export,
+			token.Keyword_Unique,
 			token.Kind_LineComment,
 			token.Kind_BlockComment:
 			return
@@ -2233,12 +2402,22 @@ func (p *Parser) synchronizeStatement(start int) {
 
 func (p *Parser) Parse() File {
 	file := File{}
+	seenNonImport := false
 	for p.Current().Kind != token.Kind_EOF {
 		start := p.Position
+		if p.Current().Kind == token.Keyword_Import && seenNonImport {
+			current := p.Current()
+			p.addError(current.Line, current.Column, "imports must precede other declarations")
+		}
 		declaration, ok := p.ParseDeclaration()
 		if !ok {
 			p.synchronizeDeclaration(start)
 			continue
+		}
+		if _, ok := declaration.(ImportDeclaration); !ok {
+			if _, ok := declaration.(Comment); !ok {
+				seenNonImport = true
+			}
 		}
 		file.Declarations = append(file.Declarations, declaration)
 	}

@@ -1,0 +1,8 @@
+// Custom cleanup requires an explicit `unique type`; a dispose hook on a bare record is rejected. Expects fail ("unique").
+type Counter = { value: int32; };
+
+function (counter: edit &Counter) dispose() {
+    counter.value = 0;
+}
+
+function main(): int32 { return 0; }

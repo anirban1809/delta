@@ -1,0 +1,13 @@
+// Doc case: `edit &T` parameter -> `T*`, mutation through the pointer.
+// Target C: void delta__increment(delta__Counter* counter) { counter->value = (counter->value + 1); }
+type Counter = { value: int32; };
+
+function increment(counter: edit &Counter) {
+    counter.value = counter.value + 1;
+}
+
+function main(): int32 {
+    let counter: Counter = { value: 7 };
+    increment(counter);
+    return counter.value;
+}

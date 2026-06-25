@@ -1,0 +1,12 @@
+// A `let T` argument auto-borrows for an `edit &T` parameter, allowing mutation. Expects pass.
+type Counter = { value: int32; };
+
+function increment(counter: edit &Counter) {
+    counter.value = counter.value + 1;
+}
+
+function main(): int32 {
+    let counter: Counter = { value: 7 };
+    increment(counter);
+    return counter.value;
+}

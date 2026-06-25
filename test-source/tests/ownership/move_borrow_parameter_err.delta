@@ -1,0 +1,10 @@
+// Moving a borrow (`&Handle` parameter) never transfers ownership of its referent. Expects fail ("borrow").
+unique type Handle = { id: int32; };
+
+function consume(value: Handle) { }
+
+function invalid(value: &Handle) {
+    consume(move value);
+}
+
+function main(): int32 { return 0; }

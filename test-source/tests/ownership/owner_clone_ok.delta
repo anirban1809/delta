@@ -1,0 +1,13 @@
+// A non-Unique owner duplicates explicitly via fallible `clone ... as result`. Expects pass.
+type Box = { value: heap<int32>; };
+
+function inspect(value: &Box) { }
+
+function main(): int32 {
+    const original: Box = { value: new 7 };
+    const duplicate = clone original as result;
+    check result { return 1; }
+    inspect(original);
+    inspect(duplicate);
+    return 0;
+}

@@ -1,0 +1,9 @@
+// A `const T` argument auto-borrows for a `&T` parameter. Expects pass.
+type Counter = { value: int32; };
+
+function read(counter: &Counter): int32 { return counter.value; }
+
+function main(): int32 {
+    const counter: Counter = { value: 7 };
+    return read(counter);
+}

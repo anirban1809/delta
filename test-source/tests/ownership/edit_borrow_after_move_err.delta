@@ -1,0 +1,12 @@
+// A contextual mutable borrow cannot target a moved binding. Expects fail ("moved").
+unique type Handle = { id: int32; };
+
+function update(value: edit &Handle) { value.id = 8; }
+function consume(value: Handle) { }
+
+function main(): int32 {
+    let value: Handle = { id: 7 };
+    consume(move value);
+    update(value);
+    return 0;
+}

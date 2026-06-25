@@ -1,0 +1,18 @@
+// Doc case: Auto-borrow at a call -> address-of. Two `&T` reads of one root are fine.
+// Target C: delta__add(&counter, &counter); delta__increment(&counter);
+type Counter = { value: int32; };
+
+function add(left: &Counter, right: &Counter): int32 {
+    return left.value + right.value;
+}
+
+function increment(counter: edit &Counter) {
+    counter.value = counter.value + 1;
+}
+
+function main(): int32 {
+    let counter: Counter = { value: 7 };
+    const sum = add(counter, counter);
+    increment(counter);
+    return sum + counter.value;
+}

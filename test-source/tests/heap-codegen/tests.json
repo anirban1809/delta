@@ -1,0 +1,8 @@
+[
+  {
+    "name": "basic_heap",
+    "file": "basic_heap.delta",
+    "expect": "codegen_match",
+    "note": "Phase H heap allocation, auto-deref through receiver methods, and record drop cascade"
+  }
+]

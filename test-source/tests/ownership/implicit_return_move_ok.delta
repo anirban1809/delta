@@ -1,0 +1,12 @@
+// Returning a non-Copyable by-value parameter implicitly transfers it. Expects pass.
+unique type Handle = { id: int32; };
+
+function identity(value: Handle): Handle {
+    return value;
+}
+
+function main(): int32 {
+    let value: Handle = { id: 7 };
+    const result = identity(move value);
+    return result.id;
+}

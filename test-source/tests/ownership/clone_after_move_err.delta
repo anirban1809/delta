@@ -1,0 +1,12 @@
+// `clone` reads its source, so it rejects a moved binding. Expects fail ("moved").
+type Box = { value: heap<int32>; };
+
+function consume(value: Box) { }
+
+function main(): int32 {
+    let value: Box = { value: new 7 };
+    consume(move value);
+    const duplicate = clone value as result;
+    check result { return 1; }
+    return 0;
+}

@@ -1,0 +1,9 @@
+// Resource ownership / non-Copyability propagate through nested records (Outer.inner -> Inner.value -> heap<int32>). Expects fail ("non-copyable").
+type Inner = { value: heap<int32>; };
+type Outer = { inner: Inner; tag: int32; };
+
+function main(): int32 {
+    const a: Outer = { inner: { value: new 1 }, tag: 2 };
+    const b = a;
+    return 0;
+}

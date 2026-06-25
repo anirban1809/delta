@@ -145,7 +145,7 @@ Container declarations are tier-specific. `Array<T>`, `Array<clone T>`, and `Arr
 **Proposal.** There are exactly three ways to obtain another usable value or binding from an existing one:
 
 - **Plain assignment / by-value passing** copies only copyable values.
-- **`move x`** transfers ownership of a cloneable or unique value; the source becomes moved-from.
+- **`move x`** transfers a binding and invalidates the source; the source becomes moved-from. This applies to any tier — for cloneable and unique values it is the only way to transfer, and for copyable values it still invalidates the source (use plain assignment if you want the source to stay live).
 - **`clone x`** duplicates a copyable or cloneable value. For cloneable values this is a deep duplicate; for copyable values it is redundant and warns.
 
 There is no `copy` operator and no `copy` keyword.
@@ -198,7 +198,7 @@ let file2 = move file;                // OK
 
 ### 14.3 The `move` Operator
 
-**Proposal.** `move x` transfers ownership of a live owned binding. After the move, `x` is moved-from: reading, mutating, referencing, moving, or cloning it is a compile error until it is revived ([§14.6](#146-revival-by-reassignment)).
+**Proposal.** `move x` transfers a live binding and invalidates the source. After the move, `x` is moved-from: reading, mutating, referencing, moving, or cloning it is a compile error until it is revived ([§14.6](#146-revival-by-reassignment)). This holds regardless of tier — `move` invalidates the source even when `x` is copyable.
 
 The operand of `move` is restricted to a live owned binding referenced by its whole name: a local `let` binding or an owned by-value parameter. The following are rejected:
 
@@ -207,7 +207,7 @@ The operand of `move` is restricted to a live owned binding referenced by its wh
 - `move makeFile()` - a temporary; the call result is already yours.
 - `move constX` - `const` is non-consuming.
 
-`move` on a copyable value is permitted but redundant. It acts as a copy and emits a warning; the source remains live.
+`move` on a copyable value is permitted but unnecessary — plain assignment or by-value passing already copies it ([§14.2](#142-three-operations-no-copy-operator)). When you do write `move`, the source is invalidated like any other binding; there is no copyable exception and no warning-and-stay-live behavior. A developer who wants the source to remain live should simply not write `move`.
 
 `move` never converts a reference into ownership of its referent. A value of type `&T` is a non-owning reference value. Moving or copying that value only moves or copies the reference itself; it never moves the `T`.
 
@@ -230,14 +230,15 @@ function archive(doc: Doc): void {    // owned by-value parameter
 }
 ```
 
-Copyable redundancy:
+Copyable values are invalidated too:
 ```ts
 let v: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
-let w = move v;                       // WARNING - move redundant; Vec3 is copyable
-print(v);                             // OK - v stayed live
+let w = v;                            // OK - copyable, v stays live
+let u = move v;                       // v is now moved-from
+print(v);                             // ERROR - use after move
 ```
 
-**Conclusion.** `move x` transfers ownership from a whole live owned binding. It invalidates cloneable and unique sources, warns on copyable sources, and never moves out of fields, elements, temporaries, or references.
+**Conclusion.** `move x` transfers from a whole live binding and invalidates the source in every tier — copyable, cloneable, and unique alike. It never moves out of fields, elements, temporaries, or references.
 
 ---
 
@@ -499,7 +500,7 @@ inspect(&copy);                       // OK
 
 **Proposal.** Ownership operators emit diagnostics when a tier makes the operation pointless or impossible:
 
-- `move` on a copyable value is a warning. It acts as a copy and leaves the source live.
+- `move` on a copyable value is permitted and is **not** diagnosed: it transfers and invalidates the source like any other `move`. It is unnecessary on a copyable value — assignment already copies — but it is a deliberate, meaningful operation, not a redundant one, so it neither warns nor leaves the source live.
 - `clone` on a copyable value is a warning. Use assignment instead.
 - `clone` on a unique value is a hard error.
 - Bare assignment or by-value passing of cloneable or unique values is a hard error.
@@ -509,8 +510,11 @@ inspect(&copy);                       // OK
 **Examples.**
 ```ts
 let v: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
-let w = move v;                       // WARNING - move redundant; v stays live
-let u = clone v;                      // WARNING - clone redundant; use assignment
+let w = move v;                       // OK - transfers; v is now moved-from
+print(v);                             // ERROR - use after move
+
+let v2: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
+let u = clone v2;                     // WARNING - clone redundant; use assignment
 
 let s: Session = makeSession();
 let c = clone s;                      // ERROR - Session is unique
@@ -518,7 +522,7 @@ use(s);                               // ERROR - unique bare-pass forbidden
 use(move s);                          // OK
 ```
 
-**Conclusion.** Redundant operations on copyable values warn. Impossible duplication of unique values and bare use of non-copyable values error.
+**Conclusion.** `clone` on a copyable value warns. `move` on a copyable value is a real transfer, not a redundant operation, so it does not warn and invalidates the source. Impossible duplication of unique values and bare use of non-copyable values error.
 
 ---
 

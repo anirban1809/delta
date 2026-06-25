@@ -1,0 +1,16 @@
+// A moved branch that returns does not poison the surviving path. Expects pass.
+unique type Handle = { id: int32; };
+
+function consume(value: Handle) { }
+function inspect(value: &Handle): int32 { return value.id; }
+
+function test(flag: bool): int32 {
+    let value: Handle = { id: 7 };
+    if (flag) {
+        consume(move value);
+        return 0;
+    }
+    return inspect(value);
+}
+
+function main(): int32 { return test(false); }

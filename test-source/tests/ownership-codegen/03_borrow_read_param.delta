@@ -1,0 +1,12 @@
+// Doc case: `&T` parameter -> `const T*`, field access -> `->`.
+// Target C: int32_t delta__inspect(const delta__Counter* counter) { return counter->value; }
+type Counter = { value: int32; };
+
+function inspect(counter: &Counter): int32 {
+    return counter.value;
+}
+
+function main(): int32 {
+    let counter: Counter = { value: 7 };
+    return inspect(counter);
+}

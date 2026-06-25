@@ -1,0 +1,7 @@
+// A Unique record may register at most one dispose hook. Expects fail ("duplicate").
+unique type Handle = { id: int32; };
+
+function (value: edit &Handle) dispose() { }
+function (value: edit &Handle) dispose() { }
+
+function main(): int32 { return 0; }

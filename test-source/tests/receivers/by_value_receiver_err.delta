@@ -2,6 +2,6 @@ type Counter = { value: int32; };
 
 // A by-value receiver would silently consume a non-copyable receiver; only
 // `&T` / `edit &T` receivers are allowed.
-function (c: Counter) get(): int32 {
+function (c: &Counter) get(): int32 {
     return c.value;
 }

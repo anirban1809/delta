@@ -1,0 +1,6 @@
+// Compiler-only dispose hooks cannot be exported. Expects fail ("export").
+unique type Handle = { id: int32; };
+
+export function (value: edit &Handle) dispose() { }
+
+function main(): int32 { return 0; }

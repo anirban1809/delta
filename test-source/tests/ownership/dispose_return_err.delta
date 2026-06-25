@@ -1,0 +1,8 @@
+// dispose must return void. Expects fail ("void").
+unique type Handle = { id: int32; };
+
+function (value: edit &Handle) dispose(): int32 {
+    return value.id;
+}
+
+function main(): int32 { return 0; }

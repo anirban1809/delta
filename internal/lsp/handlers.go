@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
+	"delta/internal/analyzer"
 	"delta/internal/ast"
 	"delta/internal/pipeline"
-	"delta/internal/semantics"
 	"delta/internal/token"
 )
 
@@ -40,6 +40,17 @@ func (s *Server) handleHover(msg *Message) {
 		})
 		return
 	}
+	if member, sig, ok := memberMethodAt(st.result, p.Position); ok {
+		rng := definitionRange(member.Position, member.Member)
+		s.replyJSON(msg, Hover{
+			Contents: MarkupContent{
+				Kind:  "markdown",
+				Value: "```delta\n" + renderMethodDetail(member.Member, sig) + "\n```",
+			},
+			Range: &rng,
+		})
+		return
+	}
 
 	id := identAt(st.result.File, p.Position)
 	if id == nil {
@@ -51,6 +62,9 @@ func (s *Server) handleHover(msg *Message) {
 	// happen to share their position with a declaration) fall through to a
 	// scope-at-position lookup by name.
 	sym, ok := st.result.Refs[id.Position]
+	if !ok {
+		sym, ok = functionDeclarationSymbolAt(st.result, *id)
+	}
 	if !ok {
 		sym, ok = lookupAtPosition(st.result.RootScope, id.Position, id.Name)
 	}
@@ -95,6 +109,15 @@ func (s *Server) handleDefinition(msg *Message) {
 		}})
 		return
 	}
+	if member, _, ok := memberMethodAt(st.result, p.Position); ok {
+		if def, ok := methodDeclarationPosition(st.result, member); ok {
+			s.replyJSON(msg, []Location{{
+				URI:   p.TextDocument.URI,
+				Range: definitionRange(def, member.Member),
+			}})
+			return
+		}
+	}
 
 	id := identAt(st.result.File, p.Position)
 	if id == nil {
@@ -107,7 +130,10 @@ func (s *Server) handleDefinition(msg *Message) {
 	// their `type` declaration via a scope lookup by name.
 	sym, ok := st.result.Refs[id.Position]
 	if !ok {
-		if t, found := lookupAtPosition(st.result.RootScope, id.Position, id.Name); found && t.Kind == semantics.SymbolTypeDecl {
+		sym, ok = functionDeclarationSymbolAt(st.result, *id)
+	}
+	if !ok {
+		if t, found := lookupAtPosition(st.result.RootScope, id.Position, id.Name); found && t.Kind == analyzer.SymbolTypeDecl {
 			sym, ok = t, true
 		}
 	}
@@ -117,8 +143,12 @@ func (s *Server) handleDefinition(msg *Message) {
 		return
 	}
 
+	targetURI := p.TextDocument.URI
+	if sym.SourcePath != "" {
+		targetURI = uriFromPath(sym.SourcePath)
+	}
 	loc := Location{
-		URI:   p.TextDocument.URI, // single-file v1
+		URI:   targetURI,
 		Range: definitionRange(sym.DefPos, sym.Name),
 	}
 	body, err := json.Marshal([]Location{loc})
@@ -196,15 +226,15 @@ func (s *Server) handleCompletion(msg *Message) {
 			symbols := visibleSymbolValues(src.RootScope, astPos)
 			expected := expectedTypeAt(st.contents, p.Position, src, astPos)
 			for _, sym := range symbols {
-				if context == completionType && sym.Kind != semantics.SymbolTypeDecl {
+				if context == completionType && sym.Kind != analyzer.SymbolTypeDecl {
 					continue
 				}
-				if context != completionType && sym.Kind == semantics.SymbolTypeDecl {
+				if context != completionType && sym.Kind == analyzer.SymbolTypeDecl {
 					continue
 				}
 				item := symbolToCompletion(sym)
-				if expected.Kind != semantics.TypeInvalid &&
-					expected.Kind != semantics.TypeEmpty &&
+				if expected.Kind != analyzer.TypeInvalid &&
+					expected.Kind != analyzer.TypeEmpty &&
 					symbolMatchesType(sym, expected) {
 					item.SortText = "0-" + sym.Name
 				}
@@ -230,9 +260,9 @@ func (s *Server) handleCompletion(msg *Message) {
 // containing pos, then resolves name up the parent chain. Returns the
 // symbol and true on hit. Used by hover when the cursor lies on a
 // declaration site (which doesn't appear in Refs).
-func lookupAtPosition(root *semantics.ScopeNode, pos ast.Position, name string) (semantics.Symbol, bool) {
+func lookupAtPosition(root *analyzer.ScopeNode, pos ast.Position, name string) (analyzer.Symbol, bool) {
 	if root == nil {
-		return semantics.Symbol{}, false
+		return analyzer.Symbol{}, false
 	}
 	deepest := root.FindDeepest(pos)
 	for n := deepest; n != nil; n = n.Parent {
@@ -240,17 +270,17 @@ func lookupAtPosition(root *semantics.ScopeNode, pos ast.Position, name string) 
 			continue
 		}
 		if sym, ok := n.Scope.Symbols[name]; ok {
-			return sym, true
+			return *sym, true
 		}
 	}
-	return semantics.Symbol{}, false
+	return analyzer.Symbol{}, false
 }
 
 // visibleSymbols enumerates every symbol reachable from pos's scope.
 // Locals declared after pos in the same block are filtered out;
 // parameters and global symbols are always visible (the analyzer's
 // two-pass design admits forward references at file scope).
-func visibleSymbols(root *semantics.ScopeNode, pos ast.Position) []CompletionItem {
+func visibleSymbols(root *analyzer.ScopeNode, pos ast.Position) []CompletionItem {
 	symbols := visibleSymbolValues(root, pos)
 	out := make([]CompletionItem, 0, len(symbols))
 	for _, sym := range symbols {
@@ -259,14 +289,14 @@ func visibleSymbols(root *semantics.ScopeNode, pos ast.Position) []CompletionIte
 	return out
 }
 
-func visibleSymbolValues(root *semantics.ScopeNode, pos ast.Position) []semantics.Symbol {
+func visibleSymbolValues(root *analyzer.ScopeNode, pos ast.Position) []analyzer.Symbol {
 	if root == nil {
 		return nil
 	}
 	deepest := root.FindDeepest(pos)
 
 	seen := map[string]bool{}
-	var out []semantics.Symbol
+	var out []analyzer.Symbol
 	for n := deepest; n != nil; n = n.Parent {
 		if n.Scope == nil {
 			continue
@@ -279,7 +309,7 @@ func visibleSymbolValues(root *semantics.ScopeNode, pos ast.Position) []semantic
 				continue // not yet declared
 			}
 			seen[name] = true
-			out = append(out, sym)
+			out = append(out, *sym)
 		}
 	}
 	// Stable, alphabetical order so the editor's UI doesn't flicker between
@@ -331,21 +361,27 @@ func contextKeywordCompletions(context completionContext) []CompletionItem {
 		return nil
 	}
 	allowed := map[string]bool{}
-	if context == completionTopLevel {
-		for _, keyword := range []string{"function", "const", "type"} {
+	switch context {
+	case completionTopLevel:
+		for _, keyword := range []string{
+			"function", "const", "type", "import", "export",
+		} {
 			allowed[keyword] = true
 		}
-	} else if context == completionStatement {
+	case completionStatement:
 		for _, keyword := range []string{
 			"const", "let", "if", "while", "for", "switch", "return", "check",
 			"break", "continue",
 		} {
 			allowed[keyword] = true
 		}
-	} else {
+	default:
 		allowed["true"] = true
 		allowed["false"] = true
 		allowed["as"] = true
+		allowed["new"] = true
+		allowed["move"] = true
+		allowed["clone"] = true
 	}
 	var out []CompletionItem
 	for _, keyword := range deltaKeywords {
@@ -379,9 +415,11 @@ func contextKeywordCompletions(context completionContext) []CompletionItem {
 func keywordSnippet(keyword string) (string, bool) {
 	switch keyword {
 	case "function":
-		return "function ${1:name}(${2}): ${3:void} {\n\t${0}\n}", true
+		return "function ${1:name}(${2}) {\n\t${0}\n}", true
 	case "type":
 		return "type ${1:Name} = {\n\t${2:field}: ${3:type};\n};", true
+	case "import":
+		return "import { ${1:symbol} } from \"${2:./module}\";", true
 	case "const":
 		return "const ${1:name}: ${2:type} = ${3:value};", true
 	case "let":
@@ -439,7 +477,7 @@ func primitiveTypeCompletions() []CompletionItem {
 	names := []string{
 		"int8", "int16", "int32", "int64", "intsize",
 		"uint8", "uint16", "uint32", "uint64", "uintsize",
-		"float32", "float64", "bool", "string", "char", "void",
+		"float32", "float64", "bool", "string", "char",
 	}
 	out := make([]CompletionItem, 0, len(names))
 	for _, name := range names {
@@ -452,14 +490,14 @@ func primitiveTypeCompletions() []CompletionItem {
 	return out
 }
 
-func symbolToCompletion(sym semantics.Symbol) CompletionItem {
+func symbolToCompletion(sym analyzer.Symbol) CompletionItem {
 	item := CompletionItem{
 		Label:    sym.Name,
 		Kind:     completionKindFor(sym.Kind),
 		Detail:   sym.Display,
 		SortText: "1-" + sym.Name,
 	}
-	if sym.Kind == semantics.SymbolFunction && sym.Signature != nil {
+	if sym.Kind == analyzer.SymbolFunction && sym.Signature != nil {
 		var snippet strings.Builder
 		snippet.WriteString(sym.Name)
 		snippet.WriteByte('(')
@@ -485,15 +523,15 @@ func symbolToCompletion(sym semantics.Symbol) CompletionItem {
 	return item
 }
 
-func completionKindFor(k semantics.SymbolKind) int {
+func completionKindFor(k analyzer.SymbolKind) int {
 	switch k {
-	case semantics.SymbolFunction:
+	case analyzer.SymbolFunction:
 		return CompletionItemKindFunction
-	case semantics.SymbolFileConst, semantics.SymbolLocalConst:
+	case analyzer.SymbolFileConst, analyzer.SymbolLocalConst:
 		return CompletionItemKindConstant
-	case semantics.SymbolParameter, semantics.SymbolLocalLet:
+	case analyzer.SymbolParameter, analyzer.SymbolLocalLet:
 		return CompletionItemKindVariable
-	case semantics.SymbolTypeDecl:
+	case analyzer.SymbolTypeDecl:
 		return CompletionItemKindStruct
 	}
 	return CompletionItemKindVariable
@@ -502,9 +540,9 @@ func completionKindFor(k semantics.SymbolKind) int {
 // isPositionGated reports whether a symbol's visibility depends on
 // declaration order within the scope. Parameters and globals are not
 // gated; local var/const bindings are.
-func isPositionGated(k semantics.SymbolKind) bool {
+func isPositionGated(k analyzer.SymbolKind) bool {
 	switch k {
-	case semantics.SymbolLocalConst, semantics.SymbolLocalLet:
+	case analyzer.SymbolLocalConst, analyzer.SymbolLocalLet:
 		return true
 	}
 	return false
@@ -592,30 +630,19 @@ func lineAt(contents []byte, line int) string {
 func (s *Server) fieldCompletions(st *docState, chain []string, pos Position) []CompletionItem {
 	src := st.result
 	if pipeline.HasParseErrors(src) {
-		src = st.lastGood
+		src = repairedMemberCompletionResult(st, pos)
+		if src == nil || src.RootScope == nil || src.Records == nil {
+			src = st.lastGood
+		}
 	}
 	if src == nil || src.RootScope == nil || src.Records == nil {
 		return nil
 	}
 
 	astPos := ast.Position{Line: pos.Line + 1, Column: pos.Character + 1}
-	sym, ok := lookupAtPosition(src.RootScope, astPos, chain[0])
+	t, ok := receiverChainType(src, chain, astPos)
 	if !ok {
 		return nil
-	}
-	t := sym.Type
-
-	// Walk intermediate segments (`a.b.` -> step through b before listing).
-	for _, seg := range chain[1:] {
-		fields, ok := recordFields(src, t)
-		if !ok {
-			return nil
-		}
-		next, ok := fieldTypeByName(fields, seg)
-		if !ok {
-			return nil
-		}
-		t = next
 	}
 
 	fields, ok := recordFields(src, t)
@@ -631,8 +658,139 @@ func (s *Server) fieldCompletions(st *docState, chain []string, pos Position) []
 			SortText: "0-" + f.Name, // fields sort first in member context
 		})
 	}
+	if methods := src.Methods[memberSurfaceTypeName(t)]; len(methods) > 0 {
+		for name, sig := range methods {
+			out = append(out, methodCompletion(name, sig))
+		}
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
 	return out
+}
+
+func repairedMemberCompletionResult(st *docState, pos Position) *pipeline.Result {
+	if st == nil {
+		return nil
+	}
+	offset := byteOffset(st.contents, pos)
+	if offset < 0 || offset > len(st.contents) {
+		return nil
+	}
+	insert := "__delta_completion_placeholder"
+	line := lineAt(st.contents, pos.Line)
+	col := min(pos.Character, len(line))
+	if strings.TrimSpace(line[col:]) == "" {
+		insert += ";"
+	}
+	repaired := make([]byte, 0, len(st.contents)+len(insert))
+	repaired = append(repaired, st.contents[:offset]...)
+	repaired = append(repaired, insert...)
+	repaired = append(repaired, st.contents[offset:]...)
+	result := pipeline.Compile("completion.delta", repaired)
+	if pipeline.HasParseErrors(result) {
+		return nil
+	}
+	return result
+}
+
+func receiverChainType(
+	src *pipeline.Result,
+	chain []string,
+	pos ast.Position,
+) (analyzer.Type, bool) {
+	if src == nil || src.RootScope == nil || len(chain) == 0 {
+		return analyzer.Type{}, false
+	}
+	sym, ok := lookupAtPosition(src.RootScope, pos, chain[0])
+	if !ok {
+		return analyzer.Type{}, false
+	}
+	t := sym.Type
+	for _, seg := range chain[1:] {
+		fields, ok := recordFields(src, t)
+		if !ok {
+			return analyzer.Type{}, false
+		}
+		next, ok := fieldTypeByName(fields, seg)
+		if !ok {
+			return analyzer.Type{}, false
+		}
+		t = next
+	}
+	return t, true
+}
+
+func methodCompletion(name string, sig *analyzer.FunctionSignature) CompletionItem {
+	item := CompletionItem{
+		Label:    name,
+		Kind:     CompletionItemKindFunction,
+		Detail:   renderMethodDetail(name, sig),
+		SortText: "0-" + name,
+	}
+	if sig != nil {
+		var snippet strings.Builder
+		snippet.WriteString(name)
+		snippet.WriteByte('(')
+		for i := range sig.Parameters {
+			if i > 0 {
+				snippet.WriteString(", ")
+			}
+			name := "arg" + strconv.Itoa(i+1)
+			if i < len(sig.ParameterNames) && sig.ParameterNames[i] != "" {
+				name = sig.ParameterNames[i]
+			}
+			snippet.WriteString("${")
+			snippet.WriteString(strconv.Itoa(i + 1))
+			snippet.WriteByte(':')
+			snippet.WriteString(name)
+			snippet.WriteByte('}')
+		}
+		snippet.WriteByte(')')
+		item.InsertText = snippet.String()
+		item.InsertTextFormat = InsertTextFormatSnippet
+	}
+	return item
+}
+
+func renderMethodDetail(name string, sig *analyzer.FunctionSignature) string {
+	if sig == nil {
+		return "function " + name + "()"
+	}
+	var params []string
+	for i, typ := range sig.Parameters {
+		label := typ.String()
+		if i < len(sig.ParameterNames) && sig.ParameterNames[i] != "" {
+			label = sig.ParameterNames[i] + ": " + label
+		}
+		params = append(params, label)
+	}
+	detail := "function "
+	if sig.ReceiverType != nil {
+		receiverName := sig.ReceiverName
+		if receiverName == "" {
+			receiverName = "recv"
+		}
+		receiverType := "&" + sig.ReceiverType.Name
+		if sig.ReceiverEdit {
+			receiverType = "edit &" + sig.ReceiverType.Name
+		}
+		detail += "(" + receiverName + ": " + receiverType + ") "
+	}
+	detail += name + "(" + strings.Join(params, ", ") + ")"
+	if len(sig.ReturnTypes) > 0 {
+		parts := make([]string, 0, len(sig.ReturnTypes))
+		for _, typ := range sig.ReturnTypes {
+			parts = append(parts, typ.String())
+		}
+		detail += " -> " + strings.Join(parts, ", ")
+	}
+	if len(sig.ErrorTypes) > 0 {
+		parts := make([]string, 0, len(sig.ErrorTypes))
+		for _, typ := range sig.ErrorTypes {
+			parts = append(parts, typ.String())
+		}
+		detail += " | " + strings.Join(parts, ", ")
+	}
+	return detail
 }
 
 func (s *Server) callFieldCompletions(st *docState, name string, pos Position) []CompletionItem {
@@ -664,26 +822,54 @@ func (s *Server) callFieldCompletions(st *docState, name string, pos Position) [
 
 // recordFields returns the resolved fields for a custom record type, or
 // false when t is not a record type known to the registry.
-func recordFields(src *pipeline.Result, t semantics.Type) ([]semantics.ResolvedRecordField, bool) {
-	if t.Kind != semantics.TypeCustom {
+func recordFields(src *pipeline.Result, t analyzer.Type) ([]analyzer.ResolvedRecordField, bool) {
+	if t.Kind != analyzer.TypeCustom {
 		return nil, false
 	}
-	fields, ok := src.Records[t.Name]
+	fields, ok := src.Records[memberSurfaceTypeName(t)]
+	if ok {
+		return fields, true
+	}
+	if len(t.Fields) > 0 {
+		fields := make([]analyzer.ResolvedRecordField, 0, len(t.Fields))
+		for _, field := range t.Fields {
+			fields = append(fields, analyzer.ResolvedRecordField{
+				Name:     field.Name,
+				Type:     field.Type,
+				Position: field.Position,
+			})
+		}
+		return fields, true
+	}
 	return fields, ok
 }
 
+func memberSurfaceTypeName(t analyzer.Type) string {
+	if inner, ok := heapInnerTypeName(t.Name); ok {
+		return inner
+	}
+	return t.Name
+}
+
+func heapInnerTypeName(name string) (string, bool) {
+	if len(name) <= len("heap<>") || !strings.HasPrefix(name, "heap<") || !strings.HasSuffix(name, ">") {
+		return "", false
+	}
+	return name[len("heap<") : len(name)-1], true
+}
+
 // fieldTypeByName looks up a field by name in a resolved field list.
-func fieldTypeByName(fields []semantics.ResolvedRecordField, name string) (semantics.Type, bool) {
+func fieldTypeByName(fields []analyzer.ResolvedRecordField, name string) (analyzer.Type, bool) {
 	for _, f := range fields {
 		if f.Name == name {
 			return f.Type, true
 		}
 	}
-	return semantics.Type{}, false
+	return analyzer.Type{}, false
 }
 
-func symbolMatchesType(sym semantics.Symbol, expected semantics.Type) bool {
-	if sym.Kind == semantics.SymbolFunction {
+func symbolMatchesType(sym analyzer.Symbol, expected analyzer.Type) bool {
+	if sym.Kind == analyzer.SymbolFunction {
 		return sym.Signature != nil &&
 			len(sym.Signature.ReturnTypes) == 1 &&
 			sym.Signature.ReturnTypes[0].String() == expected.String()
@@ -696,16 +882,16 @@ func expectedTypeAt(
 	pos Position,
 	src *pipeline.Result,
 	astPos ast.Position,
-) semantics.Type {
+) analyzer.Type {
 	line := lineAt(contents, pos.Line)
 	col := min(pos.Character, len(line))
 	prefix := line[:col]
 	annotation := regexp.MustCompile(`:\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*[^;]*$`).FindStringSubmatch(prefix)
 	if len(annotation) == 2 {
-		if typ, ok := semantics.ResolveTypeName(annotation[1]); ok {
+		if typ, ok := analyzer.ResolveTypeName(annotation[1]); ok {
 			return typ
 		}
-		return semantics.Type{Kind: semantics.TypeCustom, Name: annotation[1]}
+		return analyzer.Type{Kind: analyzer.TypeCustom, Name: annotation[1]}
 	}
 	if name, active, ok := callAt(contents, pos); ok {
 		if sym, found := lookupAtPosition(src.RootScope, astPos, name); found &&
@@ -713,7 +899,7 @@ func expectedTypeAt(
 			return sym.Signature.Parameters[active]
 		}
 	}
-	return semantics.Type{Kind: semantics.TypeInvalid}
+	return analyzer.Type{Kind: analyzer.TypeInvalid}
 }
 
 func objectLiteralCompletions(st *docState, pos Position) ([]CompletionItem, bool) {
@@ -728,6 +914,9 @@ func objectLiteralCompletions(st *docState, pos Position) ([]CompletionItem, boo
 	prefix := string(st.contents[:offset])
 	open := strings.LastIndex(prefix, "{")
 	if open < 0 {
+		return nil, false
+	}
+	if close := strings.LastIndex(prefix, "}"); close > open {
 		return nil, false
 	}
 	header := prefix[:open]

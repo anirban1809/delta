@@ -5,15 +5,15 @@ Status: target, not started.
 Predecessor: [compiler-status.md](compiler-status.md) — the v0 baseline this goal extends.
 Spec basis: [main-spec.md](main-spec.md) plus the section files under [spec-sections/](spec-sections/), in particular §1, §3, §5, §6, §9, §11, §12, §13, §14.
 
-> **Update (2026-06-21) — classes deferred for the MVP.** The `class` keyword is **deferred to post-v0.5**. Its role is split between `type` records (Phase K — data + composition) and **receiver methods** (Phase L — behavior + `edit` mutation marking). The driver is the memory model: under structural-tier inference (§14.1) the entire ownership story — tiers, `move`/`clone`/copy, automatic LIFO disposal, references and lifetimes — applies to records identically to classes; the only class-only capabilities are user-authored `dispose()` and user-declared `unique` leaf resources, both deferred (leaf resources are stdlib-provided in v0.5). See [plans/goal-v0.5/phase-l-receiver-methods.md](plans/goal-v0.5/phase-l-receiver-methods.md). Phase E (classes) below is retained for historical context but is **not** part of v0.5.
+> **Update (2026-06-21) — classes dropped.** Delta's user-defined object model is `type` records (Phase K) plus receiver functions (Phase L). Resource ownership is inferred, not declared: `heap T`, `string`, `Array<T>`, and similar built-ins are ownership roots, and any record containing an owner becomes non-Copyable transitively. Every non-Unique record remains Cloneable. There is no `owned type` keyword. `unique type` is the sole explicit ownership-related marker, uniqueness propagates through Unique members, and only an explicitly Unique record may define the compiler-invoked receiver hook `function (x: edit &T) dispose(): void`. Borrows use `&T` / `edit &T`; slices and strings are borrowed as `&T[]` / `&string`, with concrete `viewing <source>` clauses where source elision is ambiguous. See [the revised Phase F plan](plans/goal-v0.5/phase-f-ownership-and-move.md). Phase E is retained for historical context only.
 
 ## Goal
 
 A user can write a **multi-file** Delta project that:
 
 1. Splits across modules using `import` and `export`, with at least one user module and one standard library module.
-2. Defines `type` record types with data fields and attaches behavior with receiver methods (`function (t: &T) m()` / `function (t: edit &T) m()`).
-3. Mutates values through `edit &` references and reads them through `&` references.
+2. Defines `type` and `unique type` record types with data fields and attaches behavior with receiver methods (`function (t: &T) m()` / `function (t: edit &T) m()`).
+3. Mutates values through `edit &` borrows and reads them through `&` borrows.
 4. Transfers ownership with `move` and copies cloneable state with `clone`.
 5. Performs trapping numeric computation across the full primitive type set from §5–§6.
 6. Recovers from fallible operations with `as result` and `check`.
@@ -88,16 +88,16 @@ function main(): int32 {
     let a = makeCounter(10);
     let b = makeCounter(20);
 
-    bump(edit &a, 5) as result;
+    bump(a, 5) as result;             // auto-borrows `a` as `edit &Counter`
     check result {
         return 1;
     }
-    bump(edit &a, 7) as result;
+    bump(a, 7) as result;
     check result {
         return 1;
     }
 
-    const total = readSum(&a, &b);
+    const total = readSum(a, b);       // auto-borrows both as `&Counter`
     info("total", total);
 
     const finalValue = consume(move a);
@@ -200,28 +200,32 @@ The full feature surface required for the acceptance program, grouped by spec se
 
 ### Phase F — Ownership and move semantics (§13, §14)
 
-- Move-only by default for class instances.
+- Resource ownership is inferred transitively from built-in ownership roots; there is no `owned type` keyword. Every resource-owning record is non-Copyable.
+- Every non-Unique record is Cloneable. A record is Copyable iff every member is Copyable; Unique is declared with `unique type` or propagated from Unique members.
+- Plain assignment and by-value passing copy only Copyable values.
 - `move x` expression — whole-name only, live owned binding.
 - Use-after-move as a compile error with source location.
 - Move-state tracking per binding across straight-line code, `if`/`else`, `while`, and `for`.
 - Conditional-move rejection: a binding moved on some paths but not all is an error at the merge point; diverging paths (those that `return`, `break`, `continue`, `panic`, or `process.exit`) are exempt.
 - Revival of a moved-from binding via whole-value reassignment.
 - Implicit `return` move of owned locals and owned by-value parameters.
-- `clone x` expression for cloneable types — fallible, consumed via `as result`.
-- Auto-derived clone for class instances whose fields are all copyable or cloneable (recursive, transactional).
-- Copyable tier for primitives, `bool`, `char`, and views: plain assignment copies.
+- `clone x as result` expression for cloneable types — explicitly fallible.
+- Auto-derived clone for non-Copyable Cloneable records (recursive, transactional); Copyable records clone by plain copy.
+- Unique values cannot clone.
+- Receiver-based custom cleanup only on explicitly Unique records: `function (x: edit &T) dispose(): void`; it is compiler-invoked and cannot be called manually.
+- Automatic reverse-order field disposal for all owned records, with moved-from owners skipped.
 - Disposal of `const`-bound owned values at scope exit, emitted by the compiler.
-- Excluded from v0.5: user-supplied `uses Cloneable` and `uses Disposable` hooks.
+- Excluded from v0.5: user-supplied copy/clone hooks, partial moves, and implicit last-use moves.
 
-### Phase G — Safe references (§12)
+### Phase G — Safe borrows and views (§12, §15)
 
-- `&T` and `edit &T` parameter types.
-- `&x` and `edit &x` at call sites — named storage paths only (binding or `binding.field` chain). No temporaries, no expressions.
+- `&T` and `edit &T` borrow types.
+- Contextual auto-borrowing at calls: a bare addressable `T` argument satisfies `&T` or `edit &T` according to the selected parameter type. Explicit `&x` / `edit &x` remains available for disambiguation and non-call borrow expressions.
 - Capability rule: a `const` binding produces `&` only; a `let` binding produces both.
-- Root-based exclusivity check across a single call's argument list: many `&` references or one `edit &` reference on overlapping roots, never both.
-- Method dispatch through references respects capability — `&Counter` cannot call `edit` methods.
-- References cannot satisfy by-value parameters.
-- References cannot escape: no returning them, no storing them in fields, no binding them to outer-scope `let`s.
+- Many overlapping `&` borrows or one exclusive `edit &` borrow; a live borrow also excludes moving its source.
+- Views are borrows: `&T[]`, `edit &T[]`, and `&string`; no separate `Slice<T>` / `stringview` ownership category.
+- Returned and stored borrows are tied to concrete sources. Inferable cases use elision; ambiguous cases use `viewing <source>` rather than abstract lifetime variables.
+- Borrows cannot satisfy by-value parameters and never own, move, clone, or dispose their source.
 
 ### Phase H — `heap T` indirection (§8, §9, §13) — narrow slice
 
@@ -229,7 +233,7 @@ The full feature surface required for the acceptance program, grouped by spec se
 - Heap allocation in codegen as single-owner; not reference-counted.
 - Auto-deref of `heap T` when accessing fields and calling methods.
 - Owner disposal frees the heap allocation at scope exit; field disposal cascades.
-- *Use case for v0.5:* enables a class to own a large value or a recursive field without yet introducing arrays or generic collections.
+- *Use case for v0.5:* enables a record to own a large value or a recursive field without yet introducing arrays or generic collections.
 
 ### Phase I — Multi-file modules (§1)
 
@@ -268,7 +272,7 @@ The standard library is plain Delta source shipped with the compiler. v0.5 inclu
 
 ### Phase L — Receiver methods (§8.5 amended, §9.5, §15)
 
-- Receiver methods on records in two reference-only forms: `function (t: &T) m(...)` (read-only) and `function (t: edit &T) m(...)` (mutable). No by-value receiver.
+- Receiver methods on records in two borrow-only forms: `function (t: &T) m(...)` (read-only) and `function (t: edit &T) m(...)` (mutable). No by-value receiver.
 - Named receiver replaces `this`; call form `value.m(args)` with auto-referencing of the receiver; capability dispatch (a `const` binding or `&T` cannot call an `edit`-receiver method).
 - Methods travel with the type across modules (importing `T` makes its exported methods callable); per-method `export`; method/field single namespace; same-module ("no orphan") rule.
 - The records-based substitute for class *behavior*. Detailed in [plans/goal-v0.5/phase-l-receiver-methods.md](plans/goal-v0.5/phase-l-receiver-methods.md).
@@ -312,8 +316,8 @@ Phases **F (ownership), G (references), L (receiver methods), H (`heap T`)**. At
 
 - Move state is tracked per binding; use-after-move is a compile error.
 - `move x` and `clone x` are the only ways to transfer or duplicate move-only values.
-- `&` and `edit &` parameters work, with root-based exclusivity at call sites.
-- Receiver methods attach behavior to records, with capability-checked `&` / `edit &` receivers and auto-referencing at call sites.
+- `&` and `edit &` parameters auto-borrow bare addressable arguments, with root-based exclusivity at call sites.
+- Receiver methods attach behavior to records, with capability-checked `&` / `edit &` receivers and auto-borrowing at call sites.
 - `heap T` enables owning indirection with automatic disposal.
 - The struct-copy hole from v0.5a becomes a compile error and is replaced by the real ownership story.
 
@@ -334,7 +338,7 @@ The goal is reached when, on a clean checkout, with `main.delta` and `counter.de
    and exits with status `0`.
 3. A variant of the program that reads `a` after `consume(move a)` fails `delta build` with a diagnostic that names the moved binding and points at both the `move` site and the use site.
 4. A variant that calls `c.add(...)` through a `&Counter` (instead of `edit &Counter`) fails with a capability diagnostic.
-5. A variant that passes `edit &a` and `&a` to the same call fails with a reference-exclusivity diagnostic.
+5. A variant that passes `a` twice to parameters `(edit &Counter, &Counter)` fails with a borrow-exclusivity diagnostic after contextual auto-borrowing.
 6. A variant that omits `check` on a fallible call fails with an unhandled-fallible diagnostic.
 7. A variant that imports a symbol `counter.delta` does **not** `export` fails with a visibility diagnostic.
 8. A variant that creates an import cycle between two user modules fails with a diagnostic naming the cycle path.

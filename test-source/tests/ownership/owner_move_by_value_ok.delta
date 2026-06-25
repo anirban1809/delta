@@ -1,0 +1,10 @@
+// An Owned value transfers into a by-value parameter with `move`. Expects pass.
+type Box = { value: heap<int32>; };
+
+function consume(value: Box) { }
+
+function main(): int32 {
+    let value: Box = { value: new 7 };
+    consume(move value);
+    return 0;
+}

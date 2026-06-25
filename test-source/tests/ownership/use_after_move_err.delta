@@ -1,0 +1,10 @@
+// Reading a Unique binding after it is moved is rejected. Expects fail ("moved").
+unique type Handle = { id: int32; };
+
+function consume(value: Handle) { }
+
+function main(): int32 {
+    let value: Handle = { id: 7 };
+    consume(move value);
+    return value.id;
+}

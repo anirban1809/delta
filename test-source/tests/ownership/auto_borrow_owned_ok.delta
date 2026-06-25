@@ -1,0 +1,9 @@
+// Borrowing lets a caller use an Owned/Unique value without transferring it. Expects pass.
+unique type Handle = { id: int32; };
+
+function inspect(value: &Handle): int32 { return value.id; }
+
+function main(): int32 {
+    const value: Handle = { id: 7 };
+    return inspect(value);
+}

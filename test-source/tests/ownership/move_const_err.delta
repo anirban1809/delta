@@ -1,0 +1,10 @@
+// `const` bindings are non-consuming and cannot be moved. Expects fail ("const").
+unique type Handle = { id: int32; };
+
+function consume(value: Handle) { }
+
+function main(): int32 {
+    const value: Handle = { id: 7 };
+    consume(move value);
+    return 0;
+}

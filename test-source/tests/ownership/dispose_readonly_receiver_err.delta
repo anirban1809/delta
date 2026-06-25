@@ -1,0 +1,6 @@
+// dispose requires an `edit &T` receiver, not a read-only `&T`. Expects fail ("edit").
+unique type Handle = { id: int32; };
+
+function (value: &Handle) dispose() { }
+
+function main(): int32 { return 0; }

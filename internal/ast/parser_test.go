@@ -1,10 +1,11 @@
 package ast
 
 import (
-	"delta/internal/diagnostics"
-	"delta/internal/tokenizer"
 	"strings"
 	"testing"
+
+	"delta/internal/diagnostics"
+	"delta/internal/tokenizer"
 )
 
 func TestFormatFunctionDeclarationReturnAndErrorTypes(t *testing.T) {
@@ -12,11 +13,11 @@ func TestFormatFunctionDeclarationReturnAndErrorTypes(t *testing.T) {
 		Declarations: []Declaration{
 			FunctionDeclaration{
 				Name: "x",
-				ReturnTypes: []TypeReference{
+				ReturnTypes: []TypeIdentifier{
 					{Name: Identifier{Name: "int32"}},
 					{Name: Identifier{Name: "int32"}},
 				},
-				ErrorTypes: []TypeReference{
+				ErrorTypes: []TypeIdentifier{
 					{Name: Identifier{Name: "IOError"}},
 					{Name: Identifier{Name: "NetError"}},
 				},
@@ -260,12 +261,12 @@ type Cat = Animal & { color: int32; };
 
 func assertTypeReferenceFields(
 	t *testing.T,
-	typ TypeReference,
+	typ TypeIdentifier,
 	expected ...string,
 ) {
 	t.Helper()
 	actual := make([]string, 0, len(expected))
-	for field := typ.Fields; field != nil; field = field.Fields {
+	for _, field := range typ.Fields {
 		actual = append(actual, field.Name.Name)
 	}
 	if len(actual) != len(expected) {

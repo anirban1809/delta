@@ -4,7 +4,6 @@ import (
 	"delta/internal/analyzer"
 	"delta/internal/ast"
 	"delta/internal/diagnostics"
-	"delta/internal/semantics"
 	"delta/internal/tokenizer"
 )
 
@@ -12,15 +11,15 @@ import (
 // non-nil only when semantic analysis ran (i.e. parsing succeeded). LSP
 // handlers should check before dereferencing.
 type Result struct {
-	File        ast.File
-	ErrorBag    *diagnostics.ErrorBag
-	Refs        map[ast.Position]semantics.Symbol
-	RootScope   *semantics.ScopeNode
-	Records     map[string][]semantics.ResolvedRecordField
-	Conversions map[ast.Position]semantics.ConversionInfo
-	Divisions   map[ast.Position]semantics.Type
-	Shifts      map[ast.Position]semantics.Type
-	IncDecs     map[ast.Position]semantics.Type
+	File      ast.File
+	ErrorBag  *diagnostics.ErrorBag
+	Refs      map[ast.Position]analyzer.Symbol
+	RootScope *analyzer.ScopeNode
+	Records   map[string][]analyzer.ResolvedRecordField
+	Methods   map[string]map[string]*analyzer.FunctionSignature
+	Divisions map[ast.Position]analyzer.Type
+	Shifts    map[ast.Position]analyzer.Type
+	IncDecs   map[ast.Position]analyzer.Type
 }
 
 func Compile(name string, contents []byte) *Result {
@@ -34,22 +33,18 @@ func Compile(name string, contents []byte) *Result {
 	if len(bag.Errors) > 0 {
 		return &Result{File: file, ErrorBag: bag}
 	}
-	analyzer := semantics.Analyzer{
-		AST:         file,
-		ErrorBag:    bag,
-		GlobalScope: &semantics.Scope{Symbols: map[string]semantics.Symbol{}},
-	}
-	analyzer.Analyze()
+	validator := analyzer.Validator{Errors: bag}
+	validator.Check(file)
 	return &Result{
-		File:        file,
-		ErrorBag:    bag,
-		Refs:        analyzer.Refs,
-		RootScope:   analyzer.RootScope,
-		Records:     analyzer.Records,
-		Conversions: analyzer.Conversions,
-		Divisions:   analyzer.Divisions,
-		Shifts:      analyzer.Shifts,
-		IncDecs:     analyzer.IncDecs,
+		File:      file,
+		ErrorBag:  bag,
+		Refs:      validator.Refs,
+		RootScope: validator.RootScope,
+		Records:   validator.Records,
+		Methods:   validator.Methods,
+		Divisions: validator.Divisions,
+		Shifts:    validator.Shifts,
+		IncDecs:   validator.IncDecs,
 	}
 }
 

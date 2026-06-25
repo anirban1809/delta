@@ -1,0 +1,14 @@
+// Cloning through `&T` creates a new owned T while leaving the referent live. Expects pass.
+type Box = { value: heap<int32>; };
+
+function duplicate(value: &Box): Box {
+    const cloned = clone value as result;
+    check result { return { value: new 0 }; }
+    return cloned;
+}
+
+function main(): int32 {
+    const value: Box = { value: new 7 };
+    const duplicateValue = duplicate(value);
+    return 0;
+}

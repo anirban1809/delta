@@ -1,0 +1,9 @@
+// A Copyable record passes by value with no `move`. Expects pass.
+type Point = { x: int32; y: int32; };
+
+function sum(p: Point): int32 { return p.x + p.y; }
+
+function main(): int32 {
+    const p: Point = { x: 1, y: 2 };
+    return sum(p);
+}

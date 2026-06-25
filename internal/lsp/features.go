@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
+	"delta/internal/analyzer"
 	"delta/internal/ast"
 	"delta/internal/pipeline"
-	"delta/internal/semantics"
 	"delta/internal/token"
 )
 
@@ -37,12 +37,24 @@ func (s *Server) handleSignatureHelp(msg *Message) {
 	}
 	pos := ast.Position{Line: p.Position.Line + 1, Column: p.Position.Character + 1}
 	sym, ok := lookupAtPosition(src.RootScope, pos, name)
-	if !ok || sym.Kind != semantics.SymbolFunction || sym.Signature == nil {
+	if !ok || sym.Kind != analyzer.SymbolFunction || sym.Signature == nil {
+		if sig, methodName, ok := methodSignatureAt(st.contents, p.Position, src, pos); ok {
+			s.replySignatureHelp(msg, methodName, sig, active)
+			return
+		}
 		s.reply(msg, json.RawMessage("null"))
 		return
 	}
 
-	sig := sym.Signature
+	s.replySignatureHelp(msg, sym.Name, sym.Signature, active)
+}
+
+func (s *Server) replySignatureHelp(
+	msg *Message,
+	name string,
+	sig *analyzer.FunctionSignature,
+	active int,
+) {
 	params := make([]ParameterInformation, 0, len(sig.Parameters))
 	labels := make([]string, 0, len(sig.Parameters))
 	for i, typ := range sig.Parameters {
@@ -54,7 +66,19 @@ func (s *Server) handleSignatureHelp(msg *Message) {
 		labels = append(labels, label)
 		params = append(params, ParameterInformation{Label: label})
 	}
-	label := "function " + sym.Name + "(" + strings.Join(labels, ", ") + ")"
+	label := "function "
+	if sig.ReceiverType != nil {
+		receiverName := sig.ReceiverName
+		if receiverName == "" {
+			receiverName = "recv"
+		}
+		receiverType := "&" + sig.ReceiverType.Name
+		if sig.ReceiverEdit {
+			receiverType = "edit &" + sig.ReceiverType.Name
+		}
+		label += "(" + receiverName + ": " + receiverType + ") "
+	}
+	label += name + "(" + strings.Join(labels, ", ") + ")"
 	if len(sig.ReturnTypes) > 0 {
 		parts := make([]string, 0, len(sig.ReturnTypes))
 		for _, typ := range sig.ReturnTypes {
@@ -79,6 +103,52 @@ func (s *Server) handleSignatureHelp(msg *Message) {
 		}},
 		ActiveParameter: max(active, 0),
 	})
+}
+
+func methodSignatureAt(
+	contents []byte,
+	pos Position,
+	src *pipeline.Result,
+	astPos ast.Position,
+) (*analyzer.FunctionSignature, string, bool) {
+	name, _, ok := callAt(contents, pos)
+	if !ok || src == nil {
+		return nil, "", false
+	}
+	receiver, ok := callReceiverChain(contents, pos, name)
+	if !ok {
+		return nil, "", false
+	}
+	recvType, ok := receiverChainType(src, receiver, astPos)
+	if !ok || src.Methods == nil {
+		return nil, "", false
+	}
+	methods := src.Methods[memberSurfaceTypeName(recvType)]
+	if methods == nil {
+		return nil, "", false
+	}
+	sig, ok := methods[name]
+	return sig, name, ok
+}
+
+func callReceiverChain(contents []byte, pos Position, method string) ([]string, bool) {
+	offset := byteOffset(contents, pos)
+	if offset < 0 {
+		return nil, false
+	}
+	prefix := string(contents[:offset])
+	open := strings.LastIndex(prefix, "(")
+	if open < 0 {
+		return nil, false
+	}
+	head := prefix[:open]
+	pattern := regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*\.\s*` + regexp.QuoteMeta(method) + `\s*$`)
+	match := pattern.FindStringSubmatch(head)
+	if len(match) != 2 {
+		return nil, false
+	}
+	chain := identRe.FindAllString(match[1], -1)
+	return chain, len(chain) > 0
 }
 
 func callAt(contents []byte, pos Position) (string, int, bool) {
@@ -137,11 +207,19 @@ func (s *Server) handleDocumentSymbols(msg *Message) {
 	for _, declaration := range st.result.File.Declarations {
 		switch decl := declaration.(type) {
 		case ast.FunctionDeclaration:
-			namePos := ast.Position{Line: decl.Line, Column: decl.Column + len("function ")}
+			namePos := decl.NamePosition
+			detail := functionDetail(st.result, namePos, decl.Name)
+			if decl.Receiver != nil {
+				if methods := st.result.Methods[decl.Receiver.Type.Name.Name]; methods != nil {
+					if sig := methods[decl.Name]; sig != nil {
+						detail = renderMethodDetail(decl.Name, sig)
+					}
+				}
+			}
 			rng := rangeForBlockOrLine(decl.Body, decl.Position, st.contents)
 			out = append(out, DocumentSymbol{
 				Name:           decl.Name,
-				Detail:         functionDetail(st.result, namePos, decl.Name),
+				Detail:         detail,
 				Kind:           SymbolKindFunction,
 				Range:          rng,
 				SelectionRange: definitionRange(namePos, decl.Name),
@@ -164,10 +242,13 @@ func (s *Server) handleDocumentSymbols(msg *Message) {
 			if record, ok := decl.RHS.(ast.RecordRHS); ok {
 				for _, field := range record.Fields {
 					symbol.Children = append(symbol.Children, DocumentSymbol{
-						Name:           field.Name.Name,
-						Detail:         field.Type.Name.Name,
-						Kind:           SymbolKindField,
-						Range:          lineRange(st.contents, field.Line-1),
+						Name:   field.Name.Name,
+						Detail: field.Type.Name.Name,
+						Kind:   SymbolKindField,
+						Range: lineRange(
+							st.contents,
+							field.Line-1,
+						),
 						SelectionRange: identRange(field.Name),
 					})
 				}
@@ -194,7 +275,12 @@ func (s *Server) handleReferences(msg *Message) {
 		s.replyJSON(msg, []Location{})
 		return
 	}
-	locations := symbolLocations(p.TextDocument.URI, st.result, sym, p.Context.IncludeDeclaration)
+	locations := symbolLocations(
+		p.TextDocument.URI,
+		st.result,
+		sym,
+		p.Context.IncludeDeclaration,
+	)
 	if len(locations) == 0 && id != nil {
 		locations = []Location{{URI: p.TextDocument.URI, Range: identRange(*id)}}
 	}
@@ -226,8 +312,13 @@ func (s *Server) handleRename(msg *Message) {
 		s.replyError(msg, ErrorCodeInvalidParams, err.Error())
 		return
 	}
-	if !validIdentifier.MatchString(p.NewName) || token.LookupIdent(p.NewName) != token.Kind_Identifier {
-		s.replyError(msg, ErrorCodeInvalidParams, "new name is not a valid Delta identifier")
+	if !validIdentifier.MatchString(p.NewName) ||
+		token.LookupIdent(p.NewName) != token.Kind_Identifier {
+		s.replyError(
+			msg,
+			ErrorCodeInvalidParams,
+			"new name is not a valid Delta identifier",
+		)
 		return
 	}
 	st := s.documents[p.TextDocument.URI]
@@ -248,37 +339,54 @@ func (s *Server) handleRename(msg *Message) {
 	s.replyJSON(msg, WorkspaceEdit{Changes: map[string][]TextEdit{p.TextDocument.URI: edits}})
 }
 
-func symbolAt(src *pipeline.Result, pos Position) (semantics.Symbol, *ast.Identifier, bool) {
+func symbolAt(src *pipeline.Result, pos Position) (analyzer.Symbol, *ast.Identifier, bool) {
 	id := identAt(src.File, pos)
 	if id == nil {
-		return semantics.Symbol{}, nil, false
+		return analyzer.Symbol{}, nil, false
 	}
 	if sym, ok := src.Refs[id.Position]; ok {
 		return sym, id, true
 	}
+	if sym, ok := functionDeclarationSymbolAt(src, *id); ok {
+		return sym, id, true
+	}
 	sym, ok := lookupAtPosition(src.RootScope, id.Position, id.Name)
 	if !ok {
-		return semantics.Symbol{}, id, false
+		return analyzer.Symbol{}, id, false
 	}
 	return sym, id, true
 }
 
-func symbolLocations(uri string, src *pipeline.Result, target semantics.Symbol, includeDeclaration bool) []Location {
+func symbolLocations(
+	uri string,
+	src *pipeline.Result,
+	target analyzer.Symbol,
+	includeDeclaration bool,
+) []Location {
 	seen := map[ast.Position]bool{}
 	var out []Location
 	if includeDeclaration && target.DefPos != (ast.Position{}) {
 		seen[target.DefPos] = true
-		out = append(out, Location{URI: uri, Range: definitionRange(target.DefPos, target.Name)})
+		out = append(
+			out,
+			Location{URI: uri, Range: definitionRange(target.DefPos, target.Name)},
+		)
 	}
 	walkIdentifiers(src.File, func(id ast.Identifier) bool {
 		sym, ok := src.Refs[id.Position]
 		if !ok {
-			candidate, found := lookupAtPosition(src.RootScope, id.Position, id.Name)
-			if found && candidate.Kind == semantics.SymbolTypeDecl {
+			if candidate, found := functionDeclarationSymbolAt(src, id); found {
 				sym, ok = candidate, true
 			}
 		}
-		if ok && sym.DefPos == target.DefPos && sym.Name == target.Name && !seen[id.Position] {
+		if !ok {
+			candidate, found := lookupAtPosition(src.RootScope, id.Position, id.Name)
+			if found && candidate.Kind == analyzer.SymbolTypeDecl {
+				sym, ok = candidate, true
+			}
+		}
+		if ok && sym.DefPos == target.DefPos && sym.Name == target.Name &&
+			!seen[id.Position] {
 			seen[id.Position] = true
 			out = append(out, Location{URI: uri, Range: identRange(id)})
 		}
@@ -294,7 +402,7 @@ func symbolLocations(uri string, src *pipeline.Result, target semantics.Symbol, 
 func memberFieldAt(
 	src *pipeline.Result,
 	pos Position,
-) (ast.MemberAccessExpression, semantics.ResolvedRecordField, bool) {
+) (ast.MemberAccessExpression, analyzer.ResolvedRecordField, bool) {
 	var matched ast.MemberAccessExpression
 	found := false
 	walkMemberExpressions(src.File, func(expr ast.MemberAccessExpression) {
@@ -308,48 +416,119 @@ func memberFieldAt(
 		}
 	})
 	if !found {
-		return ast.MemberAccessExpression{}, semantics.ResolvedRecordField{}, false
+		return ast.MemberAccessExpression{}, analyzer.ResolvedRecordField{}, false
 	}
 	receiverType, ok := expressionType(src, matched.Receiver)
 	if !ok {
-		return ast.MemberAccessExpression{}, semantics.ResolvedRecordField{}, false
+		return ast.MemberAccessExpression{}, analyzer.ResolvedRecordField{}, false
 	}
 	fields, ok := recordFields(src, receiverType)
 	if !ok {
-		return ast.MemberAccessExpression{}, semantics.ResolvedRecordField{}, false
+		return ast.MemberAccessExpression{}, analyzer.ResolvedRecordField{}, false
 	}
 	for _, field := range fields {
 		if field.Name == matched.Member {
 			return matched, field, true
 		}
 	}
-	return ast.MemberAccessExpression{}, semantics.ResolvedRecordField{}, false
+	return ast.MemberAccessExpression{}, analyzer.ResolvedRecordField{}, false
 }
 
-func expressionType(src *pipeline.Result, expression ast.Expression) (semantics.Type, bool) {
+func memberMethodAt(
+	src *pipeline.Result,
+	pos Position,
+) (ast.MemberAccessExpression, *analyzer.FunctionSignature, bool) {
+	member, ok := memberAccessAt(src, pos)
+	if !ok {
+		return ast.MemberAccessExpression{}, nil, false
+	}
+	sig, ok := methodSignatureForMember(src, member)
+	return member, sig, ok
+}
+
+func memberAccessAt(src *pipeline.Result, pos Position) (ast.MemberAccessExpression, bool) {
+	var matched ast.MemberAccessExpression
+	found := false
+	walkMemberExpressions(src.File, func(expr ast.MemberAccessExpression) {
+		if found || expr.Member == "" || expr.Line != pos.Line+1 {
+			return
+		}
+		col := pos.Character + 1
+		if col >= expr.Column && col <= expr.Column+len(expr.Member) {
+			matched = expr
+			found = true
+		}
+	})
+	return matched, found
+}
+
+func methodSignatureForMember(
+	src *pipeline.Result,
+	member ast.MemberAccessExpression,
+) (*analyzer.FunctionSignature, bool) {
+	if src == nil || src.Methods == nil {
+		return nil, false
+	}
+	receiverType, ok := expressionType(src, member.Receiver)
+	if !ok {
+		return nil, false
+	}
+	methods := src.Methods[memberSurfaceTypeName(receiverType)]
+	if methods == nil {
+		return nil, false
+	}
+	sig, ok := methods[member.Member]
+	return sig, ok
+}
+
+func methodDeclarationPosition(
+	src *pipeline.Result,
+	member ast.MemberAccessExpression,
+) (ast.Position, bool) {
+	receiverType, ok := expressionType(src, member.Receiver)
+	if !ok {
+		return ast.Position{}, false
+	}
+	for _, declaration := range src.File.Declarations {
+		decl, ok := declaration.(ast.FunctionDeclaration)
+		if !ok || decl.Receiver == nil || decl.Name != member.Member {
+			continue
+		}
+		if decl.Receiver.Type.Name.Name == memberSurfaceTypeName(receiverType) {
+			return decl.NamePosition, true
+		}
+	}
+	return ast.Position{}, false
+}
+
+func expressionType(src *pipeline.Result, expression ast.Expression) (analyzer.Type, bool) {
 	switch expr := expression.(type) {
 	case ast.Identifier:
 		if sym, ok := src.Refs[expr.Position]; ok {
-			return sym.Type, sym.Type.Kind != semantics.TypeInvalid
+			return sym.Type, sym.Type.Kind != analyzer.TypeInvalid
 		}
 		if sym, ok := lookupAtPosition(src.RootScope, expr.Position, expr.Name); ok {
-			return sym.Type, sym.Type.Kind != semantics.TypeInvalid
+			return sym.Type, sym.Type.Kind != analyzer.TypeInvalid
 		}
 	case ast.IntegerLiteral:
-		return semantics.ResolveTypeName("int32")
+		return analyzer.ResolveTypeName("int32")
 	case ast.FloatLiteral:
-		return semantics.ResolveTypeName("float64")
+		return analyzer.ResolveTypeName("float64")
 	case ast.BooleanLiteral:
-		return semantics.ResolveTypeName("bool")
+		return analyzer.ResolveTypeName("bool")
 	case ast.StringLiteral:
-		return semantics.ResolveTypeName("string")
+		return analyzer.ResolveTypeName("string")
 	case ast.CharacterLiteral:
-		return semantics.ResolveTypeName("char")
+		return analyzer.ResolveTypeName("char")
 	case ast.FunctionCallExpression:
 		if identifier, ok := expr.Callee.(ast.Identifier); ok {
 			sym, found := src.Refs[identifier.Position]
 			if !found {
-				sym, found = lookupAtPosition(src.RootScope, identifier.Position, identifier.Name)
+				sym, found = lookupAtPosition(
+					src.RootScope,
+					identifier.Position,
+					identifier.Name,
+				)
 			}
 			if found && sym.Signature != nil && len(sym.Signature.ReturnTypes) == 1 {
 				return sym.Signature.ReturnTypes[0], true
@@ -358,15 +537,15 @@ func expressionType(src *pipeline.Result, expression ast.Expression) (semantics.
 	case ast.MemberAccessExpression:
 		receiverType, ok := expressionType(src, expr.Receiver)
 		if !ok {
-			return semantics.Type{}, false
+			return analyzer.Type{}, false
 		}
 		fields, ok := recordFields(src, receiverType)
 		if !ok {
-			return semantics.Type{}, false
+			return analyzer.Type{}, false
 		}
 		return fieldTypeByName(fields, expr.Member)
 	}
-	return semantics.Type{}, false
+	return analyzer.Type{}, false
 }
 
 var semanticTokenTypes = []string{
@@ -395,6 +574,9 @@ func (s *Server) handleSemanticTokens(msg *Message) {
 		}
 		sym, ok := st.result.Refs[id.Position]
 		if !ok {
+			sym, ok = functionDeclarationSymbolAt(st.result, id)
+		}
+		if !ok {
 			sym, ok = lookupAtPosition(st.result.RootScope, id.Position, id.Name)
 		}
 		if !ok {
@@ -413,7 +595,11 @@ func (s *Server) handleSemanticTokens(msg *Message) {
 			return
 		}
 		seen[expr.Position] = true
-		items = append(items, item{expr.Line - 1, expr.Column - 1, len(expr.Member), 4})
+		typ := 4
+		if _, ok := methodSignatureForMember(st.result, expr); ok {
+			typ = 1
+		}
+		items = append(items, item{expr.Line - 1, expr.Column - 1, len(expr.Member), typ})
 	})
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].line < items[j].line ||
@@ -427,7 +613,8 @@ func (s *Server) handleSemanticTokens(msg *Message) {
 		if i > 0 && deltaLine == 0 {
 			deltaCol -= lastCol
 		}
-		data = append(data,
+		data = append(
+			data,
 			uint32(deltaLine), uint32(deltaCol), uint32(current.length),
 			uint32(current.typ), 0,
 		)
@@ -436,19 +623,51 @@ func (s *Server) handleSemanticTokens(msg *Message) {
 	s.replyJSON(msg, SemanticTokens{Data: data})
 }
 
-func semanticTypeForSymbol(kind semantics.SymbolKind) int {
+func semanticTypeForSymbol(kind analyzer.SymbolKind) int {
 	switch kind {
-	case semantics.SymbolTypeDecl, semantics.SymbolReturn, semantics.SymbolError:
+	case analyzer.SymbolTypeDecl, analyzer.SymbolReturn, analyzer.SymbolError:
 		return 0
-	case semantics.SymbolFunction:
+	case analyzer.SymbolFunction:
 		return 1
-	case semantics.SymbolParameter:
+	case analyzer.SymbolParameter:
 		return 2
-	case semantics.SymbolFileConst, semantics.SymbolLocalConst, semantics.SymbolLocalLet:
+	case analyzer.SymbolFileConst, analyzer.SymbolLocalConst, analyzer.SymbolLocalLet:
 		return 3
 	default:
 		return -1
 	}
+}
+
+func functionDeclarationSymbolAt(src *pipeline.Result, id ast.Identifier) (analyzer.Symbol, bool) {
+	for _, declaration := range src.File.Declarations {
+		decl, ok := declaration.(ast.FunctionDeclaration)
+		if !ok || decl.Name != id.Name || decl.NamePosition != id.Position {
+			continue
+		}
+		if decl.Receiver == nil {
+			return lookupAtPosition(src.RootScope, id.Position, id.Name)
+		}
+		if src.Methods == nil {
+			return analyzer.Symbol{}, false
+		}
+		methods := src.Methods[decl.Receiver.Type.Name.Name]
+		if methods == nil {
+			return analyzer.Symbol{}, false
+		}
+		sig := methods[decl.Name]
+		if sig == nil {
+			return analyzer.Symbol{}, false
+		}
+		return analyzer.Symbol{
+			Name:      decl.Name,
+			Kind:      analyzer.SymbolFunction,
+			DefPos:    decl.NamePosition,
+			Position:  decl.NamePosition,
+			Display:   renderMethodDetail(decl.Name, sig),
+			Signature: sig,
+		}, true
+	}
+	return analyzer.Symbol{}, false
 }
 
 func (s *Server) handleInlayHints(msg *Message) {
@@ -472,12 +691,23 @@ func (s *Server) handleInlayHints(msg *Message) {
 			namePos.Column = decl.Column + len("let ")
 		}
 		sym, ok := lookupAtPosition(st.result.RootScope, namePos, decl.Name)
-		if !ok || sym.Type.Kind == semantics.TypeInvalid || sym.Type.Kind == semantics.TypeEmpty {
+		if !ok || sym.Type.Kind == analyzer.TypeInvalid ||
+			sym.Type.Kind == analyzer.TypeEmpty {
 			return
 		}
-		pos := Position{Line: namePos.Line - 1, Character: namePos.Column - 1 + len(decl.Name)}
+		pos := Position{
+			Line:      namePos.Line - 1,
+			Character: namePos.Column - 1 + len(decl.Name),
+		}
 		if positionInRange(pos, p.Range) {
-			hints = append(hints, InlayHint{Position: pos, Label: ": " + sym.Type.String(), Kind: InlayHintKindType})
+			hints = append(
+				hints,
+				InlayHint{
+					Position: pos,
+					Label:    ": " + sym.Type.String(),
+					Kind:     InlayHintKindType,
+				},
+			)
 		}
 	})
 	s.replyJSON(msg, hints)
@@ -532,7 +762,11 @@ func (s *Server) handleSelectionRanges(msg *Message) {
 			}
 		})
 		sort.Slice(containing, func(i, j int) bool {
-			return rangeSize(blockRange(containing[i])) < rangeSize(blockRange(containing[j]))
+			return rangeSize(
+				blockRange(containing[i]),
+			) < rangeSize(
+				blockRange(containing[j]),
+			)
 		})
 		for _, block := range containing {
 			rng := blockRange(block)
@@ -584,8 +818,14 @@ func (s *Server) handleCodeActions(msg *Message) {
 			if idx := strings.LastIndex(line, ";"); idx >= 0 {
 				edit := TextEdit{
 					Range: Range{
-						Start: Position{Line: diagnostic.Range.Start.Line, Character: idx},
-						End:   Position{Line: diagnostic.Range.Start.Line, Character: idx},
+						Start: Position{
+							Line:      diagnostic.Range.Start.Line,
+							Character: idx,
+						},
+						End: Position{
+							Line:      diagnostic.Range.Start.Line,
+							Character: idx,
+						},
 					},
 					NewText: " as result",
 				}
@@ -604,8 +844,14 @@ func (s *Server) handleCodeActions(msg *Message) {
 				}
 				edit := TextEdit{
 					Range: Range{
-						Start: Position{Line: diagnostic.Range.Start.Line, Character: idx},
-						End:   Position{Line: diagnostic.Range.Start.Line, Character: end},
+						Start: Position{
+							Line:      diagnostic.Range.Start.Line,
+							Character: idx,
+						},
+						End: Position{
+							Line:      diagnostic.Range.Start.Line,
+							Character: end,
+						},
 					},
 				}
 				actions = append(actions, quickFix(
@@ -659,7 +905,7 @@ func functionDetail(src *pipeline.Result, pos ast.Position, name string) string 
 	return ""
 }
 
-func typeReferenceDetail(ref ast.TypeReference) string {
+func typeReferenceDetail(ref ast.TypeIdentifier) string {
 	return ref.Name.Name
 }
 
@@ -721,5 +967,6 @@ func byteOffset(contents []byte, pos Position) int {
 }
 
 func isIdentByte(ch byte) bool {
-	return ch == '_' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9'
+	return ch == '_' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' ||
+		ch >= '0' && ch <= '9'
 }

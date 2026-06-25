@@ -1,0 +1,10 @@
+// Arguments are ownership-checked left-to-right: `pair(move value, value)` reuses a moved binding. Expects fail ("moved").
+unique type Handle = { id: int32; };
+
+function pair(first: Handle, second: &Handle) { }
+
+function main(): int32 {
+    let value: Handle = { id: 7 };
+    pair(move value, value);
+    return 0;
+}

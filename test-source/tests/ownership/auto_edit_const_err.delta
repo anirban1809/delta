@@ -1,0 +1,12 @@
+// A `const` source cannot satisfy an `edit &T` parameter. Expects fail ("const").
+type Counter = { value: int32; };
+
+function increment(counter: edit &Counter) {
+    counter.value = counter.value + 1;
+}
+
+function main(): int32 {
+    const counter: Counter = { value: 7 };
+    increment(counter);
+    return 0;
+}

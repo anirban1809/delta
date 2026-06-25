@@ -1,0 +1,13 @@
+// A binding-rooted field path (pair.left) may be contextually auto-borrowed. Expects pass.
+type Counter = { value: int32; };
+type Pair = { left: Counter; right: Counter; };
+
+function inspect(counter: &Counter): int32 { return counter.value; }
+
+function main(): int32 {
+    const pair: Pair = {
+        left: { value: 3 },
+        right: { value: 4 },
+    };
+    return inspect(pair.left);
+}

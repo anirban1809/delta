@@ -1,0 +1,15 @@
+// Moving on only one branch joins Live u Moved = MaybeMoved; the later use is rejected. Expects fail ("may be moved").
+unique type Handle = { id: int32; };
+
+function consume(value: Handle) { }
+function inspect(value: &Handle): int32 { return value.id; }
+
+function test(flag: bool): int32 {
+    let value: Handle = { id: 7 };
+    if (flag) {
+        consume(move value);
+    }
+    return inspect(value);
+}
+
+function main(): int32 { return test(false); }

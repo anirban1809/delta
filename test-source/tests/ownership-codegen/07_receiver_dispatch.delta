@@ -1,0 +1,18 @@
+// Doc case: Receiver dispatch through a borrow. `&Self` and `edit &Self` receivers both lower
+// to a pointer receiver passed straight through.
+// Target C: delta__Counter_get(&counter); delta__Counter_bump(&counter);
+type Counter = { value: int32; };
+
+function (counter: &Counter) get(): int32 {
+    return counter.value;
+}
+
+function (counter: edit &Counter) bump() {
+    counter.value = counter.value + 1;
+}
+
+function main(): int32 {
+    let counter: Counter = { value: 7 };
+    counter.bump();
+    return counter.get();
+}

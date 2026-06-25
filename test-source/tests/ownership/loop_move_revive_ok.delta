@@ -1,0 +1,18 @@
+// Reviving before the back-edge restores a live owner for the next iteration. Expects pass.
+unique type Handle = { id: int32; };
+
+function consume(value: Handle) { }
+function inspect(value: &Handle): int32 { return value.id; }
+
+function test(flag: bool): int32 {
+    let value: Handle = { id: 7 };
+    let running = flag;
+    while (running) {
+        consume(move value);
+        value = { id: 8 };
+        running = false;
+    }
+    return inspect(value);
+}
+
+function main(): int32 { return test(false); }

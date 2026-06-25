@@ -327,6 +327,45 @@ Same line count, same semantics. `new` contributes zero information the type sys
 
 ---
 
+### 21. Generics: a small, deliberately-bounded subset (not the C++/Rust kitchen sink) — **Accepted (direction); details Open**
+
+Decision: Delta keeps generics, but a tightly-restricted subset. We considered dropping generics and generic-like syntax *entirely* and rejected it — not because generics are harmless, but because "drop entirely" doesn't actually remove parametricity, it **scatters** it. Intrinsic generic arrays, intrinsic generic maps, `Option`/`Result`, and the interface-arm devirtualization pass are all parametric. The real choice is "one uniform generic mechanism" vs "four special-cased intrinsics that each behave a little differently and don't compose." We take the uniform mechanism, capped hard.
+
+**Why a subset and not nothing.** The starting motivation was "generics are abused and hurt readability." But the abuse lives in *specific* features (HKT, conditional types, specialization, associated-type projections), not in `List<int>` or `Option<File>`. And the alternatives we walked through each collapse back into generics anyway:
+- Tagged/concrete unions are **closed** — they can't express an open container (`List<T>` would require enumerating every element type up front).
+- Interface arms in a union are **open** but force boxing + vtable (a trait object), and lose exhaustiveness.
+- Call-site monomorphization ("look at where concrete types flow in, generate C accordingly") *is* generics with the `<T>` made implicit — and it can't handle runtime-varying concrete types (`let v: B = cond ? foo() : bar()`) or separate compilation. So it can only be an **optimization**, not the semantics.
+
+**IN (the minimal coherent system):**
+- Type parameters on **type definitions** — generic structs and unions: `List<T>`, `Option<T>`, `Result<T, E>`. Payoff: array / map / `Option` / `Result` become ordinary library types written in Delta, not compiler magic, and users can write `Set<T>`, `RingBuffer<T>`, ordered maps, trees.
+- Type parameters on **functions** — `function first<T>(xs: List<T>): T`.
+- **Flat bounds, two kinds only:** ownership tiers (existing `<T>` / `<clone T>` / `<unique T>`) and interface bounds (`<T: Hashable>`, needed for map keys). A type parameter carries a flat list of bounds — nothing more.
+- **Monomorphized lowering** — each instantiation stamps out concrete C. This unifies the two polymorphism stories: **generics = static/monomorphized; interfaces = dynamic/boxed**; the programmer chooses. The call-site concrete-type collection becomes a *devirtualization optimization* that erases the box when flow analysis proves a unique type, falling back to the boxed trait object otherwise.
+
+**OUT (hard exclusions — write these into the spec as normative "never," not "later," or the slope reappears):**
+- No higher-kinded types (`F<_>`, generic-over-type-constructors). This single exclusion is what keeps us out of Haskell/Scala unreadability.
+- No associated types / type projections (`T::Item`). Bounds say "T implements I," full stop.
+- No conditional / computed types (`T extends U ? X : Y`).
+- No specialization / overlapping impls.
+- No const/value generics (`[N: usize]`), no variance annotations, no where-clause soup / bounds-on-bounds.
+
+Net result is essentially **Go 1.18-style generics** — proof that "small generics" is a stable, shippable design point and not a slippery slope, *provided the cut list is normative.* Taking it now (rather than shipping without and bolting it on later) avoids Go's exact retrofit seam.
+
+**The deciding question (recorded in case we revisit):** *will users ever need to define their own typed data structures, or is `array + map + unions` enough forever?* We answered "they will" — given ownership tiers, the heap-indirection phase, and the self-hosting ambition, user-defined containers are inevitable, so the blessed-intrinsic-only path (Option 1) would force a later reversal.
+
+**Still Open / to nail down later:**
+- Exact surface syntax for bounds (combining tier + interface bounds in one list).
+- Interface-arm-in-union rules from the prior discussion: boxed, **dispatch-only (no downcast → no RTTI, consistent with no-`any`)**, and a **disjointness rule** for arms (a value satisfying two interface arms is ambiguous — likely forbid).
+- The owned-vector vs borrowed-slice split (`Vec<T>` owns its buffer / `[]T` is a lifetime-tied view) — a consequence of no-GC + ownership; ties into Phase F/G/H.
+- `Hashable` (and later `Ord`) interface for map keys ships together with intrinsic maps, not separately.
+- Where the devirtualization/monomorphization pass lands in the analyzer→emitter pipeline (a specialization step between type analysis and C emission, not a required global instantiation phase).
+- Reconcile with the self-hosting plan's **OO-AST** assumption — with generic unions available, the AST may want to be a union, not an OO hierarchy.
+- Code-size / compile-time budget for monomorphization (N copies per instantiation).
+
+**Affected:** new top-level generics section; §12 (Vec/slice split), §30 (unions), §37 (collections), the self-hosting plan doc, and the ownership-tier bound syntax in §14.
+
+---
+
 ## Worth flagging but more controversial
 
 - **UFCS / method-call sugar on free functions** (`5.doubled()` → `doubled(5)`) — lets the std look method-rich without bloating type definitions. Tension with the spec's "each identifier has one role" leaning (e.g. §5.10 rejected `int32.MAX`). Raise for opinion before adding.

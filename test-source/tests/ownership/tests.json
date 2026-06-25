@@ -1,0 +1,375 @@
+[
+  {
+    "file": "plain_copy_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — a record whose members are all Copyable may be copied by assignment"
+  },
+  {
+    "file": "plain_by_value_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — a Copyable record may be passed by value without `move`"
+  },
+  {
+    "file": "heap_owner_copy_err.delta",
+    "expect": "fail",
+    "contains": "non-copyable",
+    "note": "phase F semantic — `heap T` is an ownership root and can never be copied"
+  },
+  {
+    "file": "nested_owner_copy_err.delta",
+    "expect": "fail",
+    "contains": "non-copyable",
+    "note": "phase F semantic — resource ownership and non-Copyability propagate through nested records"
+  },
+  {
+    "file": "owner_by_value_err.delta",
+    "expect": "fail",
+    "contains": "non-copyable",
+    "note": "phase F semantic — a bare Owned argument cannot satisfy a by-value parameter"
+  },
+  {
+    "file": "owner_move_by_value_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — an Owned value may transfer into a by-value parameter with `move`"
+  },
+  {
+    "file": "owner_clone_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — a non-Unique owner may be duplicated explicitly with fallible `clone`"
+  },
+  {
+    "file": "copyable_clone_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — Copyable values are also Cloneable; explicit clone is legal but redundant"
+  },
+  {
+    "file": "unique_move_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — an explicitly Unique record transfers with `move`"
+  },
+  {
+    "file": "unique_copy_err.delta",
+    "expect": "fail",
+    "contains": "unique",
+    "note": "phase F semantic — Unique records cannot be copied"
+  },
+  {
+    "file": "unique_by_value_err.delta",
+    "expect": "fail",
+    "contains": "unique",
+    "note": "phase F semantic — a bare Unique argument cannot satisfy a by-value parameter"
+  },
+  {
+    "file": "unique_clone_err.delta",
+    "expect": "fail",
+    "contains": "unique",
+    "note": "phase F semantic — Unique records cannot be cloned"
+  },
+  {
+    "file": "unique_member_copy_err.delta",
+    "expect": "fail",
+    "contains": "unique",
+    "note": "phase F semantic — uniqueness propagates through a containing record"
+  },
+  {
+    "file": "unique_member_clone_err.delta",
+    "expect": "fail",
+    "contains": "unique",
+    "note": "phase F semantic — a record containing a Unique member cannot derive clone"
+  },
+  {
+    "file": "owner_alias_copy_err.delta",
+    "expect": "fail",
+    "contains": "non-copyable",
+    "note": "phase F semantic — aliases inherit resource ownership and Copyable capability"
+  },
+  {
+    "file": "use_after_move_err.delta",
+    "expect": "fail",
+    "contains": "moved",
+    "note": "phase F semantic — reading a Unique binding after transfer is rejected"
+  },
+  {
+    "file": "move_twice_err.delta",
+    "expect": "fail",
+    "contains": "moved",
+    "note": "phase F semantic — a binding cannot be moved twice"
+  },
+  {
+    "file": "borrow_after_move_err.delta",
+    "expect": "fail",
+    "contains": "moved",
+    "note": "phase F semantic — contextual immutable borrow cannot revive a moved binding"
+  },
+  {
+    "file": "edit_borrow_after_move_err.delta",
+    "expect": "fail",
+    "contains": "moved",
+    "note": "phase F semantic — contextual mutable borrow cannot target a moved binding"
+  },
+  {
+    "file": "clone_after_move_err.delta",
+    "expect": "fail",
+    "contains": "moved",
+    "note": "phase F semantic — cloning reads its source and therefore rejects a moved binding"
+  },
+  {
+    "file": "move_borrow_parameter_err.delta",
+    "expect": "fail",
+    "contains": "borrow",
+    "note": "phase F semantic — moving a borrow never transfers ownership of its referent"
+  },
+  {
+    "file": "clone_through_borrow_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — cloning through `&T` creates a new owned T while leaving the referent live"
+  },
+  {
+    "file": "clone_field_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — clone accepts a readable owned field path"
+  },
+  {
+    "file": "clone_unique_through_borrow_err.delta",
+    "expect": "fail",
+    "contains": "unique",
+    "note": "phase F semantic — borrowing a Unique value does not make its referent Cloneable"
+  },
+  {
+    "file": "field_write_after_move_err.delta",
+    "expect": "fail",
+    "contains": "moved",
+    "note": "phase F semantic — mutating a field of a moved aggregate is rejected"
+  },
+  {
+    "file": "move_const_err.delta",
+    "expect": "fail",
+    "contains": "const",
+    "note": "phase F semantic — const bindings are non-consuming and cannot be moved"
+  },
+  {
+    "file": "move_uninitialized_err.delta",
+    "expect": "fail",
+    "contains": "uninitialized",
+    "note": "phase F semantic — an uninitialized binding has no ownership to transfer"
+  },
+  {
+    "file": "revive_whole_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — whole-value assignment revives a moved `let` binding"
+  },
+  {
+    "file": "revive_partial_err.delta",
+    "expect": "fail",
+    "contains": "moved",
+    "note": "phase F semantic — field assignment cannot partially revive a moved aggregate"
+  },
+  {
+    "file": "conditional_one_branch_err.delta",
+    "expect": "fail",
+    "contains": "may have been moved",
+    "note": "phase F semantic — Live and Moved paths join to MaybeMoved"
+  },
+  {
+    "file": "conditional_both_branches_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — moving on every reaching branch yields a consistently Moved state"
+  },
+  {
+    "file": "conditional_diverging_branch_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — a moved branch that returns does not poison the surviving path"
+  },
+  {
+    "file": "loop_move_outer_err.delta",
+    "expect": "fail",
+    "contains": "loop",
+    "note": "phase F semantic — moving an outer binding without revival makes the loop back-edge invalid"
+  },
+  {
+    "file": "loop_move_revive_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — revival before the loop back-edge restores a live owner"
+  },
+  {
+    "file": "loop_inner_move_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — a fresh owner declared and moved inside each iteration needs no revival"
+  },
+  {
+    "file": "implicit_return_move_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — returning a non-Copyable by-value parameter implicitly transfers it"
+  },
+  {
+    "file": "same_call_move_then_use_err.delta",
+    "expect": "fail",
+    "contains": "moved",
+    "note": "phase F semantic — arguments are ownership-checked left-to-right"
+  },
+
+  {
+    "file": "owned_replacement_move_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — replacing a live owner accepts a moved replacement"
+  },
+  {
+    "file": "owned_replacement_bare_err.delta",
+    "expect": "fail",
+    "contains": "non-copyable",
+    "note": "phase F semantic — replacement does not implicitly copy or move its RHS"
+  },
+  {
+    "file": "owned_replacement_clone_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — fallible clone replacement is legal and preserves the old owner until check succeeds"
+  },
+  {
+    "file": "self_move_replacement_err.delta",
+    "expect": "fail",
+    "contains": "itself",
+    "note": "phase F semantic — assigning `move x` back into x is not a transfer between owners"
+  },
+  {
+    "file": "owned_field_replacement_move_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — an owned field may be replaced from a distinct moved binding"
+  },
+  {
+    "file": "owned_field_replacement_bare_err.delta",
+    "expect": "fail",
+    "contains": "non-copyable",
+    "note": "phase F semantic — assigning a bare Unique value into an owned field is rejected"
+  },
+
+  {
+    "file": "unique_dispose_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — exact `edit &T`, no-arg, void dispose hook is legal on explicit Unique records"
+  },
+  {
+    "file": "unique_no_dispose_ok.delta",
+    "expect": "pass",
+    "note": "phase F semantic — Unique identity/capability records need not define custom cleanup"
+  },
+  {
+    "file": "dispose_on_bare_err.delta",
+    "expect": "fail",
+    "contains": "unique",
+    "note": "phase F semantic — custom cleanup requires an explicitly Unique record"
+  },
+  {
+    "file": "dispose_structural_unique_err.delta",
+    "expect": "fail",
+    "contains": "explicit",
+    "note": "phase F semantic — structurally propagated uniqueness does not authorize custom cleanup without explicit `unique type`"
+  },
+  {
+    "file": "dispose_export_err.delta",
+    "expect": "fail",
+    "contains": "export",
+    "note": "phase F semantic — compiler-only dispose hooks cannot be exported"
+  },
+  {
+    "file": "dispose_readonly_receiver_err.delta",
+    "expect": "fail",
+    "contains": "edit",
+    "note": "phase F semantic — dispose requires an `edit &T` receiver"
+  },
+  {
+    "file": "dispose_params_err.delta",
+    "expect": "fail",
+    "contains": "parameter",
+    "note": "phase F semantic — dispose cannot declare ordinary parameters"
+  },
+  {
+    "file": "dispose_return_err.delta",
+    "expect": "fail",
+    "contains": "void",
+    "note": "phase F semantic — dispose must return void"
+  },
+  {
+    "file": "dispose_fallible_err.delta",
+    "expect": "fail",
+    "contains": "error channel",
+    "note": "phase F semantic — dispose cannot be fallible"
+  },
+  {
+    "file": "duplicate_dispose_err.delta",
+    "expect": "fail",
+    "contains": "duplicate",
+    "note": "phase F semantic — a Unique record may register at most one dispose hook"
+  },
+  {
+    "file": "manual_dispose_call_err.delta",
+    "expect": "fail",
+    "contains": "cannot be called",
+    "note": "phase F semantic — dispose hooks are compiler-only and cannot be invoked manually"
+  },
+
+  {
+    "file": "auto_read_const_ok.delta",
+    "expect": "pass",
+    "note": "phase G integration semantic — a const T argument auto-borrows for an `&T` parameter"
+  },
+  {
+    "file": "auto_edit_let_ok.delta",
+    "expect": "pass",
+    "note": "phase G integration semantic — a let T argument auto-borrows for an `edit &T` parameter"
+  },
+  {
+    "file": "auto_edit_const_err.delta",
+    "expect": "fail",
+    "contains": "const",
+    "note": "phase G integration semantic — a const source cannot satisfy an `edit &T` parameter"
+  },
+  {
+    "file": "auto_borrow_owned_ok.delta",
+    "expect": "pass",
+    "note": "phase G integration semantic — borrowing lets a caller use an Owned/Unique value without transfer"
+  },
+  {
+    "file": "auto_two_reads_ok.delta",
+    "expect": "pass",
+    "note": "phase G integration semantic — multiple immutable auto-borrows of one root may overlap"
+  },
+  {
+    "file": "auto_borrow_field_ok.delta",
+    "expect": "pass",
+    "note": "phase G integration semantic — a binding-rooted field path may be contextually auto-borrowed"
+  },
+  {
+    "file": "auto_edit_read_conflict_err.delta",
+    "expect": "fail",
+    "contains": "exclusive",
+    "note": "phase G integration semantic — implicit mutable and immutable borrows of one root conflict"
+  },
+  {
+    "file": "auto_move_borrow_conflict_err.delta",
+    "expect": "fail",
+    "contains": "move",
+    "note": "phase G integration semantic — moving and auto-borrowing one root in one call conflict"
+  },
+  {
+    "file": "auto_borrow_temporary_err.delta",
+    "expect": "fail",
+    "contains": "temporary",
+    "note": "phase G integration semantic — MVP auto-borrow requires an addressable storage path"
+  },
+  {
+    "file": "sequential_auto_borrows_ok.delta",
+    "expect": "pass",
+    "note": "phase G integration semantic — call-scoped auto-borrows end before the next call"
+  },
+  {
+    "file": "edit_to_read_reborrow_ok.delta",
+    "expect": "pass",
+    "note": "phase G integration semantic — an `edit &T` parameter may be contextually reborrowed as `&T`"
+  },
+  {
+    "file": "read_to_edit_reborrow_err.delta",
+    "expect": "fail",
+    "contains": "capability",
+    "note": "phase G integration semantic — an `&T` parameter cannot be upgraded to `edit &T`"
+  }
+]

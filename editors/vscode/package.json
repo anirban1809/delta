@@ -2,7 +2,7 @@
   "name": "delta-language",
   "displayName": "Delta Language",
   "description": "Language support for Delta",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "publisher": "delta-lang",
   "engines": {
     "vscode": "^1.80.0"

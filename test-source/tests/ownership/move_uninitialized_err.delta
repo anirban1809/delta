@@ -1,0 +1,10 @@
+// An uninitialized binding has no ownership to transfer. Expects fail ("uninitialized").
+unique type Handle = { id: int32; };
+
+function consume(value: Handle) { }
+
+function main(): int32 {
+    let value: Handle;
+    consume(move value);
+    return 0;
+}

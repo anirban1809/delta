@@ -17,6 +17,7 @@ import (
 	"delta/internal/diagnostics"
 	"delta/internal/lsp"
 	"delta/internal/pipeline"
+	"delta/internal/project"
 	"delta/internal/token"
 	"delta/internal/tokenizer"
 	"delta/internal/toolchain"
@@ -38,6 +39,10 @@ func main() {
 	switch os.Args[1] {
 	case "build":
 		runBuild(os.Args[2:])
+	case "run":
+		runRun(os.Args[2:])
+	case "init":
+		runInit(os.Args[2:])
 	case "dump-ast":
 		runDumpAST(os.Args[2:])
 	case "test":
@@ -139,7 +144,7 @@ func runDumpAST(args []string) {
 // full build (codegen + clang) runs.
 func runBuild(args []string) {
 	var onlyTokens, onlyAST, onlySema bool
-	sourcePath := ""
+	buildArgs := []string{}
 	for _, arg := range args {
 		switch arg {
 		case "--tokens":
@@ -149,40 +154,27 @@ func runBuild(args []string) {
 		case "--sema":
 			onlySema = true
 		default:
-			if strings.HasPrefix(arg, "-") {
-				fmt.Fprintf(os.Stderr, "unknown flag: %s\n", arg)
-				os.Exit(2)
-			}
-			if sourcePath != "" {
-				fmt.Fprintf(
-					os.Stderr,
-					"multiple file paths given: %s and %s\n",
-					sourcePath,
-					arg,
-				)
-				os.Exit(2)
-			}
-			sourcePath = arg
+			buildArgs = append(buildArgs, arg)
 		}
 	}
+	sourcePath, mode := parseBuildTarget(buildArgs)
 
-	if sourcePath == "" {
+	if (onlyTokens || onlyAST || onlySema) && sourcePath == "" {
 		fmt.Fprintln(os.Stderr, "missing file path")
 		os.Exit(2)
 	}
-	if filepath.Ext(sourcePath) != ".delta" {
+	if sourcePath != "" && filepath.Ext(sourcePath) != ".delta" {
 		fmt.Fprintln(os.Stderr, "invalid extension: must be .delta")
 		os.Exit(2)
 	}
 
-	contents, err := os.ReadFile(sourcePath)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
-	}
-
 	// --tokens: stop after tokenization and print the token stream.
 	if onlyTokens {
+		contents, err := os.ReadFile(sourcePath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
 		bag := &diagnostics.ErrorBag{File: sourcePath, Source: string(contents)}
 		tokens, _ := tokenizer.Tokenize(string(contents), bag)
 		if len(bag.Errors) > 0 {
@@ -195,6 +187,11 @@ func runBuild(args []string) {
 
 	// --ast: stop after parsing and print the formatted AST.
 	if onlyAST {
+		contents, err := os.ReadFile(sourcePath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
 		bag := &diagnostics.ErrorBag{File: sourcePath, Source: string(contents)}
 		tokens, _ := tokenizer.Tokenize(string(contents), bag)
 		if len(bag.Errors) > 0 {
@@ -214,6 +211,11 @@ func runBuild(args []string) {
 	// --sema: run the full front-end (lex + parse + semantics) and stop,
 	// printing diagnostics on failure or the formatted AST on success.
 	if onlySema {
+		contents, err := os.ReadFile(sourcePath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
 		result := pipeline.Compile(sourcePath, contents)
 		if len(result.ErrorBag.Errors) > 0 {
 			printErrorBag(result.ErrorBag)
@@ -223,74 +225,86 @@ func runBuild(args []string) {
 		return
 	}
 
-	// 1. Front-end.
-	result := pipeline.Validate(sourcePath, contents)
-	if len(result.ErrorBag.Errors) > 0 {
-		for _, e := range result.ErrorBag.Errors {
-			fmt.Println(e.GetFormattedMessage())
-		}
+	result, bag := pipeline.BuildProject(sourcePath, mode)
+	if len(bag.Errors) > 0 {
+		printErrorBag(bag)
+		os.Exit(1)
+	}
+	fmt.Println(result.BinaryPath)
+}
+
+func runRun(args []string) {
+	sourcePath, mode := parseBuildTarget(args)
+	result, bag := pipeline.BuildProject(sourcePath, mode)
+	if len(bag.Errors) > 0 {
+		printErrorBag(bag)
 		os.Exit(1)
 	}
 
-	// 2. Codegen.
-	emitter := codegen.Emitter{
-		File:       result.File,
-		ErrorBag:   result.ErrorBag,
-		SourcePath: sourcePath,
-	}
-
-	cBytes := emitter.Emit()
-	if emitter.ErrorBag != nil && len(emitter.ErrorBag.Errors) > 0 {
-		for _, e := range emitter.ErrorBag.Errors {
-			fmt.Println(e.GetFormattedMessage())
-		}
-		os.Exit(1)
-	}
-
-	// 3. Write generated C to <projectRoot>/build/c/<basename>.c.
-	projectRoot := filepath.Dir(sourcePath)
-	basename := strings.TrimSuffix(filepath.Base(sourcePath), ".delta")
-	buildDir := filepath.Join(projectRoot, "build")
-	cDir := filepath.Join(buildDir, "c")
-	if err := os.MkdirAll(cDir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create %s: %v\n", cDir, err)
-		os.Exit(1)
-	}
-	cFile := filepath.Join(cDir, basename+".c")
-	if err := os.WriteFile(cFile, cBytes, 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to write %s: %v\n", cFile, err)
-		os.Exit(1)
-	}
-
-	// 4. Locate clang.
-	clangPath, clangErr := toolchain.FindClang()
-	if clangErr != nil {
-		fmt.Fprintln(os.Stderr, "clang not found on PATH:", clangErr.Message)
-		os.Exit(1)
-	}
-
-	// 5. Invoke clang. Treat non-zero exit on valid-Delta input as an ICE:
-	// the generated .c is preserved under build/c/ for inspection.
-	binaryPath := filepath.Join(buildDir, basename)
-	cmd := exec.Command(
-		clangPath,
-		"-std=c11",
-		"-Wall",
-		"-Werror=implicit-function-declaration",
-		"-fwrapv",
-		"-o", binaryPath,
-		cFile,
-	)
+	cmd := exec.Command(result.BinaryPath)
+	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintln(
-			os.Stderr,
-			"internal compiler error: clang failed on generated C",
-		)
-		fmt.Fprintln(os.Stderr, "  generated source preserved at:", cFile)
-		fmt.Fprintln(os.Stderr, "  this is a codegen bug, please report")
-		fmt.Fprintln(os.Stderr, "  clang error:", err)
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func parseBuildTarget(args []string) (string, string) {
+	mode := "debug"
+	sourcePath := ""
+	for _, arg := range args {
+		switch arg {
+		case "--release":
+			mode = "release"
+		default:
+			if strings.HasPrefix(arg, "-") {
+				fmt.Fprintf(os.Stderr, "unknown flag: %s\n", arg)
+				os.Exit(2)
+			}
+			if sourcePath != "" {
+				fmt.Fprintf(
+					os.Stderr,
+					"multiple file paths given: %s and %s\n",
+					sourcePath,
+					arg,
+				)
+				os.Exit(2)
+			}
+			sourcePath = arg
+		}
+	}
+	if sourcePath != "" && filepath.Ext(sourcePath) != ".delta" {
+		fmt.Fprintln(os.Stderr, "invalid extension: must be .delta")
+		os.Exit(2)
+	}
+	return sourcePath, mode
+}
+
+func runInit(args []string) {
+	opts := project.InitOptions{}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--no-src":
+			opts.NoSrc = true
+		case "--name":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "--name requires a value")
+				os.Exit(2)
+			}
+			i++
+			opts.Name = args[i]
+		default:
+			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", args[i])
+			os.Exit(2)
+		}
+	}
+	if err := project.Init(opts); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }

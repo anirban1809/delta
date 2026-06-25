@@ -1,0 +1,10 @@
+// dispose hooks are compiler-only and cannot be invoked manually. Expects fail ("cannot be called").
+unique type Handle = { id: int32; };
+
+function (value: edit &Handle) dispose() { }
+
+function main(): int32 {
+    let value: Handle = { id: 7 };
+    value.dispose();
+    return 0;
+}

@@ -1,0 +1,11 @@
+// Mutating a field of a moved aggregate is rejected. Expects fail ("moved").
+unique type Handle = { id: int32; };
+
+function consume(value: Handle) { }
+
+function main(): int32 {
+    let value: Handle = { id: 7 };
+    consume(move value);
+    value.id = 8;
+    return 0;
+}

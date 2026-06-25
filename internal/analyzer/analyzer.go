@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"fmt"
+	"strings"
 
 	"delta/internal/ast"
 )
@@ -11,6 +12,9 @@ func (v *Validator) CheckBlock(
 	scope *Scope,
 	ctx CheckContext,
 ) Flow {
+	restore := v.pushScopeNode(scope, body.Position, body.End)
+	defer restore()
+
 	result := FlowContinues
 	terminated := false
 
@@ -133,7 +137,7 @@ func (v *Validator) CheckCheckStmt(s ast.CheckStatement, scope *Scope, ctx Check
 	fstmt, ok := scope.Lookup(sym.FallibleSymbol)
 	if ok {
 		// mark the status of the associated symbol to Active, the symbol is now usable
-		fstmt.Status = Active
+		fstmt.Status = StatusActive
 	}
 
 	return FlowContinues
@@ -174,13 +178,13 @@ func (v *Validator) CheckFallible(s ast.FallibleStatement, scope *Scope, ctx Che
 	case ast.VariableDeclarationStatement:
 		v.CheckVarDecl(inner, scope, ctx)
 		s, _ := scope.Lookup(inner.Name)
-		s.Status = Pending
+		s.Status = StatusPending
 		pendingSymbol = inner.Name
 
 	case ast.AssignmentStatement:
 		v.CheckAssignment(inner, scope, ctx)
 		s, _ := scope.Lookup(inner.Target.Name)
-		s.Status = Pending
+		s.Status = StatusPending
 		pendingSymbol = inner.Target.Name
 
 	case ast.ExpressionStatement:
@@ -189,7 +193,7 @@ func (v *Validator) CheckFallible(s ast.FallibleStatement, scope *Scope, ctx Che
 			for _, arg := range e.Arguments {
 				if i, ok := arg.(ast.Identifier); ok {
 					s, _ := scope.Lookup(i.Name)
-					if s.Status == Pending {
+					if s.Status == StatusPending {
 						v.AddError(
 							e.Pos(),
 							fmt.Sprintf(
@@ -243,6 +247,11 @@ func (v *Validator) CheckFallible(s ast.FallibleStatement, scope *Scope, ctx Che
 }
 
 func (v *Validator) CheckWhile(s ast.WhileStatement, scope *Scope, ctx CheckContext) Flow {
+	pre := map[*Symbol]MovedStatus{}
+	for _, s := range scope.Symbols {
+		pre[s] = s.Moved
+	}
+
 	loopScope := scope.NewScope(scope)
 
 	// validate condition
@@ -260,7 +269,26 @@ func (v *Validator) CheckWhile(s ast.WhileStatement, scope *Scope, ctx CheckCont
 	// validate body
 	loopCtx := ctx
 	ctx.LoopDepth++
-	return v.CheckBlock(s.Body, &loopScope, loopCtx)
+
+	loopFlow := v.CheckBlock(s.Body, &loopScope, loopCtx)
+
+	for _, sym := range scope.Symbols {
+		if pre[sym] == Active && sym.Moved != Active {
+			v.AddError(
+				sym.MovePos, fmt.Sprintf(
+					"'%s' may have been moved on a previous loop iteration; "+
+						"revive it inside the loop before the loop ends",
+					sym.Name,
+				),
+			)
+		}
+	}
+
+	for _, s := range scope.Symbols {
+		s.Moved = joinMove(pre[s], s.Moved)
+	}
+
+	return loopFlow
 }
 
 func (v *Validator) CheckFor(s ast.ForStatement, scope *Scope, ctx CheckContext) Flow {
@@ -426,11 +454,6 @@ func (v *Validator) CheckReturn(s ast.ReturnStatement, scope *Scope, ctx CheckCo
 		}
 
 		if !typesMatch(got, *want) {
-			// if got.Kind == TypeCustom && want.Kind == TypeCustom &&
-			// 	want.Alias == got.Name {
-			// 	return FlowReturns
-			// }
-
 			v.AddError(valueExpr.Pos(), fmt.Sprintf(
 				"return type mismatch, want %s, got %s", want.Name, got.Name,
 			))
@@ -441,7 +464,11 @@ func (v *Validator) CheckReturn(s ast.ReturnStatement, scope *Scope, ctx CheckCo
 }
 
 // ResolveAssignmentTarget to check if an assignment target is mutable or not and what is its type
-func (v *Validator) ResolveAssignmentTarget(e ast.Expression, scope *Scope) (Type, bool) {
+func (v *Validator) ResolveAssignmentTarget(
+	e ast.Expression,
+	scope *Scope,
+	isWholeTarget bool,
+) (Type, bool) {
 	switch e := e.(type) {
 	case ast.Identifier:
 		s, ok := scope.Lookup(e.Name)
@@ -449,7 +476,32 @@ func (v *Validator) ResolveAssignmentTarget(e ast.Expression, scope *Scope) (Typ
 		// set the target initialization status to true
 		s.Initialized = true
 
-		exprT := v.CheckExpr(e, nil, scope)
+		// If the value has been moved, then re-assignment revives the value
+		if isWholeTarget {
+			s.Moved = Active
+		} else {
+			if s.Moved == Moved {
+				v.AddError(
+					e.Pos(),
+					fmt.Sprintf(
+						"cannot assign to field of moved value '%s'",
+						e.Name,
+					),
+				)
+			}
+
+			if s.Moved == MaybeMoved {
+				v.AddError(
+					e.Pos(),
+					fmt.Sprintf(
+						"cannot assign to a field of '%s', which may have been moved on some paths; reassign the whole value first",
+						e.Name,
+					),
+				)
+			}
+		}
+
+		exprT := s.Type
 
 		if !ok {
 			v.AddError(e.Pos(), fmt.Sprintf("unknown identifier %s", e.Name))
@@ -460,8 +512,15 @@ func (v *Validator) ResolveAssignmentTarget(e ast.Expression, scope *Scope) (Typ
 		}
 
 		if s.Kind == SymbolParameter {
-			// error for now, TODO: modify this when adding support for mutable references
-			v.AddError(e.Pos(), fmt.Sprintf("cannot assign to parameter %s", e.Name))
+			if !s.Type.Edit {
+				v.AddError(
+					e.Pos(),
+					fmt.Sprintf(
+						"cannot assign to non-editable parameter %s",
+						e.Name,
+					),
+				)
+			}
 		}
 
 		if s.Kind == SymbolTypeDecl || s.Kind == SymbolFunction {
@@ -471,7 +530,7 @@ func (v *Validator) ResolveAssignmentTarget(e ast.Expression, scope *Scope) (Typ
 		return exprT, true
 
 	case ast.MemberAccessExpression:
-		return v.ResolveAssignmentTarget(e.Receiver, scope)
+		return v.ResolveAssignmentTarget(e.Receiver, scope, isWholeTarget)
 	}
 
 	return Type{}, false
@@ -482,25 +541,60 @@ func (v *Validator) CheckAssignment(
 	scope *Scope,
 	ctx CheckContext,
 ) Flow {
-	targetT, mutable := v.ResolveAssignmentTarget(stmt.TargetExpression, scope)
+	// check and return early if attempting to copy a unique or non copyable item
+	var targetT Type
+	var mutable bool
+	isWholeTarget := false
+	_, isWholeTarget = stmt.TargetExpression.(ast.Identifier)
 
+	targetT, mutable = v.ResolveAssignmentTarget(stmt.TargetExpression, scope, isWholeTarget)
 	if !mutable {
 		v.AddError(stmt.TargetExpression.Pos(), "assignment expression is not mutable")
 	}
 
-	// in case of member-access expressions, set the type of the target to the type of the member.
-	// for example in case of v.a = 34, we need the type of a, not v
-	if s, ok := stmt.TargetExpression.(ast.MemberAccessExpression); ok {
-		for _, f := range targetT.Fields {
-			if f.Name == s.Member {
-				targetT = f.Type
+	if _, ok := stmt.TargetExpression.(ast.MemberAccessExpression); ok {
+		targetT = v.CheckExpr(stmt.TargetExpression, nil, scope)
+	}
+
+	// check for self move: if the target expression is an identifier and the value is a move expression
+	// check if source of value matches the target, if true emit error and return early
+	if tgt, ok := stmt.TargetExpression.(ast.Identifier); ok {
+		if mv, ok := stmt.Value.(ast.MoveExpression); ok {
+			if mv.Source.Name == tgt.Name {
+				v.AddError(stmt.Value.Pos(), fmt.Sprintf(
+					"cannot move %s into itself", tgt.Name,
+				))
+				return FlowContinues
 			}
 		}
 	}
 
 	valueT := v.CheckExpr(stmt.Value, &targetT, scope)
 
-	if !typesMatch(targetT, valueT) {
+	// check and prevent copying for non-copyable and unique types
+	if ident, ok := stmt.Value.(ast.Identifier); ok {
+		if !v.IsCopyable(valueT) {
+			v.AddError(ident.Position, fmt.Sprintf(
+				"type of %s, %s is an owned type and is non-copyable, consider \n"+
+					" - moving using `move %s` or \n - cloning using `clone %s`",
+				ident.Name, valueT.Name, ident.Name, ident.Name,
+			))
+			return FlowContinues
+		}
+
+		if v.IsUnique(valueT) {
+			v.AddError(ident.Position, fmt.Sprintf(
+				"%s is of a unique type %s, and hence is non-copyable. consider \n"+
+					" - moving using `move %s`",
+				ident.Name,
+				valueT.Name,
+				ident.Name,
+			))
+			return FlowContinues
+		}
+	}
+
+	if !typesMatch(valueT, targetT) {
 		v.AddError(
 			stmt.Value.Pos(),
 			fmt.Sprintf(
@@ -524,6 +618,14 @@ func (v *Validator) CheckAssignment(
 	return FlowContinues
 }
 
+func joinMove(a, b MovedStatus) MovedStatus {
+	if a == b {
+		return a
+	}
+
+	return MaybeMoved
+}
+
 func (v *Validator) CheckIfStmt(stmt ast.IfStatement, scope *Scope, ctx CheckContext) Flow {
 	exprT := v.CheckExpr(stmt.Condition, nil, scope)
 
@@ -534,11 +636,39 @@ func (v *Validator) CheckIfStmt(stmt ast.IfStatement, scope *Scope, ctx CheckCon
 		)
 	}
 
+	// snapshot of moves for the pre-if state
+	pre := map[*Symbol]MovedStatus{}
+	for _, s := range scope.Symbols {
+		pre[s] = s.Moved
+	}
+
 	thenScope := scope.NewScope(scope)
+	thenMoves := thenScope.Moves
 	thenFlow := v.CheckBlock(stmt.ThenBlock, &thenScope, ctx)
 
+	// reset so the else branch starts where the then branch did
+	for _, s := range scope.Symbols {
+		s.Moved = pre[s]
+	}
+
 	elseScope := scope.NewScope(scope)
+	elseMoves := elseScope.Moves
 	elseFlow := v.CheckBlock(stmt.ElseBlock, &elseScope, ctx)
+
+	for _, s := range scope.Symbols {
+		thenConverges := thenFlow == FlowContinues
+		elseConverges := elseFlow == FlowContinues
+
+		switch {
+		case thenConverges && elseConverges:
+			s.Moved = joinMove(thenMoves[s], elseMoves[s])
+		case thenConverges:
+			s.Moved = thenMoves[s] // else diverged; only then reaches the merge
+		case elseConverges:
+			s.Moved = elseMoves[s] // then diverged; only else reaches the merge
+			// both diverged: code after the `if` is unreachable — leave s.Moved as-is
+		}
+	}
 
 	if len(stmt.ElseBlock.Statements) == 0 {
 		return FlowContinues
@@ -604,14 +734,15 @@ func (v *Validator) CheckVarDecl(
 	}
 
 	var lhsT Type
+	var rhsT Type
 	// declaration is missing type identifier, to be inferred from the value
 	if getTypeRefName(stmt.Type) == "" {
-		rhsT := v.CheckExpr(stmt.Value, nil, scope)
+		rhsT = v.CheckExpr(stmt.Value, nil, scope)
 		lhsT = rhsT
 	} else {
 		lhsT = v.ResolveType(stmt.Type)
-		rhsT := v.CheckExpr(stmt.Value, &lhsT, scope)
-		if !typesMatch(lhsT, rhsT) {
+		rhsT = v.CheckExpr(stmt.Value, &lhsT, scope)
+		if !typesMatch(rhsT, lhsT) {
 			if isInteger(lhsT) && isInteger(rhsT) {
 				if bitWidth(lhsT) > bitWidth(rhsT) {
 					return FlowContinues
@@ -639,6 +770,38 @@ func (v *Validator) CheckVarDecl(
 			return FlowContinues
 		}
 	}
+
+	if ident, ok := stmt.Value.(ast.Identifier); ok {
+		// check for copying only if the rhs is an identifier, since rhs has to be an lvalue
+		if !v.IsCopyable(rhsT) {
+			v.AddError(
+				ident.Position,
+				fmt.Sprintf(
+					"type of %s, %s is an owned type and is non-copyable, consider \n - moving using `move %s` or \n - referencing using `&%s`",
+					ident.Name,
+					rhsT.Name,
+					ident.Name,
+					ident.Name,
+				),
+			)
+			return FlowContinues
+		}
+
+		if v.IsUnique(rhsT) {
+			v.AddError(
+				ident.Position,
+				fmt.Sprintf(
+					"type of %s, %s is a unique type and cannot be copied, consider \n - moving using `move %s` or \n - referencing using `&%s`",
+					ident.Name,
+					rhsT.Name,
+					ident.Name,
+					ident.Name,
+				),
+			)
+			return FlowContinues
+		}
+	}
+
 	scope.Define(name, Symbol{
 		Name:        name,
 		Kind:        kind,
@@ -653,6 +816,9 @@ func (v *Validator) CheckVarDecl(
 // typesMatch reports whether a value of type a satisfies type b. Primitives
 // match on kind; custom record types must additionally share a name.
 func typesMatch(a, b Type) bool {
+	if heapDerefTypesMatch(a, b) {
+		return true
+	}
 	if a.Kind != b.Kind {
 		return false
 	}
@@ -669,6 +835,14 @@ func typesMatch(a, b Type) bool {
 		return false
 	}
 	return true
+}
+
+func heapDerefTypesMatch(heapT, valueT Type) bool {
+	if !isHeapType(heapT) {
+		return false
+	}
+	inner := heapInnerName(heapT.Name)
+	return inner == valueT.Name || inner == valueT.Alias
 }
 
 // isConvOp reports whether name denotes a built-in scalar conversion operator
@@ -691,12 +865,121 @@ func isConvOp(name string) (bool, FunctionSignature) {
 	}
 }
 
+func (v *Validator) IsCopyable(t Type) bool {
+	if isHeapType(t) || t.Name == "heap" {
+		return false
+	}
+
+	if (t.Kind != TypeCustom) || isInteger(t) || isFloat(t) || t.Kind == TypeChar {
+		return true
+	}
+
+	for _, f := range t.Fields {
+		if !v.IsCopyable(f.Type) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (v *Validator) IsUnique(t Type) bool {
+	if t.Unique {
+		return true
+	}
+
+	for _, f := range t.Fields {
+		if v.IsUnique(f.Type) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// takes in a memberexpression struct, return a string in the format a.b.c
+// TODO: move to helper.go
+func getMemberExprLabel(expr ast.Expression) string {
+	switch e := expr.(type) {
+	case ast.MemberAccessExpression:
+		return fmt.Sprintf("%s.%s", getMemberExprLabel(e.Receiver), e.Member)
+	case ast.Identifier:
+		return e.Name
+	}
+
+	return ""
+}
+
 func (v *Validator) CheckExpr(
 	expr ast.Expression,
 	expected *Type,
 	scope *Scope,
 ) Type {
 	switch e := expr.(type) {
+
+	case ast.MoveExpression:
+		t := v.CheckExpr(e.Source, nil, scope)
+		sym, _ := scope.Lookup(e.Source.Name)
+
+		if t.Reference {
+			v.AddError(e.Source.Pos(), fmt.Sprintf(
+				"%s is a borrowed reference of type %s and hence cannot be moved",
+				e.Source.Name,
+				t.Name,
+			))
+			return Type{Kind: TypeInvalid, Name: "invalid"} // cascade suppression
+		}
+
+		if sym.Kind == SymbolLocalConst || sym.Kind == SymbolFileConst {
+			v.AddError(e.Source.Pos(), fmt.Sprintf(
+				"const symbol %s cannot be moved", sym.Name,
+			))
+			return Type{Kind: TypeInvalid, Name: "invalid"} // cascade suppression
+		}
+
+		sym.Moved = Moved
+		sym.MovePos = e.Source.Position
+		scope.Moves[sym] = Moved
+		return t
+
+	case ast.CloneExpression:
+		srcT := v.CheckExpr(e.Source, nil, scope)
+		if v.IsUnique(srcT) {
+			srcName := ""
+			srcTName := srcT.Name
+			switch srcExpr := e.Source.(type) {
+			case ast.Identifier:
+				srcName = srcExpr.Name
+
+			case ast.MemberAccessExpression:
+				srcName = getMemberExprLabel(e)
+			}
+
+			v.AddError(e.Pos(), fmt.Sprintf(
+				"expression \"%s\" of type %s is unique and hence cannot be cloned",
+				srcName,
+				srcTName,
+			))
+			return Type{Kind: TypeInvalid, Name: "invalid"} // cascade suppression
+		}
+		return srcT
+
+	case ast.NewExpression:
+		var valueT Type
+		if e.Type != nil {
+			expected := v.ResolveType(*e.Type)
+			valueT = v.CheckExpr(e.Value, &expected, scope)
+		} else {
+			valueT = v.CheckExpr(e.Value, nil, scope)
+		}
+		if valueT.Kind == TypeInvalid {
+			return Type{Kind: TypeInvalid, Name: "invalid"}
+		}
+		return Type{
+			Name:   "heap<" + valueT.Name + ">",
+			Kind:   TypeCustom,
+			Fields: valueT.Fields,
+		}
 
 	case ast.MemberAccessExpression:
 		// recursively check the receiver since it is also an expression. (receiver in this case means v in v.x)
@@ -705,8 +988,16 @@ func (v *Validator) CheckExpr(
 			return Type{Kind: TypeInvalid, Name: "invalid"} // cascade suppression
 		}
 
+		memberRecv := recv
+		if isHeapType(recv) {
+			innerName := heapInnerName(recv.Name)
+			if sym, ok := v.GlobalScope.Lookup(innerName); ok {
+				memberRecv = sym.Type
+			}
+		}
+
 		// receiver must be of type TypeCustom Kind (not a primitive)
-		if recv.Kind != TypeCustom {
+		if memberRecv.Kind != TypeCustom {
 			v.AddError(e.Pos(), fmt.Sprintf(
 				"type %s has no fields; cannot access %q", recv.Name, e.Member,
 			))
@@ -714,7 +1005,7 @@ func (v *Validator) CheckExpr(
 		}
 
 		// field must exist on the field's type
-		for _, f := range recv.Fields {
+		for _, f := range memberRecv.Fields {
 			if f.Name == e.Member {
 				return f.Type // result type = the field's type
 			}
@@ -748,6 +1039,7 @@ func (v *Validator) CheckExpr(
 		isConv := false
 
 		if exists {
+			v.recordRef(callee.Position, *s)
 			if s.Signature != nil && len(s.Signature.ErrorTypes) > 0 && !e.Caught {
 				v.AddError(
 					expr.Pos(),
@@ -799,6 +1091,47 @@ func (v *Validator) CheckExpr(
 			return Type{Kind: TypeInvalid, Name: "invalid"}
 		}
 
+		// Exclusivity across a single call's auto-borrows: one storage root may
+		// be borrowed immutably any number of times, but a mutable (`edit &`)
+		// borrow must be exclusive. Reject a root that is borrowed mutably while
+		// also being borrowed (mutably or immutably) elsewhere in the same
+		// argument list. Conversions take a single value arg and form no
+		// borrows, so they are skipped. Moved arguments are not places
+		// (borrowRoot fails), so move/borrow conflicts stay with the dedicated
+		// move check.
+		if !isConv {
+			borrowCount := map[string]int{}
+			for i, arg := range e.Arguments {
+				if i >= len(sig.Parameters) || !sig.Parameters[i].Reference {
+					continue
+				}
+				if root, ok := borrowRoot(arg); ok {
+					borrowCount[root]++
+				}
+			}
+			for i, arg := range e.Arguments {
+				if i >= len(sig.Parameters) {
+					break
+				}
+				param := sig.Parameters[i]
+				if !param.Reference || !param.Edit {
+					continue
+				}
+				if root, ok := borrowRoot(arg); ok && borrowCount[root] >= 2 {
+					v.AddError(
+						arg.Pos(),
+						fmt.Sprintf(
+							"cannot borrow %s as `edit &` while it is also "+
+								"borrowed elsewhere in the same call; a mutable "+
+								"borrow must be exclusive",
+							root,
+						),
+					)
+					return Type{Kind: TypeInvalid, Name: "invalid"}
+				}
+			}
+		}
+
 		// validate argument types of function call expression
 		for i, arg := range e.Arguments {
 			// For a conversion operator the source may legitimately differ
@@ -815,6 +1148,85 @@ func (v *Validator) CheckExpr(
 					Kind: TypeInvalid,
 					Name: "invalid",
 				} // cascade suppression
+			}
+
+			if ident, ok := arg.(ast.Identifier); ok {
+				// checking if the type of passed arg is copyable and the required param type is a reference
+				if !v.IsCopyable(argT) && !(*want).Reference {
+					v.AddError(
+						arg.Pos(),
+						fmt.Sprintf(
+							"cannot pass %s as value, type %s is non-copyable, consider using `move %s`",
+							ident.Name,
+							argT.Name,
+							ident.Name,
+						),
+					)
+
+					return Type{Kind: TypeInvalid, Name: "invalid"}
+				}
+
+				// checking if the type of passed arg is unique and the required param type is a reference
+				if argT.Unique && !(*want).Reference {
+					v.AddError(
+						arg.Pos(),
+						fmt.Sprintf(
+							"cannot pass %s as value, type %s is unique, consider using `move %s`",
+							ident.Name,
+							argT.Name,
+							ident.Name,
+						),
+					)
+
+					return Type{Kind: TypeInvalid, Name: "invalid"}
+				}
+
+				// An `edit &T` parameter auto-borrows a mutable reference, so the
+				// source must itself be mutable; a `const` binding cannot satisfy it.
+				if want != nil && (*want).Reference && (*want).Edit {
+					if sym, ok := scope.Lookup(ident.Name); ok &&
+						(sym.Kind == SymbolLocalConst || sym.Kind == SymbolFileConst) {
+						v.AddError(
+							arg.Pos(),
+							fmt.Sprintf(
+								"cannot pass const %s as `edit &%s`; the source must be a mutable `let` binding",
+								ident.Name,
+								argT.Name,
+							),
+						)
+
+						return Type{Kind: TypeInvalid, Name: "invalid"}
+					}
+				}
+
+				if want != nil && ((*want).Reference && (*want).Edit) &&
+					(argT.Reference && !argT.Edit) {
+					v.AddError(
+						arg.Pos(),
+						fmt.Sprintf(
+							"cannot pass read-only borrow %s as `edit &%s`: a `&` "+
+								"borrow cannot be upgraded to an editable borrow "+
+								"(capability violation)",
+							ident.Name,
+							argT.Name,
+						),
+					)
+
+					return Type{Kind: TypeInvalid, Name: "invalid"}
+				}
+			}
+
+			// A borrowed reference needs an addressable storage path. A function
+			// call yields a temporary with no such location, so it cannot be
+			// auto-borrowed. (`want` is nil on the conversion path; skip then.)
+			if _, ok := arg.(ast.FunctionCallExpression); ok && want != nil &&
+				want.Reference {
+				v.AddError(
+					arg.Pos(),
+					"cannot pass a function call (a temporary) as a borrowed reference",
+				)
+
+				return Type{Kind: TypeInvalid, Name: "invalid"}
 			}
 
 			if isConv {
@@ -840,8 +1252,8 @@ func (v *Validator) CheckExpr(
 			}
 
 			if !typesMatch(
-				sig.Parameters[i],
 				argT,
+				sig.Parameters[i],
 			) {
 				v.AddError(
 					expr.Pos(),
@@ -862,7 +1274,13 @@ func (v *Validator) CheckExpr(
 			return sig.ReturnTypes[0]
 		}
 
-		return s.Type
+		// A function call yields its declared return type. The return type lives
+		// on the signature, not the symbol's Type (which is the zero value for a
+		// function), so a void call yields void.
+		if len(sig.ReturnTypes) > 0 {
+			return sig.ReturnTypes[0]
+		}
+		return Type{Kind: TypeVoid, Name: "void"}
 
 	case ast.PostfixUnaryExpression:
 
@@ -891,6 +1309,7 @@ func (v *Validator) CheckExpr(
 			)
 			return Type{Kind: TypeInvalid, Name: "invalid"}
 		}
+		v.recordRef(ident.Position, *sym)
 		if sym.Kind != SymbolLocalLet {
 			v.AddError(
 				e.Pos(),
@@ -919,6 +1338,7 @@ func (v *Validator) CheckExpr(
 			)
 			return Type{Kind: TypeInvalid, Name: "invalid"}
 		}
+		v.IncDecs[e.Position] = t
 
 	case ast.UnaryExpression:
 		exprT := v.CheckExpr(e.Expression, nil, scope)
@@ -996,6 +1416,9 @@ func (v *Validator) CheckExpr(
 
 				return mismatched()
 			}
+			if e.Operator == "/" || e.Operator == "%" {
+				v.Divisions[e.Position] = leftT
+			}
 			return leftT
 
 		case "&", "|", "^", "<<", ">>":
@@ -1007,6 +1430,9 @@ func (v *Validator) CheckExpr(
 			}
 			if !typesMatch(leftT, rightT) {
 				return mismatched()
+			}
+			if e.Operator == "<<" || e.Operator == ">>" {
+				v.Shifts[e.Position] = leftT
 			}
 			return leftT
 		case "==", "!=":
@@ -1068,6 +1494,26 @@ func (v *Validator) CheckExpr(
 			)
 			return Type{Kind: TypeInvalid, Name: "invalid"}
 		}
+		v.recordRef(e.Position, *sym)
+
+		if sym.Moved == Moved {
+			v.AddError(
+				e.Pos(),
+				fmt.Sprintf("%s has been moved and cannot be used", e.Name),
+			)
+			return Type{Kind: TypeInvalid, Name: "invalid"}
+
+		}
+		if sym.Moved == MaybeMoved {
+			v.AddError(
+				e.Pos(),
+				fmt.Sprintf(
+					"'%s' may have been moved on some paths and cannot be used here; move it on every path or reassign it before use",
+					e.Name,
+				),
+			)
+			return Type{Kind: TypeInvalid, Name: "invalid"}
+		}
 
 		// check if the identifier can be used as a value (type decls and function decls are not allowed)
 		switch sym.Kind {
@@ -1104,7 +1550,7 @@ func (v *Validator) CheckExpr(
 		}
 
 		// check if the identifier is a usable value (not a pending value from error handling)
-		if sym.Status == Pending &&
+		if sym.Status == StatusPending &&
 			(sym.Kind == SymbolLocalLet || sym.Kind == SymbolLocalConst) {
 			v.AddError(
 				e.Pos(),
@@ -1256,20 +1702,39 @@ func (v *Validator) CheckExpr(
 
 func (v *Validator) Check(program ast.File) Result {
 	v.GlobalScope = v.GlobalScope.NewScope(nil)
+	v.Refs = map[ast.Position]Symbol{}
+	v.Records = map[string][]ResolvedRecordField{}
+	v.Divisions = map[ast.Position]Type{}
+	v.Shifts = map[ast.Position]Type{}
+	v.IncDecs = map[ast.Position]Type{}
+	v.RootScope = &ScopeNode{Scope: &v.GlobalScope}
+	v.currentNode = v.RootScope
 	// === Phase L (receiver methods) BEGIN ===
 	v.Methods = map[string]map[string]*FunctionSignature{}
 	// === Phase L (receiver methods) END ===
 	decls := program.Declarations
 
+	for name, sym := range v.ImportedSymbols {
+		sym.Imported = true
+		v.GlobalScope.Define(name, sym)
+	}
+
 	// pass 0, for predeclaring type decl symbols
 	for _, decl := range decls {
 		switch decl := decl.(type) {
 		case ast.TypeDeclaration:
+			if _, ok := v.GlobalScope.Lookup(decl.Name.Name); ok {
+				v.AddError(
+					decl.Name.Position,
+					"duplicate type declaration: "+decl.Name.Name,
+				)
+				continue
+			}
 			v.GlobalScope.Define(decl.Name.Name, Symbol{
 				Name:     decl.Name.Name,
 				Kind:     SymbolTypeDecl,
 				Position: decl.Position,
-				// Display: funcDisp,
+				Exported: decl.Exported,
 			})
 		}
 	}
@@ -1282,6 +1747,9 @@ func (v *Validator) Check(program ast.File) Result {
 
 		case ast.TypeDeclaration:
 			name := getIdentName(decl.Name)
+			if sym, ok := v.GlobalScope.Lookup(name); ok && sym.Imported {
+				continue
+			}
 			var t Type
 
 			switch d := decl.RHS.(type) {
@@ -1289,6 +1757,7 @@ func (v *Validator) Check(program ast.File) Result {
 				t = Type{
 					Name:   name,
 					Kind:   TypeCustom,
+					Unique: decl.Unique,
 					Fields: v.ResolveFields(d.Fields),
 				}
 
@@ -1346,8 +1815,9 @@ func (v *Validator) Check(program ast.File) Result {
 							fields = append(
 								fields,
 								Field{
-									Name: fN,
-									Type: fT,
+									Name:     fN,
+									Type:     fT,
+									Position: f.Name.Position,
 								},
 							)
 						}
@@ -1364,7 +1834,7 @@ func (v *Validator) Check(program ast.File) Result {
 				Kind:     SymbolTypeDecl,
 				Type:     t,
 				Position: decl.Name.Position,
-				// Display:  "type " + decl.Name.Name,
+				Exported: decl.Exported,
 			})
 
 		case ast.FunctionDeclaration:
@@ -1377,7 +1847,6 @@ func (v *Validator) Check(program ast.File) Result {
 			}
 			// === Phase L (receiver methods) END ===
 			fnName := decl.Name
-			position := decl.Position
 			if _, ok := v.GlobalScope.Lookup(fnName); ok {
 				v.AddError(
 					decl.Position,
@@ -1432,18 +1901,12 @@ func (v *Validator) Check(program ast.File) Result {
 				ReturnTypes:    returnTypes,
 			}
 
-			// TODO: function display string here
 			v.GlobalScope.Define(fnName, Symbol{
 				Name:      fnName,
 				Kind:      SymbolFunction,
 				Signature: &sig,
-				Position: ast.Position{
-					Line: position.Line,
-					Column: position.Column + len(
-						"function ",
-					),
-				},
-				// Display: funcDisp,
+				Position:  decl.NamePosition,
+				Exported:  decl.Exported,
 			})
 
 		case ast.ConstDeclaration:
@@ -1462,14 +1925,13 @@ func (v *Validator) Check(program ast.File) Result {
 
 			declT := v.ResolveType(decl.Type)
 
-			// TODO: Implement the binding display string (later, not required at this moment)
 			v.GlobalScope.Define(name, Symbol{
 				Name:        name,
 				Kind:        SymbolFileConst,
 				Type:        declT,
-				Position:    position,
+				Position:    decl.Name.Position,
 				Initialized: true,
-				// Display: renderBindingDisplay(SymbolFileConst, declaration.Name.Name, varType),
+				Exported:    decl.Exported,
 			})
 
 		}
@@ -1541,7 +2003,7 @@ func (v *Validator) Check(program ast.File) Result {
 						decl.Position,
 						fmt.Sprintf(
 							"duplicate function parameter: %s",
-							param,
+							name,
 						),
 					)
 					continue
@@ -1638,6 +2100,8 @@ func (v *Validator) Check(program ast.File) Result {
 		}
 	}
 
+	v.buildRecordRegistry()
+
 	return Result{
 		Errors:      v.Errors,
 		Conversions: v.Conversions,
@@ -1694,7 +2158,9 @@ func (v *Validator) ResolveFields(fields []ast.RecordField) []Field {
 		if _, ok := v.GlobalScope.Lookup(
 			getTypeRefName(f.Type),
 		); !ok &&
-			!isPrimitiveType(f.Type) { // case excluded for primitive types
+			!isPrimitiveType(
+				f.Type,
+			) && f.Type.Name.Name != "heap" { // case excluded for primitive types and "heap"
 			v.AddError(
 				f.Type.Name.Position,
 				fmt.Sprintf("unknown identifier %s", f.Type.Name.Name),
@@ -1703,60 +2169,162 @@ func (v *Validator) ResolveFields(fields []ast.RecordField) []Field {
 		}
 
 		t := v.ResolveType(f.Type)
-		if !isPrimitiveType(f.Type) {
-			t.Name = f.Type.Name.Name
+		if !isPrimitiveType(f.Type) && f.Type.Name.Name != "heap" {
+			t.Name = getTypeRefName(f.Type)
 			t.Kind = TypeCustom
 		}
 
 		out = append(out, Field{
-			Name: f.Name.Name,
-			Type: t,
+			Name:     f.Name.Name,
+			Type:     t,
+			Position: f.Name.Position,
 		})
 	}
 	return out
 }
 
-func (v *Validator) ResolveType(ref ast.TypeReference) Type {
+func (v *Validator) ResolveType(ref ast.TypeIdentifier) Type {
 	typeName := ref.Name.Name
+	if typeName == "heap" {
+		if ref.Inner == nil || ref.Inner.Name.Name == "" {
+			return Type{Kind: TypeInvalid, Name: "invalid"}
+		}
+		inner := v.ResolveType(*ref.Inner)
+		if inner.Kind == TypeInvalid {
+			return inner
+		}
+		return Type{
+			Name:      "heap<" + inner.Name + ">",
+			Kind:      TypeCustom,
+			Fields:    inner.Fields,
+			Reference: ref.Reference,
+			Edit:      ref.Edit,
+		}
+	}
+	if s, ok := v.GlobalScope.Lookup(getTypeRefName(ref)); ok &&
+		s.Kind == SymbolTypeDecl {
+		t := s.Type
+		t.Reference = ref.Reference
+		t.Edit = ref.Edit
+		return t
+	}
 	switch ref.Kind {
 	case ast.Primitive:
 		switch typeName {
 		case "bool":
-			return Type{Kind: TypeBool, Name: "bool"}
+			return Type{
+				Unique: ref.Unique, Reference: ref.Reference,
+				Edit: ref.Edit,
+				Kind: TypeBool,
+				Name: "bool",
+			}
 		case "char":
-			return Type{Kind: TypeChar, Name: "char"}
+			return Type{
+				Unique: ref.Unique, Reference: ref.Reference,
+				Edit: ref.Edit,
+				Kind: TypeChar,
+				Name: "char",
+			}
 		case "int8":
-			return Type{Kind: TypeInt8, Name: "int8"}
+			return Type{
+				Unique: ref.Unique, Reference: ref.Reference,
+				Edit: ref.Edit,
+				Kind: TypeInt8,
+				Name: "int8",
+			}
 		case "int16":
-			return Type{Kind: TypeInt16, Name: "int16"}
+			return Type{
+				Unique: ref.Unique, Reference: ref.Reference,
+				Edit: ref.Edit,
+				Kind: TypeInt16,
+				Name: "int16",
+			}
 		case "int32":
-			return Type{Kind: TypeInt32, Name: "int32"}
+			return Type{
+				Unique: ref.Unique, Reference: ref.Reference,
+				Edit: ref.Edit,
+				Kind: TypeInt32,
+				Name: "int32",
+			}
 		case "int64":
-			return Type{Kind: TypeInt64, Name: "int64"}
+			return Type{
+				Unique: ref.Unique, Reference: ref.Reference,
+				Edit: ref.Edit,
+				Kind: TypeInt64,
+				Name: "int64",
+			}
 		case "intsize":
-			return Type{Kind: TypeIntSize, Name: "intsize"}
+			return Type{
+				Unique: ref.Unique, Reference: ref.Reference,
+				Edit: ref.Edit,
+				Kind: TypeIntSize,
+				Name: "intsize",
+			}
 		case "uint8":
-			return Type{Kind: TypeUInt8, Name: "uint8"}
+			return Type{
+				Unique: ref.Unique, Reference: ref.Reference,
+				Edit: ref.Edit,
+				Kind: TypeUInt8,
+				Name: "uint8",
+			}
 		case "uint16":
-			return Type{Kind: TypeUInt16, Name: "uint16"}
+			return Type{
+				Unique: ref.Unique, Reference: ref.Reference,
+				Edit: ref.Edit,
+				Kind: TypeUInt16,
+				Name: "uint16",
+			}
 		case "uint32":
-			return Type{Kind: TypeUInt32, Name: "uint32"}
+			return Type{
+				Unique: ref.Unique, Reference: ref.Reference,
+				Edit: ref.Edit,
+				Kind: TypeUInt32,
+				Name: "uint32",
+			}
 		case "uint64":
-			return Type{Kind: TypeUInt64, Name: "uint64"}
+			return Type{
+				Unique: ref.Unique, Reference: ref.Reference,
+				Edit: ref.Edit,
+				Kind: TypeUInt64,
+				Name: "uint64",
+			}
 		case "uintsize":
-			return Type{Kind: TypeUIntSize, Name: "uintsize"}
+			return Type{
+				Unique: ref.Unique, Reference: ref.Reference,
+				Edit: ref.Edit,
+				Kind: TypeUIntSize,
+				Name: "uintsize",
+			}
 		case "float32":
-			return Type{Kind: TypeFloat32, Name: "float32"}
+			return Type{
+				Unique: ref.Unique, Reference: ref.Reference,
+				Edit: ref.Edit,
+				Kind: TypeFloat32,
+				Name: "float32",
+			}
 		case "float64":
-			return Type{Kind: TypeFloat64, Name: "float64"}
+			return Type{
+				Unique: ref.Unique, Reference: ref.Reference,
+				Edit: ref.Edit,
+				Kind: TypeFloat64,
+				Name: "float64",
+			}
 		case "string":
-			return Type{Kind: TypeString, Name: "string"}
+			return Type{
+				Unique: ref.Unique, Reference: ref.Reference,
+				Edit: ref.Edit,
+				Kind: TypeString,
+				Name: "string",
+			}
 		}
 
 	case ast.Custom:
 		if s, ok := v.GlobalScope.Lookup(getTypeRefName(ref)); ok {
 			if s.Kind == SymbolTypeDecl {
-				return s.Type
+				t := s.Type
+				t.Reference = ref.Reference
+				t.Edit = ref.Edit
+				return t
 			}
 		}
 	}
@@ -1801,6 +2369,95 @@ func (v *Validator) registerMethod(decl ast.FunctionDeclaration) {
 		return
 	}
 	recvType := recvSym.Type
+
+	// A `dispose` method is the compiler-internal cleanup hook and carries a
+	// stricter contract than an ordinary receiver method. All of its rules are
+	// enforced together here; any violation aborts registration.
+	if decl.Name == "dispose" {
+		disposeOK := false
+		switch {
+		// Custom cleanup is reserved for types explicitly declared
+		// `unique type`. Uniqueness lives on the type declaration, not the
+		// receiver annotation, so consult the resolved type. A type that is
+		// only structurally unique (it merely contains a unique member) does
+		// not earn a dispose hook; the declaration must say `unique type`.
+		case !recvType.Unique:
+			if v.IsUnique(recvType) {
+				v.AddError(
+					decl.Pos(),
+					fmt.Sprintf(
+						"dispose method requires an explicit `unique type` "+
+							"declaration; structural uniqueness of %s does not "+
+							"authorize custom cleanup",
+						recvRef.Name.Name,
+					),
+				)
+			} else {
+				v.AddError(
+					decl.Pos(),
+					fmt.Sprintf(
+						"dispose method is not allowed on non-unique type %s",
+						recvRef.Name.Name,
+					),
+				)
+			}
+
+		// A dispose hook is not part of a type's public surface, so it cannot
+		// be exported.
+		case decl.Exported:
+			v.AddError(
+				decl.Pos(),
+				fmt.Sprintf(
+					"dispose method on %s cannot be exported; it is a "+
+						"compiler-internal cleanup hook",
+					recvRef.Name.Name,
+				),
+			)
+
+		// The receiver must be an editable reference; cleanup mutates the value.
+		case !recvRef.Edit:
+			v.AddError(
+				recvRef.Name.Position,
+				fmt.Sprintf(
+					"%s must be an editable reference for dispose. Use `edit &%s` instead of `&%s`",
+					recvRef.Name.Name,
+					recvRef.Name.Name,
+					recvRef.Name.Name,
+				),
+			)
+
+		// dispose takes no parameters.
+		case len(decl.Parameters) > 0:
+			v.AddError(
+				decl.Parameters[0].Position,
+				"parameters in dispose method are not allowed",
+			)
+
+		// dispose is infallible: it has no error channel.
+		case len(decl.ErrorTypes) > 0:
+			v.AddError(
+				decl.ErrorTypes[0].Name.Position,
+				"dispose method cannot be fallible (no error channel)",
+			)
+
+		// dispose must be void. A zero return list is the implied void and is
+		// allowed; any explicit return type (including an explicit `void`) is
+		// rejected.
+		case len(decl.ReturnTypes) > 0:
+			v.AddError(
+				decl.ReturnTypes[0].Name.Position,
+				"dispose method must be void and not return any values",
+			)
+
+		default:
+			disposeOK = true // all dispose-specific checks passed
+		}
+
+		// Any case other than the default reported an error and must abort.
+		if !disposeOK {
+			return
+		}
+	}
 
 	// 3. The method name must not collide with a field of the record.
 	for _, f := range recvType.Fields {
@@ -1934,17 +2591,34 @@ func (v *Validator) checkMethodCall(
 	if recv.Kind == TypeInvalid {
 		return Type{Kind: TypeInvalid, Name: "invalid"} // cascade suppression
 	}
-	if recv.Kind != TypeCustom {
+	methodRecv := recv
+	if isHeapType(recv) {
+		innerName := heapInnerName(recv.Name)
+		if sym, ok := v.GlobalScope.Lookup(innerName); ok {
+			methodRecv = sym.Type
+		}
+	}
+	if methodRecv.Kind != TypeCustom {
 		v.AddError(member.Pos(), fmt.Sprintf(
 			"type %s has no methods; cannot call %q", recv.Name, member.Member,
 		))
 		return Type{Kind: TypeInvalid, Name: "invalid"}
 	}
 
-	sig, ok := v.lookupMethod(recv.Name, member.Member)
+	sig, ok := v.lookupMethod(methodRecv.Name, member.Member)
 	if !ok {
 		v.AddError(member.Pos(), fmt.Sprintf(
-			"type %s has no method %q", recv.Name, member.Member,
+			"type %s has no method %q", methodRecv.Name, member.Member,
+		))
+		return Type{Kind: TypeInvalid, Name: "invalid"}
+	}
+
+	// dispose is a compiler-internal cleanup hook, invoked automatically when an
+	// owner goes out of scope; it cannot be called manually.
+	if member.Member == "dispose" {
+		v.AddError(member.Pos(), fmt.Sprintf(
+			"dispose method on %s cannot be called manually; it runs "+
+				"automatically when the value is destroyed", methodRecv.Name,
 		))
 		return Type{Kind: TypeInvalid, Name: "invalid"}
 	}
@@ -1973,7 +2647,7 @@ func (v *Validator) checkMethodCall(
 		if argT.Kind == TypeInvalid {
 			return Type{Kind: TypeInvalid, Name: "invalid"}
 		}
-		if !typesMatch(want, argT) {
+		if !typesMatch(argT, want) {
 			v.AddError(call.Pos(), fmt.Sprintf(
 				"argument %d of method %s requires type %s, got %s",
 				i, member.Member, want.Name, argT.Name,
@@ -1989,3 +2663,136 @@ func (v *Validator) checkMethodCall(
 }
 
 // === Phase L (receiver methods) END ===
+
+func (v *Validator) pushScopeNode(scope *Scope, start, end ast.Position) func() {
+	if v.currentNode == nil {
+		return func() {}
+	}
+	node := &ScopeNode{
+		Start:  start,
+		End:    end,
+		Scope:  scope,
+		Parent: v.currentNode,
+	}
+	v.currentNode.Children = append(v.currentNode.Children, node)
+	previous := v.currentNode
+	v.currentNode = node
+	return func() {
+		v.currentNode = previous
+	}
+}
+
+func (v *Validator) recordRef(pos ast.Position, sym Symbol) {
+	if v.Refs == nil {
+		return
+	}
+	v.Refs[pos] = sym
+}
+
+func (v *Validator) buildRecordRegistry() {
+	if v.Records == nil {
+		v.Records = map[string][]ResolvedRecordField{}
+	}
+	for name, sym := range v.GlobalScope.Symbols {
+		if sym.Kind != SymbolTypeDecl || sym.Type.Kind != TypeCustom {
+			continue
+		}
+		fields := make([]ResolvedRecordField, 0, len(sym.Type.Fields))
+		for _, field := range sym.Type.Fields {
+			fields = append(fields, ResolvedRecordField{
+				Name:     field.Name,
+				Type:     field.Type,
+				Position: field.Position,
+			})
+		}
+		v.Records[name] = fields
+	}
+}
+
+func renderSymbolDisplay(sym Symbol) string {
+	switch sym.Kind {
+	case SymbolFunction:
+		if sym.Signature != nil {
+			return renderFunctionDisplay(sym.Name, sym.Signature)
+		}
+	case SymbolTypeDecl:
+		prefix := "type "
+		if sym.Type.Unique {
+			prefix = "unique type "
+		}
+		if sym.Type.Kind == TypeCustom && len(sym.Type.Fields) > 0 {
+			return prefix + sym.Name + " = { ... }"
+		}
+		return prefix + sym.Name
+	case SymbolFileConst, SymbolLocalConst:
+		return "const " + sym.Name + ": " + sym.Type.String()
+	case SymbolLocalLet:
+		return "let " + sym.Name + ": " + sym.Type.String()
+	case SymbolParameter:
+		return "param " + sym.Name + ": " + sym.Type.String()
+	case SymbolReturn:
+		return "return " + sym.Name + ": " + sym.Type.String()
+	case SymbolError:
+		return "error " + sym.Name + ": " + sym.Type.String()
+	case SymbolResult:
+		return "result " + sym.Name
+	}
+	if sym.Type.Kind != TypeInvalid || sym.Type.Name != "" {
+		return sym.Name + ": " + sym.Type.String()
+	}
+	return sym.Name
+}
+
+func renderFunctionDisplay(name string, sig *FunctionSignature) string {
+	var b strings.Builder
+	if sig.ReceiverType != nil {
+		b.WriteString("function (")
+		receiverName := sig.ReceiverName
+		if receiverName == "" {
+			receiverName = "recv"
+		}
+		b.WriteString(receiverName)
+		b.WriteString(": ")
+		if sig.ReceiverEdit {
+			b.WriteString("edit &")
+		} else {
+			b.WriteByte('&')
+		}
+		b.WriteString(sig.ReceiverType.Name)
+		b.WriteString(") ")
+	} else {
+		b.WriteString("function ")
+	}
+	b.WriteString(name)
+	b.WriteByte('(')
+	for i, typ := range sig.Parameters {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		if i < len(sig.ParameterNames) && sig.ParameterNames[i] != "" {
+			b.WriteString(sig.ParameterNames[i])
+			b.WriteString(": ")
+		}
+		b.WriteString(typ.String())
+	}
+	b.WriteByte(')')
+	if len(sig.ReturnTypes) > 0 {
+		b.WriteString(" -> ")
+		for i, typ := range sig.ReturnTypes {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(typ.String())
+		}
+	}
+	if len(sig.ErrorTypes) > 0 {
+		b.WriteString(" | ")
+		for i, typ := range sig.ErrorTypes {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(typ.String())
+		}
+	}
+	return b.String()
+}

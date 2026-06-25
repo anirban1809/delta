@@ -1,0 +1,11 @@
+// An exact `edit &T`, no-arg, void dispose hook is legal on an explicit `unique type`. Expects pass.
+unique type Handle = { id: int32; };
+
+function (value: edit &Handle) dispose() {
+    value.id = -1;
+}
+
+function main(): int32 {
+    const value: Handle = { id: 7 };
+    return 0;
+}

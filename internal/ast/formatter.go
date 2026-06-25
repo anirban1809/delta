@@ -67,6 +67,35 @@ func typeKindLabel(kind TypeKind) string {
 	}
 }
 
+// formatTypeIdentifier renders a type slot. A plain by-value type keeps the
+// historical leaf rendering (`Identifier name=...`) so existing golden output
+// is unchanged. The richer `TypeIdentifier` node is emitted only when the type
+// carries indirection (`heap<T>` via Inner) or is a borrow (`&T` / `edit &T`).
+func formatTypeIdentifier(
+	out *strings.Builder,
+	typ TypeIdentifier,
+	depth int,
+) {
+	if typ.Inner == nil && !typ.Reference && !typ.Edit {
+		formatExpression(out, typ.Name, depth)
+		return
+	}
+
+	writeLine(
+		out,
+		depth,
+		"TypeIdentifier name=%q kind=%q reference=%t edit=%t",
+		typ.Name.Name,
+		typeKindLabel(typ.Kind),
+		typ.Reference,
+		typ.Edit,
+	)
+	if typ.Inner != nil {
+		writeLine(out, depth+1, "Inner")
+		formatTypeIdentifier(out, *typ.Inner, depth+2)
+	}
+}
+
 func formatTypeRHS(out *strings.Builder, rhs TypeRHS, depth int) {
 	switch rhs := rhs.(type) {
 	case RecordRHS:
@@ -132,7 +161,7 @@ func formatTypeRHS(out *strings.Builder, rhs TypeRHS, depth int) {
 
 func formatTypeReferenceFields(
 	out *strings.Builder,
-	typ TypeReference,
+	typ TypeIdentifier,
 	depth int,
 ) {
 	for index, field := range typ.Fields {
@@ -154,7 +183,7 @@ func formatRecordFields(
 	for index, field := range fields {
 		writeLine(out, depth, "Field %d name=%q", index, field.Name.Name)
 		writeLine(out, depth+1, "Type")
-		formatExpression(out, field.Type.Name, depth+2)
+		formatTypeIdentifier(out, field.Type, depth+2)
 	}
 }
 
@@ -177,7 +206,7 @@ func formatConstDeclaration(
 	formatExpression(out, declaration.Name, depth+2)
 	if declaration.Type.Name.Name != "" {
 		writeLine(out, depth+1, "Type")
-		formatExpression(out, declaration.Type.Name, depth+2)
+		formatTypeIdentifier(out, declaration.Type, depth+2)
 	}
 	writeLine(out, depth+1, "Value")
 	formatExpression(out, declaration.Value, depth+2)
@@ -200,7 +229,7 @@ func formatFunctionDeclaration(
 		writeLine(out, depth+3, "Name")
 		formatExpression(out, parameter.Name, depth+4)
 		writeLine(out, depth+3, "Type")
-		formatExpression(out, parameter.Type.Name, depth+4)
+		formatTypeIdentifier(out, parameter.Type, depth+4)
 	}
 
 	writeLine(out, depth+1, "ReturnTypes")
@@ -221,7 +250,7 @@ func formatFunctionDeclaration(
 
 func formatTypeReferences(
 	out *strings.Builder,
-	types []TypeReference,
+	types []TypeIdentifier,
 	depth int,
 ) {
 	for index, typ := range types {
@@ -269,7 +298,7 @@ func formatStatement(out *strings.Builder, statement Statement, depth int) {
 		)
 		if statement.Type.Name.Name != "" {
 			writeLine(out, depth+1, "Type")
-			formatExpression(out, statement.Type.Name, depth+2)
+			formatTypeIdentifier(out, statement.Type, depth+2)
 		}
 		writeLine(out, depth+1, "Value")
 		formatExpression(out, statement.Value, depth+2)
@@ -373,6 +402,18 @@ func formatExpression(out *strings.Builder, expression Expression, depth int) {
 		writeLine(out, depth, "UnaryExpression operator=%q", expression.Operator)
 		writeLine(out, depth+1, "Expression")
 		formatExpression(out, expression.Expression, depth+2)
+	case NewExpression:
+		writeLine(out, depth, "NewExpression")
+		writeLine(out, depth+1, "Value")
+		formatExpression(out, expression.Value, depth+2)
+	case MoveExpression:
+		writeLine(out, depth, "MoveExpression")
+		writeLine(out, depth+1, "Source")
+		formatExpression(out, expression.Source, depth+2)
+	case CloneExpression:
+		writeLine(out, depth, "CloneExpression")
+		writeLine(out, depth+1, "Source")
+		formatExpression(out, expression.Source, depth+2)
 	case BinaryExpression:
 		writeLine(out, depth, "BinaryExpression operator=%q", expression.Operator)
 		writeLine(out, depth+1, "Left")

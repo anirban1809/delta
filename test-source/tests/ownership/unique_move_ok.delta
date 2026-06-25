@@ -1,0 +1,10 @@
+// An explicit `unique type` transfers with `move`. Expects pass.
+unique type Handle = { id: int32; };
+
+function consume(value: Handle) { }
+
+function main(): int32 {
+    let value: Handle = { id: 7 };
+    consume(move value);
+    return 0;
+}

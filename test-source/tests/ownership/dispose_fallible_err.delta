@@ -1,0 +1,9 @@
+// dispose cannot be fallible (no error channel). Expects fail ("error channel").
+type CleanupError = { code: int32; };
+unique type Handle = { id: int32; };
+
+function (value: edit &Handle) dispose(): void | CleanupError {
+    return;
+}
+
+function main(): int32 { return 0; }
