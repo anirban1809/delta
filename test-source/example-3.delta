@@ -2,11 +2,8 @@ type Handle = {
     value: int32;
 };
 
-function (h: edit &Handle) Extend(): Handle {
+function (h: edit &Handle) Extend() {
     h.value = 34;
-    return {
-        value: h.value
-    };
 }
 
 function consume(e: &Handle): int32{

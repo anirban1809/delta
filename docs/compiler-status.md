@@ -1,6 +1,6 @@
 # Delta Compiler Status
 
-Date: 2026-06-14
+Date: 2026-06-25
 
 This document describes the current implementation status of the Delta compiler
 against the design in `docs/main-spec.md` and `docs/spec-sections/`. It is a
@@ -9,44 +9,61 @@ language specification.
 
 ## Current Implementation
 
-The compiler can now take a single `.delta` source file end-to-end:
-tokenize, parse, run name resolution and a first pass of type checking,
-lower the analyzed AST to C, write it to disk, and invoke clang to produce
-a runnable executable. Tokenizer, parser, and semantic failures are
-reported through a shared diagnostic bag and printed with file, line,
-column, source line, and caret location. The parser performs error
-recovery so multiple syntax errors can be reported in a single pass. The
-same front-end pipeline is also exposed as a Language Server (`delta lsp`)
-consumed by the bundled VS Code extension, which uses the analyzer's
-scope tree and resolved-reference map to drive editor features.
+The compiler now compiles a **multi-file Delta project** end-to-end: it
+discovers the module graph starting from an entry `.delta` file (following
+`import`s, including the embedded `std/` standard-library root), parses and
+analyzes each module once, runs full name resolution, type checking, and
+ownership/move/borrow analysis, lowers each module to its own C translation
+unit, and invokes clang once over all TUs to produce a runnable executable.
+Tokenizer, parser, and analyzer failures are reported through a shared
+diagnostic bag and printed with file, line, column, source line, and caret
+location. The parser performs error recovery so multiple syntax errors can
+be reported in a single pass. The same front-end pipeline is also exposed as
+a Language Server (`delta lsp`) consumed by the bundled VS Code extension,
+which uses the analyzer's scope tree and resolved-reference map to drive
+editor features.
+
+> **Analyzer rewrite.** The semantic pass that this document originally
+> described under `internal/semantics/` has been rewritten into
+> `internal/analyzer/` (the `Validator`/`Analyzer` types). `internal/semantics/`
+> still exists on disk but is no longer imported by the pipeline, LSP, or CLI —
+> treat `internal/analyzer/` as the live semantic layer. References to
+> `internal/semantics/` below are historical.
 
 Implemented command path:
 
-1. `cmd/delta/main.go` accepts `delta build <file.delta>`,
+1. `cmd/delta/main.go` accepts `delta build`, `delta run`, `delta init`,
    `delta dump-ast <file.delta>`, `delta test`, and `delta lsp`.
-2. The CLI checks that the input file has a `.delta` extension.
+2. `delta build`/`delta run` resolve a project: either an explicit entry
+   `.delta` file or a `delta.json` manifest (`internal/project.Resolve`),
+   with a `--release` build mode and `--name`/`--no-src` flags on `init`.
+   The CLI checks that an entry file has a `.delta` extension.
 3. `internal/pipeline.Compile(name, contents)` runs tokenize → parse →
-   semantic analyze in memory, returning the AST, the diagnostic bag, and
-   the analyzer's `Refs` map. Both the CLI and the LSP server share this
-   entry point.
+   analyze in memory for a single buffer (used by the LSP and `dump-ast`),
+   returning the AST, the diagnostic bag, and the analyzer's `Refs` map.
+   `internal/pipeline.BuildProject` drives the whole multi-module build:
+   `buildModuleGraph` discovers and parses imports, detects import cycles,
+   analyzes each module, and codegens one TU per module.
 4. If any front-end stage reports diagnostics, downstream stages are
    skipped and the CLI prints them.
-5. `delta build` then calls `internal/codegen.Emit` to lower the AST to
-   C, writes the result to `build/c/<basename>.c`, locates clang via
-   `internal/toolchain.FindClang`, and invokes it with `-std=c11 -Wall
-   -Werror=implicit-function-declaration -fwrapv -o build/<basename>
-   build/c/<basename>.c`. A non-zero clang exit on valid-Delta input is
-   surfaced as an internal compiler error with the generated `.c` left
-   in place for inspection.
-6. `delta dump-ast` runs the front end and prints the formatted AST on
-   success (the old `delta build` behavior).
+5. `delta build` lowers each module with `internal/codegen` to
+   `build/c/<module-id>.c`, locates clang via `internal/toolchain.FindClang`,
+   and invokes it once over all TUs with `-std=c11 -Wall
+   -Werror=implicit-function-declaration -fwrapv` linking to
+   `build/<binary>`. Exported symbols are name-mangled per module
+   (`delta__<module>__<name>`) so TUs do not collide; the entry module's
+   `main` becomes the program entry point. A non-zero clang exit on
+   valid-Delta input is surfaced as an internal compiler error with the
+   generated `.c` left in place for inspection.
+6. `delta run` builds then executes the resulting binary; `delta dump-ast`
+   runs the front end and prints the formatted AST on success.
 7. `delta build` also accepts stage-stopping debug flags that print an
    earlier stage's output instead of building a binary: `--tokens` (token
    stream), `--ast` (parsed AST), and `--sema` (full front end, then the
    formatted AST). The earliest requested stage wins.
 
 The project now covers stages 1–3, 5, and 6 of the planned pipeline from
-Section 2:
+Section 2, and a first real slice of stage 4 (ownership/move/borrow):
 
 1. lex
 2. parse
@@ -76,29 +93,53 @@ Section 2:
    error model; see "Codegen Status" below for the covered surface)
 6. Clang invocation (single-call compile + link to `build/<basename>`)
 
-A first slice of **checked error-state analysis** has now landed as part of
+A first slice of **checked error-state analysis** landed as part of
 Phase C (fallible-call binding, pending-read rejection, check-block
-divergence). The remaining planned stages are not implemented yet:
+divergence). Since then the **ownership / move / borrow** model (Phases F,
+G, H) and the **multi-file module system** (Phase I) and **receiver
+methods** (Phase L) have also landed (see "Ownership, Borrows, and Heap
+(Phases F/G/H)", "Modules (Phase I)", and "Receiver Methods (Phase L)"
+below). The remaining planned stages are not fully implemented yet:
 
-1. typed AST (the current analyzer computes types but does not yet emit a
-   separate typed AST node tree)
-2. ownership and lifetime analysis
+1. typed AST (the current analyzer computes types on demand but does not
+   emit a separate typed AST node tree)
+2. a control-flow-graph-based dataflow framework (move/assignment flow is
+   still tracked with AST-walk heuristics)
+3. lifetime annotations / `viewing <source>` clauses for stored and
+   returned borrows (borrow *checking* at call sites is implemented; the
+   full returned-borrow lifetime story is not)
+4. the `std/log` standard-library module (Phase J): the embedded-FS and
+   import-resolution machinery exists, but `internal/stdlib/stdlib/` ships
+   only a placeholder, not the `std/log` source + C shim
 
 ## Implemented Language Surface
 
 ### Source Files
 
-Implemented:
+Implemented (Phase I):
 
-- Single input file compilation from the CLI.
+- Multi-file project compilation. `delta build`/`delta run` start from an
+  entry `.delta` file (or a `delta.json` manifest) and discover the whole
+  module graph transitively through `import`s.
 - `.delta` file extension validation.
+- One file = one module; the file path (relative to the project root)
+  determines module identity and the mangling prefix.
+- `import { Name, Other } from "./relative/path";` (resolved to
+  `./relative/path.delta` relative to the importing file) and
+  `import { Name } from "std/...";` (resolved against the embedded stdlib FS).
+- `export` modifier on top-level declarations; importing a non-exported name
+  is a diagnostic.
+- Import-cycle detection with a diagnostic naming the cycle path.
+- `delta.json` manifest (`name`, `version`, `entry`, `target`, per-mode
+  `build.output`) with `delta init` scaffolding and a `--release` build mode.
 
 Not implemented yet:
 
-- Module discovery.
-- Imports and exports.
-- Package configuration such as `delta.json`.
-- Source-to-module mapping beyond the single file passed on the command line.
+- The `std/log` standard-library module itself (Phase J) — only the
+  embed/resolution mechanism exists; `internal/stdlib/stdlib/` is a
+  placeholder.
+- `import { Name as Local }` renaming form (out of scope for v0.5).
+- Third-party package roots (non-`std/` bare import paths are a diagnostic).
 
 ### Tokens
 
@@ -136,13 +177,16 @@ Implemented token categories:
   preserved in the AST at file and block scope and skipped by the parser
   when looking for grammar productions.
 
+The keyword set now also includes the ownership / module keywords
+`import`, `export`, `from`, `edit`, `move`, `clone`, `unique`, `heap`, and
+`new` (Phases F/G/H/I/L). `&` doubles as bitwise-and and the borrow sigil.
+
 Not implemented yet:
 
 - Template string literals.
 - Raw string literals.
-- Import/export/decorator/extern tokens.
-- Class, enum, interface, reference, move, clone, heap, and error
-  handling tokens.
+- Decorator/extern tokens.
+- Class, enum, and interface tokens.
 - Remaining compound assignment operators (`/=`, `%=`, `&=`, `|=`, `^=`,
   `<<=`, `>>=`).
 
@@ -202,12 +246,25 @@ Partially aligned with the design:
   (deduplicated), and fallible control flow (`as result` / `check` /
   `return error as`) is checked end-to-end.
 
+Implemented (Phases I and L):
+
+- `export` modifier on top-level `function`, `const`, and `type`
+  declarations (Phase I).
+- `import { Name, Other } from "...";` declarations (Phase I).
+- **Receiver methods** on records (Phase L): `function (t: &T) m(...)` (read
+  receiver) and `function (t: edit &T) m(...)` (mutable receiver). The named
+  receiver replaces `this`; call form is `value.m(args)` with auto-referencing
+  of the receiver and capability dispatch (a `const` binding or `&T` cannot
+  call an `edit`-receiver method). Methods travel with the type across
+  modules; there is no by-value receiver. The `FunctionDeclaration` node
+  carries an optional `Receiver *FunctionParameter`.
+- The compiler-invoked `function (x: edit &T) dispose(): void` cleanup hook on
+  explicitly `unique` records (Phase F); it cannot be called manually.
+
 Not implemented yet:
 
-- `export` declarations.
-- `import` declarations.
-- `class`, `interface`, and `enum` declarations (`type` records are done;
-  tagged-union `type X = A | B;` is not).
+- `class`, `interface`, and `enum` declarations (`type` records + receiver
+  methods are the v0.5 substitute; tagged-union `type X = A | B;` is not done).
 - `extern "c"` blocks.
 - Decorators.
 - Arrow-bound functions and lambdas.
@@ -346,9 +403,20 @@ Implemented:
   An object literal with no typed context to pin against is a structured
   error.
 
+- `move x` expressions (Phase F): whole-name transfer of a live owned
+  binding; the source becomes moved-from and a later use is a compile error.
+- `clone x` / `clone x as result` expressions (Phase F): explicit copy of a
+  Cloneable value; fallible when used with `as result` (clone may abort on
+  OOM). Unique values cannot be cloned.
+- `new T { ... }` heap-allocation expressions (Phase H): allocate `T` on the
+  heap, yielding a `heap<T>` single-owner value; typically written
+  `new T { ... } as result` since allocation is fallible (`AllocError`).
+- Borrow expressions / auto-borrowing (Phase G): `&x` and `edit &x`, plus
+  contextual auto-borrowing where a bare addressable `T` argument satisfies a
+  `&T` / `edit &T` parameter, with exclusivity checking for `edit &`.
+
 Not implemented yet:
 
-- `move`, `clone`, `&`, and `edit &` expressions.
 - Index expressions.
 - Array literals.
 - Lambda expressions.
@@ -726,6 +794,70 @@ These error-model flow checks reuse the same AST-walk machinery as Phase B
 (there is still no CFG); check-block divergence is the structural
 return-coverage walk applied to the block body.
 
+Implemented (ownership and move, Phase F):
+
+- **Inferred ownership tiers.** A type is *Copyable* iff every field is
+  Copyable; `heap<T>` (and any owning built-in) is an ownership root, so any
+  record transitively containing one becomes non-Copyable. `unique` types (and
+  anything containing a Unique member) are non-Copyable and additionally
+  non-Cloneable. `Validator.IsCopyable` / `IsUnique` compute these recursively.
+- **Copy-vs-move enforcement.** Plain assignment and by-value passing of a
+  non-Copyable (or Unique) value is rejected with a diagnostic suggesting
+  `move`, `clone`, or `&`. Copyable values still copy implicitly.
+- **`move` semantics.** `move x` transfers a live owned binding (whole-name
+  only); a `const` binding, a borrowed reference, or a moved-into-itself
+  target is rejected. The source enters a moved-from state.
+- **Use-after-move tracking.** Move state is tracked per binding across
+  straight-line code, `if`/`else`, `while`, and `for`, with a merge at join
+  points. A binding moved on some paths but not all is rejected (diverging
+  paths are exempt); reading or field-assigning a moved-from binding is a
+  compile error. A loop body that moves a binding flags a use on the next
+  iteration. Whole-value reassignment revives a moved-from binding.
+- **`clone`.** `clone x` (fallible as `clone x as result`) produces a copy of
+  a Cloneable value; cloning a Unique value is rejected.
+- Implicit `return` move of owned locals / owned by-value parameters, and
+  compiler-emitted reverse-order field disposal / scope-exit disposal of owned
+  values (with moved-from owners skipped), per the Phase F plan.
+
+Implemented (borrows, Phase G):
+
+- `&T` (read-only) and `edit &T` (mutable, exclusive) borrow types on
+  parameters, parsed via `ParseTypeReference` (the `TypeReference`/
+  `TypeIdentifier` node carries `Reference` and `Edit` flags).
+- **Contextual auto-borrowing at calls:** a bare addressable `T` argument
+  satisfies a `&T` / `edit &T` parameter; explicit `&x` / `edit &x` remains
+  available. A function-call temporary cannot be auto-borrowed.
+- **Capability rule:** a `const` binding (or an existing `&` borrow) produces
+  only `&`; passing it where `edit &` is wanted is rejected.
+- **Exclusivity:** within one call, a storage root may be borrowed `&` any
+  number of times, but an `edit &` borrow must be exclusive (no other borrow
+  of the same root); a live borrow also excludes moving its source.
+
+Implemented (heap indirection, Phase H):
+
+- `heap<T>` parameter and field types; `new T { ... }` allocation expressions
+  (fallible — `new ... as result`) yielding a `heap<T>` single owner.
+- Auto-deref of `heap<T>` when accessing fields / calling methods on the
+  inner value; `heapDerefTypesMatch` reconciles a `heap<T>` against a `T`.
+- Single-owner (not refcounted); owner disposal frees the allocation, with
+  cascading field disposal.
+
+Implemented (receiver methods, Phase L):
+
+- Receiver methods resolved and type-checked on records (`&T` and `edit &T`
+  receivers). `value.m(args)` dispatch with auto-referencing of the receiver
+  and capability checking (a `const`/`&` receiver cannot invoke an
+  `edit`-receiver method). Methods are looked up on the receiver's record type
+  and travel with the type across module boundaries.
+
+Implemented (modules, Phase I):
+
+- Cross-module name resolution: an `import` binds the named exported symbol
+  into the importing file's top scope; importing a non-exported name is a
+  diagnostic. The module graph, cycle detection, and per-module analysis live
+  in `internal/pipeline/project_build.go` (`buildModuleGraph`,
+  `resolveImportModule`, `checkOneMain`, `addCycleError`).
+
 Not implemented yet (semantics):
 
 - A control-flow graph and a reusable dataflow framework (the planned
@@ -755,13 +887,20 @@ AST and emits a single C translation unit. It is paired with
 `internal/toolchain/` for clang location and `cmd/delta` for the
 write-and-invoke step.
 
-Implemented (exercised by 17 golden-file fixtures under
-`test-source/tests/codegen/`, the 23-case `test-source/tests/primitives/`
-suite, the 61-case `test-source/tests/controlflow/` suite, and the 30-case
-`test-source/tests/recordtypes/` suite (11 `pass`, 18 `fail`, and 1
-`codegen_match` snapshot) — the numeric suites run `pass`/`fail`/`trap` verbs
-end-to-end through clang. Suites are auto-discovered by `delta test` from any
-`test-source/tests/<dir>/tests.json`):
+Implemented and exercised by the suites auto-discovered by `delta test` from
+each `test-source/tests/<dir>/tests.json` (`pass`/`fail`/`trap`/`codegen_match`
+verbs run end-to-end through clang). The current suites and case counts:
+
+- `codegen` (17), `primitives` (23), `controlflow` (61), `recordtypes` (47),
+  `errors` (35) — the v0.5a numeric / control-flow / record / error surface.
+- `ownership` (66) and `ownership-codegen` (11) — move/borrow/copy analysis
+  and its lowering (Phases F/G).
+- `heap-codegen` (1) and `receivers` (20) — `heap<T>`/`new` lowering (Phase H)
+  and receiver-method dispatch (Phase L).
+- `analyzer-parity` (27), `basic` (23), `typecheck` (28) — analyzer and
+  type-checker regression suites.
+
+Covered codegen surface:
 
 - Single-file lowering to `build/c/<basename>.c`, then clang invocation
   to produce `build/<basename>`. Generated `.c` is preserved on failure.
@@ -869,6 +1008,28 @@ end-to-end through clang. Suites are auto-discovered by `delta test` from any
     success value commits to the user's binding/storage **after** the check
     (so pending values only become visible once the error path is proven to
     diverge).
+- Ownership / move / borrow (Phases F/G), exercised by the `ownership-codegen`
+  suite (11 golden-file fixtures):
+  - Copyable values copy as plain struct copies; `move` lowers to a transfer
+    with no extra copy; borrows (`&T` / `edit &T`, including auto-borrows)
+    lower to C pointer parameters with `*`/`->` access at use sites.
+  - Compiler-emitted disposal: a `delta__<T>_drop` helper runs reverse-order
+    field disposal at scope exit for owned (and `const`-bound owned) values,
+    skipping moved-from owners; a `unique` type's `dispose` method is invoked
+    here and emitted as a `delta__<T>_drop` body.
+- Heap indirection (Phase H), exercised by `heap-codegen`: `heap<T>` lowers to
+  `T*`; `new T { ... }` lowers to a heap allocation (single-owner), with
+  auto-deref (`->`) on field/method access and a free at owner disposal.
+- Receiver methods (Phase L): each method lowers to a free C function
+  `delta__<RecvType>_<method>` taking the receiver as a leading pointer
+  parameter; `value.m(args)` lowers to `delta__<T>_<m>(&value, args)` with
+  auto-referencing (tracked in `buildMethods` keyed by receiver type → method).
+- Multi-module output (Phase I): one C TU per module at `build/c/<module-id>.c`;
+  exported symbols are mangled `delta__<module>__<name>` and module-private
+  symbols are emitted `static`; the emitter is configured per module via
+  `ConfigureModule(ModuleInfo)` with imported-symbol metadata so cross-module
+  calls resolve to the right mangled names. All TUs are passed to clang in a
+  single invocation.
 - Comments in Delta source are dropped from the emitted C.
 
 Pending (planned in `docs/plans/c-codegen-v0.md`):
@@ -1106,21 +1267,31 @@ dataflow, with the limitations noted under "Semantic Analysis Status" and
 Pending:
 
 - A materialized typed AST distinct from the parser's untyped one.
-- Ownership and lifetime analysis.
+- A CFG-based dataflow framework underpinning move/borrow/assignment flow
+  (still AST-walk heuristics) and a divergence model.
+- Returned/stored-borrow lifetimes (`viewing <source>` clauses).
 - Remaining checked error-state analysis (a v0 slice landed in Phase C; a
   CFG-based divergence model and error-payload materialization are still open).
 - Structured codegen diagnostics in the `ErrorBag` and fail-closed
   guards for out-of-scope constructs (see "Codegen Status").
 - `#line` directives in the generated C for source mapping.
-- Multi-file translation units, name mangling, and bundled clang.
+- Bundled clang.
+- The `std/log` standard library (Phase J) and `extern "c"` interop (Phase D).
 - Incremental compilation, `.delta-meta`, and parallel codegen.
-- Release/debug modes, LTO, sanitizers, and determinism flags.
+- LTO, sanitizers, and determinism flags.
 
 Done:
 
+- Ownership / move / borrow analysis and lowering (Phases F/G) and `heap<T>`
+  indirection (Phase H).
+- Multi-file module graph with cycle detection, per-module C translation
+  units, and per-module name mangling (Phase I).
+- Receiver methods (Phase L).
+- `delta.json` manifest + `delta init` scaffolding, `delta run`, and a
+  `--release` build mode.
 - Single-TU C code generation for the v0 surface (see "Codegen Status").
-- Single-call clang compile + link to `build/<basename>`.
-- Build directory layout (`build/c/<basename>.c` then `build/<basename>`).
+- Single-invocation clang compile + link of all TUs to `build/<binary>`.
+- Build directory layout (`build/c/<module-id>.c` then `build/<binary>`).
 - Host clang lookup with a structured "not found on PATH" error.
 
 ### Syntax
@@ -1129,6 +1300,10 @@ Implemented:
 
 - `type` record declarations: records, aliases, spread/intersection
   composition, object literals, member access (Phase K).
+- `import` / `export`, with `from "..."` paths (Phase I).
+- `move` / `clone` expressions, `&T` / `edit &T` borrow types, `heap<T>`
+  types, and `new T { ... }` allocation (Phases F/G/H).
+- Receiver-method declarations `function (t: &T) m(...) { ... }` (Phase L).
 
 Pending:
 
@@ -1138,8 +1313,7 @@ Pending:
 - Classes.
 - Interfaces and traits.
 - Enums.
-- Imports and exports.
-- External C declarations.
+- External C declarations (`extern "c"`).
 - Decorators.
 - Arrays and slices.
 
@@ -1185,12 +1359,25 @@ Implemented (v0):
   field-coverage and value-spread checks, member access and field
   assignment with whole-binding definite-assignment, and compiler-derived
   structural `==`/`!=` (with ordering rejected).
+- Error model (Phase C): fallible signatures `T | E1, E2` with error-set
+  validation, `as result` / `check` / `return error as`, and pending-state
+  tracking.
+- Ownership (Phase F): inferred Copyable/Cloneable/Unique tiers, copy-vs-move
+  enforcement, `move`/`clone`, use-after-move tracking with conditional-move
+  rejection and revival, and compiler-emitted disposal.
+- Borrows (Phase G): `&T` / `edit &T` with contextual auto-borrowing, the
+  const-`&`-only capability rule, and `edit &` exclusivity.
+- Heap (Phase H): `heap<T>` types, `new T { ... }` allocation, and auto-deref.
+- Receiver methods (Phase L): `&T` / `edit &T` receivers, `value.m(args)`
+  dispatch with auto-referencing and capability checking.
+- Modules (Phase I): cross-module name resolution, export visibility,
+  import-cycle detection.
 
 Pending:
 
 - A real control-flow graph + reusable dataflow framework to replace the
-  AST-walk flow heuristics (Phase C reused them; still needed to make the flow
-  analysis sound and before Phase F layers on).
+  AST-walk flow heuristics (definite-assignment, return-coverage, and the
+  Phase F move/borrow flow all still ride on the heuristic machinery).
 - A divergence concept (`panic`/`process.exit`/`unreachable`) feeding
   return-coverage.
 - Scoping `for`-`init` bindings to the loop (today they leak into the
@@ -1198,23 +1385,36 @@ Pending:
 - Extending one-level bidirectional inference to primitive bindings
   (annotation-driven typing of initializers); it lands for the record path
   in Phase K but primitive bindings still adopt the initializer's type.
-- Validation of declared function error types and any fallible-call
-  semantics.
+- Returned/stored-borrow lifetimes (`viewing <source>` clauses); call-site
+  borrow checking (Phase G) is done.
 - Support for function-typed values as callees.
 - Equality/ordering rules for `string`.
 - A materialized typed AST distinct from the parser's untyped one.
 
 ### Safety Model
 
+Implemented (Phases F/G/H):
+
+- Inferred ownership tiers (Copyable / Cloneable / Unique) and copy-vs-move
+  enforcement.
+- `move` and `clone` (the latter fallible via `as result`).
+- Use-after-move tracking with conditional-move rejection at merge points and
+  revival via whole-value reassignment.
+- `&T` / `edit &T` borrows with contextual auto-borrowing, the
+  const-produces-`&`-only capability rule, and `edit &` exclusivity.
+- `heap<T>` single-owner indirection with auto-deref and `new T { ... }`
+  allocation.
+- Compiler-emitted disposal: reverse-order field disposal and scope-exit
+  disposal of owned values, with the `unique`-type `dispose` hook.
+
 Pending:
 
-- Ownership and move checking.
-- `&` and `edit &`.
-- `heap T`.
-- `move` and `clone`.
-- Disposal analysis.
-- Reference aliasing rules.
-- Memory safety validation.
+- A CFG-based dataflow framework to make move/borrow flow analysis sound in
+  general (still AST-walk heuristics).
+- Full returned/stored-borrow lifetimes (`viewing <source>` clauses).
+- Borrowed views of slices and strings (`&T[]`, `&string`) — pending the
+  array/string family.
+- `AllocError` plumbing beyond the tag-only error path.
 
 ### Error Model
 
@@ -1455,17 +1655,25 @@ Area"):
 
 After the basic compiler can build small programs, expand in this order:
 
-1. Imports and module graph.
-2. File-scope exports.
+1. ~~Imports and module graph.~~ — done (Phase I; cycle detection + per-module
+   name mangling).
+2. ~~File-scope exports.~~ — done (Phase I).
 3. ~~Type declarations and object literals.~~ — done (Phase K records).
 4. Arrays and strings.
 5. ~~Error handling with `as result` and `check`.~~ — done (Phase C; error
    types are user-declared records, error side is tag-only).
-6. Ownership and move semantics.
-7. References.
-8. Classes and disposal.
+6. ~~Ownership and move semantics.~~ — done (Phase F).
+7. ~~References.~~ — done (Phase G borrows; returned/stored-borrow lifetimes
+   still pending).
+8. Classes and disposal. — records (Phase K) + receiver methods (Phase L) +
+   compiler-emitted disposal (Phase F) are the v0.5 substitute; the `class`
+   keyword is deferred post-v0.5.
 9. Generics.
 10. Incremental compilation.
+
+Also landed alongside these: `heap<T>` indirection (Phase H) and receiver
+methods (Phase L). Remaining v0.5 work is the `std/log` standard library
+(Phase J) and the `extern "c"` interop slice (Phase D).
 
 ## Near-Term Milestone
 
@@ -1529,6 +1737,26 @@ and `return error as { ... }` is anonymous (pinned by the function's declared
 error set) rather than naming the type; the error side of the result struct is
 also tag-only (error-payload fields are not yet materialized). See "Error
 Model (Phase C)" and the "Error Model" pending list for the open items.
+
+The **v0.5b** slice — ownership and move semantics (**Phase F**), safe borrows
+(**Phase G**), `heap<T>` indirection (**Phase H**), receiver methods
+(**Phase L**), and the multi-file module system (**Phase I**) — has now landed.
+Inferred ownership tiers, `move`/`clone`, use-after-move tracking, `&T`/`edit &T`
+borrows with contextual auto-borrowing and exclusivity, `new T { ... }` heap
+allocation with auto-deref, record receiver methods with capability dispatch,
+and a transitively-discovered module graph (with import-cycle detection, export
+visibility, per-module name mangling, and one C TU per module linked in a single
+clang call) all flow end-to-end through tokenize → parse → analyze → codegen →
+clang. This was accompanied by a **rewrite of the semantic pass** from
+`internal/semantics/` into `internal/analyzer/` (now the live layer), and by
+project tooling: a `delta.json` manifest, `delta init`, `delta run`, and a
+`--release` build mode. These are exercised by the `ownership` (66),
+`ownership-codegen` (11), `heap-codegen` (1), `receivers` (20), and
+`analyzer-parity` (27) suites. The largest remaining v0.5 gaps are the `std/log`
+standard library (**Phase J** — only the embed/resolution machinery exists), the
+`extern "c"` interop slice (**Phase D**), a CFG-based dataflow framework to make
+the move/borrow flow analysis sound, and returned/stored-borrow lifetimes
+(`viewing <source>` clauses).
 
 Cross-cutting codegen hardening also remains open and can land alongside
 the phase work: populate `*ErrorBag` from `codegen.Emit` (today emitter

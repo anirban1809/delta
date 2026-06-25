@@ -60,12 +60,10 @@ func (s *SourceError) GetFormattedMessage() string {
 	if s.Source != "" {
 		lineNumber := fmt.Sprintf("%d", s.Line)
 		out.WriteString("\n  |")
-		out.WriteString(fmt.Sprintf("\n%s | %s", lineNumber, s.Source))
-		out.WriteString(fmt.Sprintf(
-			"\n%s | %s^",
+		fmt.Fprintf(&out, "\n%s | %s", lineNumber, s.Source)
+		fmt.Fprintf(&out, "\n%s | %s^",
 			strings.Repeat(" ", len(lineNumber)),
-			strings.Repeat(" ", max(s.Column-1, 0)),
-		))
+			strings.Repeat(" ", max(s.Column-1, 0)))
 	}
 
 	if s.Expected != "" {
