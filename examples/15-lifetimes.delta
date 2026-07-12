@@ -1,0 +1,66 @@
+// Feature 15 — Lifetimes (`@lifetime(...)`)
+// Spec: §15 Lifetimes
+//
+// Every function that returns a borrow gets a COMPILER-GENERATED `@lifetime(...)`
+// attribute — humans never write it by hand; the compiler infers it from the body
+// and writes it into source, failing if attribute and body drift apart.
+// `@lifetime(a, b)` is an INTERSECTION: the result is valid only while all listed
+// sources are valid (it dies when the first one dies). `@lifetime(static)` marks a
+// borrow tied to static storage. A reference may not outlive its source, and you
+// cannot return a borrow of a local.
+//
+// Pipeline work:
+//   semantics  : infer the lifetime set of a borrow-returning function from its
+//                body; verify the written `@lifetime(...)` matches; reject
+//                escaping/dangling borrows (reference outliving its source).
+//   codegen    : lifetimes are erased — no runtime representation.
+
+type Vec3 = { x: float64; y: float64; z: float64; };
+
+@lifetime(xs)                              // compiler-generated: result borrows from `xs`
+function firstComponent(xs: &Vec3): &float64 {
+    return &xs.x;
+}
+
+@lifetime(a, b)                            // intersection: valid while BOTH a and b live
+function pickLarger(a: &float64, b: &float64): &float64 {
+    if (a > b) {
+        return a;
+    }
+    return b;
+}
+
+// function dangling(): &Vec3 {
+//     const local: Vec3 = { x: 0.0, y: 0.0, z: 0.0 };
+//     return &local;                      // ERROR: returns a reference to local `local`
+// }
+
+function main(): int32 {
+    const v: Vec3 = { x: 3.0, y: 1.0, z: 2.0 };
+    const fx: &float64 = firstComponent(&v);
+    return int32(fx);
+}
+
+/* === Generated C (illustrative) ===
+   Lifetimes are fully ERASED at codegen — `@lifetime(...)` has no runtime
+   representation. A returned `&T` is just a returned `const T*`; the borrow
+   checker has already proven it cannot dangle.
+#include <stdint.h>
+
+typedef struct { double x; double y; double z; } delta__Vec3;
+
+const double* firstComponent(const delta__Vec3* xs) {     // @lifetime(xs)
+    return &xs->x;
+}
+
+const double* pickLarger(const double* a, const double* b) {  // @lifetime(a, b)
+    if (*a > *b) { return a; }
+    return b;
+}
+
+int32_t main(void) {
+    const delta__Vec3 v = (delta__Vec3){ .x = 3.0, .y = 1.0, .z = 2.0 };
+    const double* fx = firstComponent(&v);
+    return (int32_t)(*fx);
+}
+*/

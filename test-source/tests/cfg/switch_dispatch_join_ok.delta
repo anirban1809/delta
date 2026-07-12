@@ -1,0 +1,13 @@
+function main(): int32 {
+    let value: int32 = 0;
+    let tag: int32 = 2;
+    switch (tag) {
+        case 1, 2:
+            value = 10;
+        case 3:
+            value = 20;
+        default:
+            value = 30;
+    }
+    return value;
+}

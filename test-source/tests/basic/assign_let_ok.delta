@@ -1,4 +1,4 @@
-function f(a: int32, b: int32): int32 | error {
+function f(a: int32, b: int32): int32{
     let x: int32 = 1;
     x = 2;
     return x;

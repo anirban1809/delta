@@ -1,0 +1,15 @@
+type enum Facing = { North: 0, East: 90, South: 180, West: 270 };
+
+function rank(f: Facing): int32 {
+    switch (f) {
+        case Facing.North: 
+            return 1;
+        case Facing.East:  
+            return 2;
+    }
+    return 0;
+}
+
+function main(): int32 {
+    return rank(Facing.North);
+}

@@ -1,0 +1,148 @@
+[
+  {
+    "file": "straight_line_ok.delta",
+    "expect": "pass",
+    "note": "CFG — declarations, assignment, and an expression statement remain in one straight-line basic block before the return terminator"
+  },
+  {
+    "file": "if_no_else_join_ok.delta",
+    "expect": "pass",
+    "note": "CFG — an if without else has a taken edge and an empty fall-through edge which rejoin before the return"
+  },
+  {
+    "file": "if_else_join_ok.delta",
+    "expect": "pass",
+    "note": "CFG — both if/else branches fall through to one join block"
+  },
+  {
+    "file": "if_one_return_join_ok.delta",
+    "expect": "pass",
+    "note": "CFG — a returning branch has no edge to the join; only the surviving branch reaches the final return"
+  },
+  {
+    "file": "if_both_return_ok.delta",
+    "expect": "pass",
+    "note": "CFG — when both branches return, the function has no reachable normal exit"
+  },
+  {
+    "file": "nested_if_join_ok.delta",
+    "expect": "pass",
+    "note": "CFG — nested branches build independent joins before flowing to the outer join"
+  },
+  {
+    "file": "while_backedge_ok.delta",
+    "expect": "pass",
+    "note": "CFG — a normal while-body exit loops back to the condition header, with a false edge to after-loop"
+  },
+  {
+    "file": "while_break_ok.delta",
+    "expect": "pass",
+    "note": "CFG — break in a while body targets the loop exit and does not take the back-edge"
+  },
+  {
+    "file": "while_continue_ok.delta",
+    "expect": "pass",
+    "note": "CFG — continue in a while body targets the condition header"
+  },
+  {
+    "file": "for_full_shape_ok.delta",
+    "expect": "pass",
+    "note": "CFG — C-style for has init → header → body → step → header plus a false edge to after-loop"
+  },
+  {
+    "file": "for_empty_init_ok.delta",
+    "expect": "pass",
+    "note": "CFG — an empty for-init starts directly at the condition header"
+  },
+  {
+    "file": "for_empty_condition_break_ok.delta",
+    "expect": "pass",
+    "note": "CFG — an empty for-condition is an unconditional body edge; break supplies the only loop exit"
+  },
+  {
+    "file": "for_empty_step_ok.delta",
+    "expect": "pass",
+    "note": "CFG — an empty for-step routes normal body completion directly back to the header"
+  },
+  {
+    "file": "for_continue_targets_step_ok.delta",
+    "expect": "pass",
+    "note": "CFG — continue in a for targets the step block, not the condition header"
+  },
+  {
+    "file": "nested_for_break_ok.delta",
+    "expect": "pass",
+    "note": "CFG — break targets the innermost active loop exit"
+  },
+  {
+    "file": "switch_dispatch_join_ok.delta",
+    "expect": "pass",
+    "note": "CFG — switch dispatch has one edge per case/default and every normally-completing case joins after the switch without fallthrough"
+  },
+  {
+    "file": "switch_all_return_ok.delta",
+    "expect": "pass",
+    "note": "CFG — a switch whose every case and default return has no normal after-switch edge"
+  },
+  {
+    "file": "switch_nested_ok.delta",
+    "expect": "pass",
+    "note": "CFG — a nested switch has independent dispatch and join structure"
+  },
+  {
+    "file": "switch_break_targets_loop_ok.delta",
+    "expect": "pass",
+    "note": "CFG — in the current language, break in switch-inside-for targets the enclosing loop exit"
+  },
+  {
+    "file": "switch_continue_targets_loop_ok.delta",
+    "expect": "pass",
+    "note": "CFG — continue in switch-inside-for targets the enclosing for step block"
+  },
+  {
+    "file": "definite_assignment_both_branches_ok.delta",
+    "expect": "pass",
+    "note": "CFG dataflow — assignment on every predecessor makes the post-join read definitely assigned"
+  },
+  {
+    "file": "definite_assignment_one_branch_err.delta",
+    "expect": "fail",
+    "contains": "uninitialized",
+    "note": "CFG dataflow — an unassigned predecessor makes the post-if read invalid"
+  },
+  {
+    "file": "definite_assignment_loop_only_err.delta",
+    "expect": "fail",
+    "contains": "uninitialized",
+    "note": "CFG dataflow — a loop body assignment does not dominate code after a possibly-zero-iteration loop"
+  },
+  {
+    "file": "definite_assignment_before_loop_ok.delta",
+    "expect": "pass",
+    "note": "CFG dataflow — an assignment before the loop dominates the post-loop read"
+  },
+  {
+    "file": "unreachable_after_return_err.delta",
+    "expect": "fail",
+    "contains": "unreachable",
+    "note": "CFG reachability — return terminates its block and leaves subsequent source unreachable"
+  },
+  {
+    "file": "unreachable_after_break_err.delta",
+    "expect": "fail",
+    "contains": "unreachable",
+    "note": "CFG reachability — break terminates its block and leaves following loop-body source unreachable"
+  },
+  {
+    "file": "unreachable_after_continue_err.delta",
+    "expect": "fail",
+    "contains": "unreachable",
+    "note": "CFG reachability — continue terminates its block and leaves following loop-body source unreachable"
+  },
+  {
+    "file": "return_missing_normal_exit_err.delta",
+    "expect": "fail",
+    "contains": "return",
+    "note": "CFG return coverage — a reachable normal function exit is illegal for a non-void function"
+  }
+]

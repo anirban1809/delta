@@ -1,0 +1,6 @@
+// Runtime panic: shift count >= 32
+function main(): int32 {
+    const a: int32 = 1;
+    const badshift: int32 = a << 40;   // TRAP: shift count >= 32
+    return badshift;
+}

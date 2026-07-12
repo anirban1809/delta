@@ -1,0 +1,6 @@
+// E0102 — duplicate declaration of `x` in this scope
+function main(): int32 {
+    let x: int32 = 1;
+    let x: int32 = 2;   // ERROR[E0102]: duplicate declaration of `x` in this scope
+    return x;
+}

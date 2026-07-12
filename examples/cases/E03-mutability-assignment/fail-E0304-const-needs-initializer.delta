@@ -1,0 +1,5 @@
+// E0304 — `const` declaration requires an initializer
+function main(): int32 {
+    const min: int32;   // ERROR[E0304]: `const` declaration requires an initializer
+    return 0;
+}

@@ -1,0 +1,5 @@
+// E0214 — `x` is not callable
+function main(): int32 {
+    const x: int32 = 5;
+    return x(1);   // ERROR[E0214]: `x` is not callable
+}

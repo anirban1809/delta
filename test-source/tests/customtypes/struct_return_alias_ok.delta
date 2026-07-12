@@ -1,0 +1,15 @@
+type struct Vec3 = { x: float64, y: float64, z: float64 };
+type Position    = Vec3;
+
+function returnPosition(position: Position): Position {
+    return position;
+}
+
+function main(): int32 {
+    const source: Vec3 = Vec3 { x: 5.0, y: 6.0, z: 7.0 };
+    const position: Vec3 = returnPosition(source);
+    if (position.x != 5.0) { return 1; }
+    if (position.y != 6.0) { return 2; }
+    if (position.z != 7.0) { return 3; }
+    return 0;
+}

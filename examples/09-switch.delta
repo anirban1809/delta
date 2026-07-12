@@ -1,0 +1,66 @@
+// Feature 09 — `switch`, `break`, `continue`
+// Spec: §3, Phase B
+//
+// Value switch over an integer or `char` scrutinee. Multi-label cases, braced
+// case bodies, NO fall-through, a REQUIRED `default`. `break`/`continue` are
+// rejected outside a loop.
+//
+// Pipeline work:
+//   parser     : switch/case/default with multi-label `case L1, L2:` and braced bodies.
+//   semantics  : scrutinee must be int or char; case labels must be constants of
+//                that type; `default` required; break/continue only inside loops.
+//   codegen    : lower to C switch with explicit `break` per case (no fall-through).
+
+function dayKind(day: int32): int32 {
+    switch (day) {
+        case 0, 6: {
+            return 1;        // weekend
+        }
+        case 1, 2, 3, 4, 5: {
+            return 0;        // weekday
+        }
+        default: {
+            return int32(0) - 1;  // invalid
+        }
+    }
+}
+
+function main(): int32 {
+    let count: int32 = 0;
+
+    for (let d: int32 = 0; d < 7; d++) {
+        if (dayKind(d) < 0) {
+            continue;        // OK — inside a loop
+        }
+        count += dayKind(d);
+    }
+
+    // switch (count) { case 0: { } }   // ERROR: `switch` requires a `default` case
+    // break;                            // ERROR: `break` outside of a loop
+
+    return count;
+}
+
+/* === Generated C (illustrative) ===
+   Multi-label cases expand to stacked C `case` labels; each braced body ends in
+   a terminator so there is no fall-through. `continue` maps to C `continue`.
+#include <stdbool.h>
+#include <stdint.h>
+
+int32_t dayKind(int32_t day) {
+    switch (day) {
+        case 0: case 6: { return 1; }
+        case 1: case 2: case 3: case 4: case 5: { return 0; }
+        default: { return delta_sub_i32(0, 1); }
+    }
+}
+
+int32_t main(void) {
+    int32_t count = 0;
+    for (int32_t d = 0; d < 7; d = delta_add_i32(d, 1)) {
+        if (dayKind(d) < 0) { continue; }
+        count = delta_add_i32(count, dayKind(d));
+    }
+    return count;
+}
+*/

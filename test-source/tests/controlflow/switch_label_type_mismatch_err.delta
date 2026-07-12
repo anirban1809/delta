@@ -1,7 +1,7 @@
 function main(): int32 {
     let n: int32 = 1;
     switch (n) {
-        case 'a':  { return 0; }
-        default:   { return 1; }
+        case 'a':  return 0;
+        default:   return 1;
     }
 }

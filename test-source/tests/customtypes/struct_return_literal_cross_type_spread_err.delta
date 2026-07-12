@@ -1,0 +1,11 @@
+type struct Vec3     = { x: int32, y: int32, z: int32 };
+type struct Position = { x: float64, y: float64, z: float64 };
+
+function invalidPosition(source: Vec3): Position {
+    // field names match, but Vec3's int32 fields do not match Position's float64 — rejected
+    return Position { ...source };
+}
+
+function main(): int32 {
+    return 0;
+}

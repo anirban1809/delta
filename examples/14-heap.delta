@@ -1,0 +1,65 @@
+// Feature 14 — Heap indirection (`heap<T>`, `new`)
+// Spec: §8 (heap fields), §13, Phase H
+//
+// `heap<T>` is a single-owner owning pointer (lowers to `T*`). Allocated with
+// `new`. Bare `new` aborts on OOM; `new ... as result` yields `heap<T> | AllocError`.
+// Auto-deref means `.field`/`.method()` read through the pointer transparently.
+// `heap<T>` is move-only (copying the handle would alias the allocation); `clone`
+// is recursive. Owner disposal frees the allocation at scope exit; field disposal
+// cascades. No reference counting.
+//
+// `new` forms: `new T { ... }` (construct in place), `new value` (box a value),
+// `new move x` (box a non-copyable binding).
+//
+// Pipeline work:
+//   parser     : `heap<T>` type; `new T { }`, `new value`, `new move x`, `new ... as result`.
+//   semantics  : heap<T> is move-only; auto-deref member access; clone is recursive;
+//                scope-exit disposal frees + runs the pointee's drop.
+//   codegen    : `heap<T>` -> `T*` via malloc; `x.field` -> `x->field`; free on scope exit.
+
+type Payload = { count: int64; stride: int64; };
+type BoxedCounter = { payload: heap<Payload>; };
+
+function main(): int32 {
+    // construct the payload on the heap; handle OOM explicitly
+    const bc: BoxedCounter = { payload: new Payload { count: 10, stride: 2 } as result };
+    check bc {
+        return 1;
+    }
+
+    const total: int64 = bc.payload.count + bc.payload.stride;  // heap auto-deref
+
+    // `bc` goes out of scope here -> its `payload` allocation is freed automatically.
+
+    return int32(total);
+}
+
+/* === Generated C (illustrative) ===
+   `heap<T>` -> `T*` allocated via the runtime. `new ... as result` uses the
+   fallible allocator (returns AllocError on OOM); bare `new` would call a variant
+   that aborts. Auto-deref: `bc.payload.count` -> `bc.payload->count`. Scope exit
+   frees the allocation (and would cascade to the pointee's drop).
+#include <stdbool.h>
+#include <stdint.h>
+
+typedef struct { int64_t count; int64_t stride; } delta__Payload;
+typedef struct { delta__Payload* payload; } delta__BoxedCounter;
+
+typedef struct { bool is_error; union { delta__Payload* ok; uint8_t err; }; }
+    delta__Result_heapPayload_AllocError;
+
+int32_t main(void) {
+    // new Payload { ... } as result
+    delta__Payload* _p;
+    delta__Result_heapPayload_AllocError _a0 = delta_rt_alloc_Payload();
+    if (_a0.is_error) { return 1; }
+    _p = _a0.ok;
+    *_p = (delta__Payload){ .count = 10, .stride = 2 };
+
+    const delta__BoxedCounter bc = { .payload = _p };
+    const int64_t total = bc.payload->count + bc.payload->stride;   // auto-deref
+
+    delta_rt_free(bc.payload);             // scope-exit disposal
+    return (int32_t)total;
+}
+*/

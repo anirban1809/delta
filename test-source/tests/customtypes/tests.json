@@ -1,0 +1,374 @@
+[
+  {
+    "file": "struct_basic_ok.delta",
+    "expect": "pass",
+    "note": "phase K — declare a `type struct`, construct via a pinned literal, read fields, whole-value reassign"
+  },
+  {
+    "file": "struct_alias_ok.delta",
+    "expect": "pass",
+    "note": "phase K — `type Position = Vec3;` is a transparent alias; values interchange freely"
+  },
+  {
+    "file": "struct_composition_spread_ok.delta",
+    "expect": "pass",
+    "note": "phase K — `type struct Dog = { ...Animal, goodBoy: bool };` merges Animal's fields with the new field (through an alias operand)"
+  },
+  {
+    "file": "struct_composition_intersection_ok.delta",
+    "expect": "pass",
+    "note": "phase K — `type struct Cat = Animal & { color: int32 };` intersection composition mirrors spread"
+  },
+  {
+    "file": "literal_pinned_by_annotation_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a `Vec3 { ... }` literal is self-typed and checks against the `const v: Vec3` annotation"
+  },
+  {
+    "file": "literal_pinned_by_call_arg_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a `Vec3 { ... }` literal checks against the declared parameter type at the call site"
+  },
+  {
+    "file": "literal_pinned_by_return_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a `Vec3 { ... }` literal checks against the enclosing function's declared return type"
+  },
+  {
+    "file": "literal_inferred_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a self-typed `Vec3 { ... }` literal needs no annotation; the binding type is inferred from it"
+  },
+  {
+    "file": "literal_unknown_type_err.delta",
+    "expect": "fail",
+    "contains": "Bogus",
+    "note": "phase K — an object literal naming an undeclared type (`Bogus { ... }`) is rejected"
+  },
+  {
+    "file": "literal_missing_field_err.delta",
+    "expect": "fail",
+    "contains": "missing field",
+    "note": "phase K — coverage check: literal omits a field declared on the target struct"
+  },
+  {
+    "file": "literal_unknown_field_err.delta",
+    "expect": "fail",
+    "contains": "unknown field",
+    "note": "phase K — coverage check: literal introduces a field not declared on the target struct"
+  },
+  {
+    "file": "literal_duplicate_field_err.delta",
+    "expect": "fail",
+    "contains": "duplicate field",
+    "note": "phase K — coverage check: a field name appears twice in the literal"
+  },
+  {
+    "file": "field_read_ok.delta",
+    "expect": "pass",
+    "note": "phase K — `v.field` member-access reads on a struct-typed binding"
+  },
+  {
+    "file": "field_write_ok.delta",
+    "expect": "pass",
+    "note": "phase K — `v.field = expr;` on a `let`-bound, fully-initialized struct"
+  },
+  {
+    "file": "field_write_const_err.delta",
+    "expect": "fail",
+    "contains": "const",
+    "note": "phase K — `v.field = expr;` against a `const`-bound receiver is rejected"
+  },
+  {
+    "file": "field_partial_init_err.delta",
+    "expect": "fail",
+    "contains": "uninitialized",
+    "note": "phase K — partial init via `v.field = ...;` before whole-value assignment is rejected"
+  },
+  {
+    "file": "value_spread_full_ok.delta",
+    "expect": "pass",
+    "note": "phase K — `{ ...a }` value-spread of the same struct type covers every field"
+  },
+  {
+    "file": "value_spread_structural_ok.delta",
+    "expect": "pass",
+    "note": "phase K — spread is structural: a distinct nominal struct whose fields match by name and type spreads fine"
+  },
+  {
+    "file": "value_spread_type_mismatch_err.delta",
+    "expect": "fail",
+    "contains": "float64",
+    "note": "phase K — a spread source with matching field names but differing field types (int32 vs float64) is rejected"
+  },
+  {
+    "file": "value_spread_collision_err.delta",
+    "expect": "fail",
+    "contains": "duplicate field",
+    "note": "phase K — a spread + explicit field naming the same slot is a collision"
+  },
+  {
+    "file": "composition_field_collision_err.delta",
+    "expect": "fail",
+    "contains": "duplicate",
+    "note": "phase K — two operands of a composition declare the same field name"
+  },
+  {
+    "file": "composition_non_struct_operand_err.delta",
+    "expect": "fail",
+    "contains": "struct",
+    "note": "phase K — composition operands must be struct types; `int32 & { ... }` is rejected"
+  },
+  {
+    "file": "composition_cycle_err.delta",
+    "expect": "fail",
+    "contains": "cycle",
+    "note": "phase K — mutual composition cycle `A = { ...B }; B = { ...A }` is rejected"
+  },
+  {
+    "file": "struct_self_field_err.delta",
+    "expect": "fail",
+    "contains": "heap",
+    "note": "phase K — direct self-reference (`Tree.left: Tree`) cannot be broken without `heap T`"
+  },
+  {
+    "file": "struct_mutual_cycle_err.delta",
+    "expect": "fail",
+    "contains": "cycle",
+    "note": "phase K — mutual inline-field cycle `A.b: B; B.a: A;` is rejected"
+  },
+  {
+    "file": "struct_eq_err.delta",
+    "expect": "fail",
+    "contains": "compared",
+    "note": "phase K — `==` / `!=` on struct operands is rejected; struct equality would synthesize hidden fieldwise control flow"
+  },
+  {
+    "file": "struct_ordering_err.delta",
+    "expect": "fail",
+    "contains": "compared",
+    "note": "phase K — `<` / `>` / `<=` / `>=` on struct operands is rejected (§8.9)"
+  },
+  {
+    "file": "struct_return_value_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a function returns a named struct value and the caller reads its fields"
+  },
+  {
+    "file": "struct_return_alias_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a function returns a struct alias that stays compatible with the underlying struct type"
+  },
+  {
+    "file": "struct_return_type_mismatch_err.delta",
+    "expect": "fail",
+    "contains": "want Vec3",
+    "note": "phase K — a struct-returning function rejects a primitive return value"
+  },
+  {
+    "file": "struct_return_literal_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a function directly returns a struct literal pinned by its declared return type"
+  },
+  {
+    "file": "struct_return_alias_literal_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a function return annotation can pin a struct literal through an alias"
+  },
+  {
+    "file": "struct_return_literal_missing_field_err.delta",
+    "expect": "fail",
+    "contains": "missing field",
+    "note": "phase K — a returned struct literal must initialize every field required by the return type"
+  },
+  {
+    "file": "struct_return_literal_field_order_ok.delta",
+    "expect": "pass",
+    "note": "phase K — returned struct literals match fields by name, allow source reordering, and allow a trailing comma"
+  },
+  {
+    "file": "struct_return_empty_literal_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a function can return an empty literal pinned to an empty struct type"
+  },
+  {
+    "file": "struct_return_composition_literal_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a return-context literal can construct a struct produced by composition"
+  },
+  {
+    "file": "struct_return_nested_literal_ok.delta",
+    "expect": "pass",
+    "note": "phase K — the outer return type and struct field types pin nested struct literals"
+  },
+  {
+    "file": "struct_return_literal_spread_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a returned struct literal accepts a complete same-type value spread"
+  },
+  {
+    "file": "struct_return_literal_unknown_field_err.delta",
+    "expect": "fail",
+    "contains": "unknown field",
+    "note": "phase K — a returned struct literal rejects fields absent from the declared return type"
+  },
+  {
+    "file": "struct_return_literal_duplicate_field_err.delta",
+    "expect": "fail",
+    "contains": "duplicate field",
+    "note": "phase K — a returned struct literal rejects an explicitly repeated field"
+  },
+  {
+    "file": "struct_return_literal_field_type_err.delta",
+    "expect": "fail",
+    "contains": "int32",
+    "note": "phase K — each returned struct literal field value must match the field type supplied by context"
+  },
+  {
+    "file": "struct_return_literal_cross_type_spread_err.delta",
+    "expect": "fail",
+    "contains": "float64",
+    "note": "phase K — a returned struct literal rejects a spread whose field names match but field types differ (int32 vs float64)"
+  },
+  {
+    "file": "struct_return_literal_spread_collision_err.delta",
+    "expect": "fail",
+    "contains": "duplicate field",
+    "note": "phase K — a returned struct literal rejects a field supplied both by spread and explicitly"
+  },
+  {
+    "file": "struct_return_nested_literal_missing_field_err.delta",
+    "expect": "fail",
+    "contains": "missing field",
+    "note": "phase K — nested struct literals pinned through return context enforce complete field coverage"
+  },
+  {
+    "file": "struct_method_err.delta",
+    "expect": "fail",
+    "contains": "",
+    "note": "phase K — methods inside `type struct { ... }` are a parser error (§8.5); any error accepted"
+  },
+  {
+    "file": "struct_visibility_err.delta",
+    "expect": "fail",
+    "contains": "",
+    "note": "phase K — per-field `public` / `private` inside `type struct { ... }` is a parser error (§8.5); any error accepted"
+  },
+  {
+    "file": "struct_default_err.delta",
+    "expect": "fail",
+    "contains": "",
+    "note": "phase K — per-field default initializers inside `type struct { ... }` are a parser error (§8.11); any error accepted"
+  },
+  {
+    "file": "anonymous_object_type_err.delta",
+    "expect": "fail",
+    "contains": "",
+    "note": "phase K — an anonymous object-type literal is only legal on the RHS of `type struct` (§8.3); any error accepted"
+  },
+  {
+    "file": "class_keyword_err.delta",
+    "expect": "fail",
+    "contains": "",
+    "note": "phase K — `type class` is rejected; any error accepted"
+  },
+  {
+    "file": "enum_explicit_ok.delta",
+    "expect": "pass",
+    "note": "phase K — all-explicit `type enum` (`{ North: 0, East: 90, ... }`), member reference + equality"
+  },
+  {
+    "file": "enum_implicit_ok.delta",
+    "expect": "pass",
+    "note": "phase K — all-implicit `type enum` (`{ Red, Green, Blue }`) auto-numbers 0, 1, 2"
+  },
+  {
+    "file": "enum_mixed_err.delta",
+    "expect": "fail",
+    "contains": "implicit",
+    "note": "phase K — a partial enum (`{ Red: 1, Green, Blue: 3 }`) must be all-explicit or all-implicit"
+  },
+  {
+    "file": "enum_dup_name_err.delta",
+    "expect": "fail",
+    "contains": "duplicate",
+    "note": "phase K — duplicate enum member names are rejected"
+  },
+  {
+    "file": "enum_dup_value_ok.delta",
+    "expect": "pass",
+    "note": "phase K — duplicate enum member values are allowed (aliasing constants)"
+  },
+  {
+    "file": "enum_as_int_ok.delta",
+    "expect": "pass",
+    "note": "phase K — an enum member is an int32 literal, usable with integer types directly (no cast) and across widths"
+  },
+  {
+    "file": "enum_ordering_ok.delta",
+    "expect": "pass",
+    "note": "phase K — `<` / `>` / `<=` / `>=` on enum operands work as integer comparisons (members are int32 literals)"
+  },
+  {
+    "file": "enum_from_literal_ok.delta",
+    "expect": "pass",
+    "note": "phase K — an integer literal that names a member coerces to the enum by its typed context (`const f: Facing = 90;`)"
+  },
+  {
+    "file": "enum_from_nonmember_literal_err.delta",
+    "expect": "fail",
+    "contains": "member",
+    "note": "phase K — an integer literal that names no member (`= 91`) is a compile error"
+  },
+  {
+    "file": "enum_from_runtime_int_err.delta",
+    "expect": "fail",
+    "contains": "literal",
+    "note": "phase K — a runtime (non-literal) integer cannot coerce to an enum; checked narrowing is deferred to the FFI phase"
+  },
+  {
+    "file": "enum_switch_exhaustive_ok.delta",
+    "expect": "pass",
+    "note": "phase K — a `switch` covering every enum member is exhaustive without a `default`"
+  },
+  {
+    "file": "enum_switch_nonexhaustive_err.delta",
+    "expect": "fail",
+    "contains": "variants",
+    "note": "phase K — a non-exhaustive enum `switch` with no `default` names the missing members"
+  },
+  {
+    "file": "enum_emitted_ok.delta",
+    "expect": "pass",
+    "note": "phase K — codegen emits a C enum with explicit int32 initializers"
+  },
+  {
+    "file": "union_basic_ok.delta",
+    "expect": "pass",
+    "note": "phase K — the acceptance `Shape`/`area` slice: construct, `switch` with payload binding, payload read"
+  },
+  {
+    "file": "union_construct_bad_variant_err.delta",
+    "expect": "fail",
+    "contains": "Triangle",
+    "note": "phase K — `Triangle{ ... }` pinned to `Shape` names a variant the union does not declare"
+  },
+  {
+    "file": "union_direct_field_access_err.delta",
+    "expect": "fail",
+    "contains": "member",
+    "note": "phase K — a union payload cannot be read via `sh.r`; it must be matched with `switch`"
+  },
+  {
+    "file": "union_eq_err.delta",
+    "expect": "fail",
+    "contains": "compared",
+    "note": "phase K — `==` / `!=` on union operands is rejected; union equality would synthesize hidden tag-dispatching control flow"
+  },
+  {
+    "file": "union_self_payload_err.delta",
+    "expect": "pass",
+    "contains": "heap",
+    "note": "phase K — a union variant whose payload references the union directly cannot recurse without `heap T`"
+  }
+]

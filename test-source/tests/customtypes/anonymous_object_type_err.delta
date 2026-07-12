@@ -1,0 +1,4 @@
+function main(): int32 {
+    let v: { x: int32, y: int32 };
+    return 0;
+}

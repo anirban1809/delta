@@ -1,0 +1,8 @@
+type struct Circle = { float64 };
+type struct Square = { s: float64 };
+
+type union Shape = Circle | Square;
+
+function main(): int32 {
+    return 0;
+}

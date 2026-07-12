@@ -1,0 +1,6 @@
+// E03 success — compound add-assign `+=`.
+function main(): int32 {
+    let total: int32 = 5;
+    total += 3;
+    return total;
+}

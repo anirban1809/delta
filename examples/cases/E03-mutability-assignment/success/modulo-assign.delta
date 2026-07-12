@@ -1,0 +1,6 @@
+// E03 success — compound modulo-assign `%=`.
+function main(): int32 {
+    let total: int32 = 17;
+    total %= 5;
+    return total;
+}

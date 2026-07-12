@@ -1,0 +1,9 @@
+// E1106 — receiver type must be a record type
+function (n: &int32) doubled(): int32 {   // ERROR[E1106]: receiver type must be a record type
+    return n + n;
+}
+
+function main(): int32 {
+    let x: int32 = 5;
+    return x.doubled();
+}

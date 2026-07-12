@@ -1,0 +1,8 @@
+// E0702 — cannot move out of `const` binding `frozen`
+type Counter = { value: heap<int64>; };
+
+function main(): int32 {
+    const frozen: Counter = { value: new 5 };
+    let stolen = move frozen;   // ERROR[E0702]: cannot move out of `const` binding `frozen`
+    return 0;
+}

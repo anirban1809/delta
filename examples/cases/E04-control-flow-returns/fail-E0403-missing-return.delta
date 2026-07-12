@@ -1,0 +1,11 @@
+// E0403 — missing return: `maybe` must return `int32` on every path
+function maybe(flag: bool): int32 {   // ERROR[E0403]: missing return: `maybe` must return `int32` on every path
+    if (flag) {
+        return 1;
+    }
+    // falls off the end on the `flag == false` path
+}
+
+function main(): int32 {
+    return maybe(true);
+}

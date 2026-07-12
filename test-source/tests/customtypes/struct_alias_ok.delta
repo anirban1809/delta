@@ -1,0 +1,13 @@
+type struct Vec3 = { x: float64, y: float64, z: float64 };
+type Position = Vec3;
+
+function lengthSq(p: Position): float64 {
+    return p.x * p.x + p.y * p.y + p.z * p.z;
+}
+
+function main(): int32 {
+    const v: Vec3     = Vec3 { x: 1.0, y: 2.0, z: 2.0 };
+    const p: Position = v;
+    if (int32(lengthSq(p)) != 9) { return 1; }
+    return 0;
+}

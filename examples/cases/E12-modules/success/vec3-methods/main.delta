@@ -1,0 +1,12 @@
+// E12xx — Modules — SUCCESS (entry module)
+// Imports form a DAG; imported names + their methods resolve.
+
+import { Vec3, add } from "./geometry";
+
+function main(): int32 {
+    const a: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
+    const b: Vec3 = { x: 4.0, y: 5.0, z: 6.0 };
+    const sum: Vec3 = add(&a, &b);
+    const lenSq: float64 = sum.lengthSquared();   // method imported with the type
+    return int32(lenSq);
+}

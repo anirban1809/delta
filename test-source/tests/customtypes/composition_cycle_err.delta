@@ -1,0 +1,8 @@
+type struct A = { ...C };
+type struct B = { ...A };
+type struct C = { ...B };
+
+
+function main(): int32 {
+    return 0;
+}

@@ -1,0 +1,7 @@
+// E12 modules success — imported module exporting a `const` and a function.
+// One file = one module; `export` exposes a top-level declaration.
+export const BONUS: int32 = 1000;
+
+export function square(n: int32): int32 {
+    return n * n;
+}

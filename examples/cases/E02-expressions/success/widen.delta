@@ -1,0 +1,6 @@
+// E02 success — explicit widening conversion `int32 -> int64`.
+function main(): int32 {
+    const a: int32 = 6;
+    const big: int64 = int64(a);
+    return int32(big);
+}

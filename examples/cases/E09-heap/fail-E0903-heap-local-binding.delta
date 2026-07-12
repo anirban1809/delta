@@ -1,0 +1,5 @@
+// E0903 — `heap<T>` may only be a field or parameter type in v0.5, not a local binding
+function main(): int32 {
+    let boxed: heap<int64> = new 0;   // ERROR[E0903]: `heap<T>` may only be a field or parameter type in v0.5, not a local binding
+    return 0;
+}

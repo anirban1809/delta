@@ -1,0 +1,10 @@
+type struct Empty = {};
+
+function makeEmpty(): Empty {
+    return Empty {};
+}
+
+function main(): int32 {
+    const value: Empty = makeEmpty();
+    return 0;
+}

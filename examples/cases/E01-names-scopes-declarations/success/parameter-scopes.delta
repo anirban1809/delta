@@ -1,0 +1,14 @@
+// E01 success — parameters resolve inside their own function body; each function
+// has its own scope, so the same name may appear independently in another.
+function helper(n: int32): int32 {
+    let scaled: int32 = n;   // the parameter `n` resolves here
+    return scaled;
+}
+
+function other(n: int32): int32 {   // a different `n`, in a different scope
+    return n;
+}
+
+function main(): int32 {
+    return 0;
+}

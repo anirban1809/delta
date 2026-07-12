@@ -1,0 +1,16 @@
+// E0608 — `DivideByZeroError` is not in the declared error set `{ OverflowError }`
+// `return error as E` requires E to be a literal member of the function's set
+// (no widening / reshaping in v0.5).
+function safeAdd(a: int64, b: int64): int64 | OverflowError {
+    const sum = a + b as result;
+    check result {
+        return error as DivideByZeroError { };   // ERROR[E0608]: `DivideByZeroError` is not in the declared error set `{ OverflowError }`
+    }
+    return sum;
+}
+
+function main(): int32 {
+    const total = safeAdd(1, 2) as result;
+    check result { return 1; }
+    return int32(total);
+}

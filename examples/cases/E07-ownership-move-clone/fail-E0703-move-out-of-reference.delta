@@ -1,0 +1,12 @@
+// E0703 — cannot move out of a reference `c`
+type Counter = { value: heap<int64>; };
+
+function steal(c: edit &Counter): Counter {
+    return move c;   // ERROR[E0703]: cannot move out of a reference `c`
+}
+
+function main(): int32 {
+    let a: Counter = { value: new 0 };
+    let b = steal(edit &a);
+    return 0;
+}

@@ -2,8 +2,8 @@ function main(): int32 {
     let count: int32 = 0;
     for (let i: int32 = 0; i < 10; i++) {
         switch (i) {
-            case 0:  { continue; }
-            default: { count++; }
+            case 0:  continue;
+            default: count++;
         }
     }
     if (count != 9) { return 1; }

@@ -1,0 +1,13 @@
+function main(): int32 {
+    let value: int32 = 0;
+    for (let i: int32 = 0; i < 3; i++) {
+        switch (i) {
+            case 1:
+                value = 10;
+                break;
+            default:
+                value = value + 1;
+        }
+    }
+    return value;
+}

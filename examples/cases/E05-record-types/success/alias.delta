@@ -1,0 +1,8 @@
+// E05 success — a `type` alias to a record resolves to the same record.
+type Vec3 = { x: float64; y: float64; z: float64; };
+type Position = Vec3;
+
+function main(): int32 {
+    const p: Position = { x: 1.0, y: 2.0, z: 3.0 };
+    return int32(p.x);
+}

@@ -1,0 +1,4 @@
+// E0101 — use of undeclared name `missing`
+function main(): int32 {
+    return missing;   // ERROR[E0101]: use of undeclared name `missing`
+}

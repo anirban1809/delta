@@ -1,0 +1,8 @@
+// E0411 — `switch` scrutinee must be an integer or `char`, found `bool`
+function main(): int32 {
+    const flag: bool = true;
+    switch (flag) {   // ERROR[E0411]: `switch` scrutinee must be an integer or `char`, found `bool`
+        case true: { return 1; }
+        default: { return 0; }
+    }
+}

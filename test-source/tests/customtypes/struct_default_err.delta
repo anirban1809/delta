@@ -1,0 +1,8 @@
+type struct Config = {
+    port: int32 = 8080,
+    host: int32
+};
+
+function main(): int32 {
+    return 0;
+}

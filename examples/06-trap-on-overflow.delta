@@ -1,0 +1,66 @@
+// Feature 06 — Trap-on-overflow arithmetic
+// Spec: §5.2 Default Trap Semantics, §5.3 The Complete Trap Set
+//
+// Every integer op that overflows / divides by zero / shifts out of range, and
+// every narrowing or sign-flipping cast that doesn't fit, TRAPS with a panic in
+// EVERY build mode (debug and release alike). No silent wrap, no UB.
+//
+// The closed trap set:
+//   1. + - *               : result doesn't fit the destination type
+//   2. / %                 : divisor is zero
+//   3. / % (signed)        : INT_MIN / -1
+//   4. << >>               : shift count >= bit width
+//   6. narrowing cast      : value outside destination range
+//   7. sign-flipping cast  : value doesn't fit destination signedness
+//
+// Pipeline work:
+//   codegen    : lower each trap-set op to a runtime helper that checks and
+//                calls the panic mechanism; emit `#line` so the panic reports
+//                the .delta source location.
+//   semantics  : classify each op as "can trap" — this set is exactly what
+//                becomes recoverable via `as result` in feature 11.
+
+function main(): int32 {
+    const a: int32 = 2_000_000_000;
+    const b: int32 = 2_000_000_000;
+
+    const ok: int32 = a - b;    // OK — fits
+
+    // const overflow: int32 = a + b;   // runtime panic: arithmetic overflow in `+`  at examples/06-trap-on-overflow.delta
+    // const divzero: int32 = a / 0;    // runtime panic: division by zero
+    // const badshift: int32 = a << 40; // runtime panic: shift count >= 32
+
+    // The escape hatches (out of scope until later): `Wrap<int32>` / `Saturate<int32>`
+    // for intentional wrapping/clamping, and `a + b as result` to RECOVER from the
+    // trap instead of panicking (see feature 11).
+
+    return ok;
+}
+
+/* === Generated C (illustrative) ===
+   The trap-set ops lower to inline helpers built on __builtin_*_overflow that
+   call the shared panic mechanism. These helper definitions are emitted once
+   into the runtime header; every other feature's codegen just calls them.
+#include <stdint.h>
+
+_Noreturn void delta_panic(const char* msg);   // prints msg + #line location, aborts
+
+static inline int32_t delta_add_i32(int32_t a, int32_t b) {
+    int32_t r;
+    if (__builtin_add_overflow(a, b, &r)) delta_panic("arithmetic overflow in `+`");
+    return r;
+}
+static inline int32_t delta_div_i32(int32_t a, int32_t b) {
+    if (b == 0)                       delta_panic("division by zero");
+    if (a == INT32_MIN && b == -1)    delta_panic("signed division overflow");
+    return a / b;
+}
+// delta_sub_i32, delta_mul_i32, delta_shl_i32, delta_cast_* follow the same shape.
+
+int32_t main(void) {
+    const int32_t a = 2000000000;
+    const int32_t b = 2000000000;
+    const int32_t ok = delta_sub_i32(a, b);   // fits -> no trap
+    return ok;
+}
+*/

@@ -1,0 +1,16 @@
+// E06 success — consume a fallible call with `as result` and recover in `check`.
+function safeAdd(a: int64, b: int64): int64 | OverflowError {
+    const sum = a + b as result;
+    check result {
+        return error as OverflowError { };
+    }
+    return sum;
+}
+
+function main(): int32 {
+    const total = safeAdd(1000, 999) as result;
+    check result {
+        return 1;                 // recover on the error path with an exit code
+    }
+    return int32(total);
+}

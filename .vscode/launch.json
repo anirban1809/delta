@@ -5,15 +5,15 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Launch Package",
-      "type": "go",
+      "name": "Launch Program",
+      "program": "${workspaceFolder}/main.ts",
       "request": "launch",
-      "mode": "auto",
-      "program": "${fileDirname}",
-      "args": [
-        "build",
-        "/Users/anirban/Documents/Code/delta/test-source/tests/ownership-codegen/02_byvalue_owned_param.delta"
-      ]
+      "args": ["build","/Users/anirban/Documents/Code/delta/test-source/tests/controlflow/switch_no_default_err.delta"],
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "type": "node"
     }
+    
   ]
 }

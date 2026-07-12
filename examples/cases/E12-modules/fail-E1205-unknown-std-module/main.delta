@@ -1,0 +1,7 @@
+// E1205 — unknown standard library module `std/foo`
+import { bar } from "std/foo";   // ERROR[E1205]: unknown standard library module `std/foo`
+
+function main(): int32 {
+    bar();
+    return 0;
+}

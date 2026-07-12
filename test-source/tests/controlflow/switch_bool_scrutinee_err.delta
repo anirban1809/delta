@@ -1,6 +1,6 @@
 function main(): int32 {
     let b: bool = true;
     switch (b) {
-        default: { return 0; }
+        default: return 0;
     }
 }

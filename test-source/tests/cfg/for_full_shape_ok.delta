@@ -1,0 +1,7 @@
+function main(): int32 {
+    let total: int32 = 0;
+    for (let i: int32 = 0; i < 3; i++) {
+        total = total + i;
+    }
+    return total;
+}

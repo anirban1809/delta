@@ -1,0 +1,8 @@
+type struct Nil = { dummy: int32 };
+type struct Cons = { head: int32, tail: List };
+
+type union List = Nil | Cons;
+
+function main(): int32 {
+    return 0;
+}

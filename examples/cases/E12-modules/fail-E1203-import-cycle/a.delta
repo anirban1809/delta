@@ -1,0 +1,11 @@
+// E1203 — import cycle detected: `a → b → a`
+// hint: declarations that reference each other must live in the same file
+import { fromB } from "./b";   // ERROR[E1203]: import cycle detected: `a → b → a`
+
+export function fromA(): int32 {
+    return 1;
+}
+
+function main(): int32 {
+    return fromB();
+}

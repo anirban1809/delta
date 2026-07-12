@@ -1,0 +1,13 @@
+type enum Facing = { North: 0, East: 90, South: 180, West: 270 };
+
+function readAngle(): int32 {
+    return 90;
+}
+
+function main(): int32 {
+    // a runtime (non-literal) integer cannot be proven a member at compile time;
+    // a checked runtime narrowing is deferred to the FFI phase
+    const angle: int32 = readAngle();
+    const f: Facing = angle;
+    return 0;
+}

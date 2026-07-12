@@ -1,0 +1,14 @@
+// E0606 — `Vec2` is not an error type
+// In v0.5 the error side of a signature may only name built-in error types;
+// arbitrary records (and user-defined error types) are post-v0.5.
+type Vec2 = { x: int32; y: int32; };
+
+function f(a: int64): int64 | Vec2 {   // ERROR[E0606]: `Vec2` is not an error type
+    return a;
+}
+
+function main(): int32 {
+    const r = f(1) as result;
+    check result { return 1; }
+    return int32(r);
+}

@@ -1,0 +1,8 @@
+function main(): int32 {
+    let value: int32 = 0;
+    while (true) {
+        value = value + 1;
+        break;
+    }
+    return value;
+}

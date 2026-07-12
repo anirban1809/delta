@@ -1,0 +1,12 @@
+// E11 success — a read-only receiver method (`&T`) called on a value (auto-borrow).
+type Counter = { value: heap<int64>; };
+
+function (c: &Counter) get(): int64 {
+    return c.value;   // heap auto-deref
+}
+
+function main(): int32 {
+    let c: Counter = { value: new 42 };
+    const v: int64 = c.get();   // auto-borrows &c
+    return int32(v);
+}

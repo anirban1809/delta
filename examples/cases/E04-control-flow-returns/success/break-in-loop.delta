@@ -1,0 +1,11 @@
+// E04 success — `break` exits the nearest enclosing loop.
+function main(): int32 {
+    let sum: int32 = 0;
+    for (let i: int32 = 0; i < 10; i++) {
+        if (i == 5) {
+            break;
+        }
+        sum += i;
+    }
+    return sum;
+}

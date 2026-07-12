@@ -1,0 +1,18 @@
+// E11 success — an `edit &T` receiver method mutates through the receiver; a `let`
+// binding may call it (capability dispatch).
+type Counter = { value: heap<int64>; };
+
+function (c: edit &Counter) add(amount: int64): void {
+    c.value = c.value + amount;
+}
+
+function (c: &Counter) get(): int64 {
+    return c.value;
+}
+
+function main(): int32 {
+    let c: Counter = { value: new 0 };
+    c.add(5);          // `c` is a `let` -> may call an edit-receiver method
+    c.add(7);
+    return int32(c.get());
+}

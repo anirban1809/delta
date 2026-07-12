@@ -1,0 +1,8 @@
+/* Generated C (illustrative; #line omitted) */
+#include <stdint.h>
+
+int32_t main(void) {
+    int32_t total = 5;
+    total = total - 1;
+    return total;
+}

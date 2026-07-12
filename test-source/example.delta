@@ -1,18 +1,7 @@
-function gcd(a: int32, b: int32): int64 {
-    let x: int64;
-    let y: int64;
-    if (a < b) { x = b; y = a; } else { x = a; y = b; }
-    while (y != 0) {
-        const t = y;
-        y = x % y;
-        x = t;
-    }
-    return x;
+function a(): int32{
 }
 
-function main():int32 {
-    if (gcd(48, 48) == 0) {
-        return 1;
-    }
+function main(): int32 {
+    const x: int32 = a();
     return 0;
 }

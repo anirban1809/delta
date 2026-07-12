@@ -1,6 +1,6 @@
 function pick(b: bool): int32 {
     let x: int32;
-    if (b) { x = 10; } else { x = 20; }
+    if (b == true) { x = 10; } else { x = 20; }
     return x;
 }
 

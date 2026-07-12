@@ -1,0 +1,11 @@
+// E0803 — cannot reference a temporary — the operand must be named storage
+type Vec3 = { x: float64; y: float64; z: float64; };
+
+function lengthSquared(v: &Vec3): float64 {
+    return v.x * v.x + v.y * v.y + v.z * v.z;
+}
+
+function main(): int32 {
+    const n: float64 = lengthSquared(&Vec3{ x: 0.0, y: 0.0, z: 0.0 });   // ERROR[E0803]: cannot reference a temporary — the operand must be named storage
+    return int32(n);
+}

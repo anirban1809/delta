@@ -1,0 +1,61 @@
+// Feature 02 — Binary & unary operators
+// Spec: §3 (operator set), §5.4 (shift semantics)
+//
+// Pipeline work:
+//   parser     : binary expressions at C precedence
+//                (* / %  >  + -  >  << >>  >  relational  >  ==/!=  >  &  >  ^  >  |  >  &&  >  ||)
+//                unary  !expr, -expr, ~expr ; parenthesized expressions.
+//   semantics  : operator typing — both operands same numeric type; comparisons
+//                yield bool; logical operators require bool; `!` requires bool.
+//   codegen    : lower nested expression trees (arithmetic ops route through the
+//                checked helpers from feature 06).
+
+function main(): int32 {
+    const a: int32 = 6;
+    const b: int32 = 4;
+
+    const sum: int32  = a + b;          // 10
+    const diff: int32 = a - b;          // 2
+    const prod: int32 = a * b;          // 24
+    const quot: int32 = a / b;          // 1
+    const rem: int32  = a % b;          // 2
+
+    const masked: int32 = a & b;        // bitwise and
+    const shifted: int32 = a << 1;      // shift
+
+    const isBigger: bool = a > b;       // comparison -> bool
+    const both: bool = isBigger && (a != b);
+    const negated: bool = !both;
+
+    const grouped: int32 = (a + b) * 2; // precedence override
+
+    // const bad: int32 = a && b;       // ERROR: `&&` expects `bool` operands, found `int32`
+    // const cmp: int32 = a > b;        // ERROR: type mismatch: expected `int32`, found `bool`
+
+    return sum + diff + prod + quot + rem + masked + shifted + grouped;
+}
+
+/* === Generated C (illustrative) ===
+   At feature 02 you may emit plain C operators. Feature 06 then swaps the
+   trapping ops (+ - * / % << ) for checked helpers (shown in comments).
+#include <stdbool.h>
+#include <stdint.h>
+
+int32_t main(void) {
+    const int32_t a = 6;
+    const int32_t b = 4;
+    const int32_t sum  = a + b;        // -> delta_add_i32(a, b)  (feature 06)
+    const int32_t diff = a - b;        // -> delta_sub_i32(a, b)
+    const int32_t prod = a * b;        // -> delta_mul_i32(a, b)
+    const int32_t quot = a / b;        // -> delta_div_i32(a, b)
+    const int32_t rem  = a % b;        // -> delta_rem_i32(a, b)
+    const int32_t masked  = a & b;     // bitwise: no trap, plain op
+    const int32_t shifted = a << 1;    // -> delta_shl_i32(a, 1)
+    const bool isBigger = a > b;       // comparisons/logical: plain, no trap
+    const bool both = isBigger && (a != b);
+    const bool negated = !both;
+    const int32_t grouped = (a + b) * 2;
+    (void)negated;
+    return sum + diff + prod + quot + rem + masked + shifted + grouped;
+}
+*/

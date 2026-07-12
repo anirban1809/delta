@@ -1,0 +1,8 @@
+// E0501 — `Vec3` has no field `w`
+type Vec3 = { x: float64; y: float64; z: float64; };
+
+function main(): int32 {
+    const origin: Vec3 = { x: 0.0, y: 0.0, z: 0.0 };
+    const n: float64 = origin.w;   // ERROR[E0501]: `Vec3` has no field `w`
+    return int32(n);
+}

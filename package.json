@@ -1,0 +1,35 @@
+{
+  "name": "delta",
+  "version": "1.0.0",
+  "description": "A statically-typed, AOT-compiled systems programming language with TypeScript-like syntax. Delta lowers to inspectable C through a bundled, pinned Clang toolchain, and pairs ownership-based memory safety with a channel-style error model — no exceptions, no `Result<T, E>` wrappers, no hidden control flow.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "npm run build && node ./dist/run-tests.js",
+    "build": "tsc",
+    "start": "npm run build && node ./dist/main.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anirban1809/delta.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/anirban1809/delta/issues"
+  },
+  "homepage": "https://github.com/anirban1809/delta#readme",
+  "devDependencies": {
+    "@types/node": "^26.0.1",
+    "prettier": "^3.8.4"
+  },
+  "dependencies": {
+    "@catalystic/json-to-yaml": "^1.0.0"
+  }
+}

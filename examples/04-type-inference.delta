@@ -1,0 +1,44 @@
+// Feature 04 — Type inference for bindings
+// Spec: §4 Type Inference
+//
+// A binding with an initializer may omit its annotation; the type is inferred
+// from the initializer. When BOTH an annotation and an initializer are present,
+// they must agree.
+//
+// Pipeline work:
+//   semantics  : infer a binding's type from its initializer expression;
+//                default a bare integer literal (`0`) to int32 and a float
+//                literal (`0.0`) to float64; check annotation-vs-inferred agreement.
+//   lsp        : hover must surface the INFERRED type, not just annotated ones.
+
+function main(): int32 {
+    const count = 0;          // inferred int32
+    const ratio = 1.5;        // inferred float64
+    const flag = true;        // inferred bool
+
+    const sum = count + 10;   // inferred int32 (operand types propagate)
+
+    // A binding with no annotation AND no initializer is illegal (nothing to infer):
+    // const mystery;         // ERROR: cannot infer type without an initializer or annotation
+
+    // Annotation and initializer must agree:
+    // const x: int32 = 1.5;  // ERROR: type mismatch: annotation `int32` vs initializer `float64`
+
+    return count + sum + int32(ratio) - int32(ratio);
+}
+
+/* === Generated C (illustrative) ===
+   Inference is a front-end concern; codegen always emits the concrete C type
+   the analyzer resolved. There is no trace of "inferred vs annotated" in the C.
+#include <stdbool.h>
+#include <stdint.h>
+
+int32_t main(void) {
+    const int32_t count = 0;        // inferred int32
+    const double  ratio = 1.5;      // inferred float64 -> double
+    const bool    flag  = true;     // inferred bool
+    const int32_t sum   = count + 10;
+    (void)flag;
+    return count + sum + (int32_t)ratio - (int32_t)ratio;
+}
+*/

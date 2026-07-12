@@ -2,12 +2,11 @@ function main(): int32 {
     let a: int32 = 1;
     let b: int32 = 2;
     switch (a) {
-        case 1: {
+        case 1:
             switch (b) {
-                case 2:   { return 0; }
-                default:  { return 1; }
+                case 2:   return 0;
+                default:  return 1;
             }
-        }
-        default: { return 2; }
+        default: return 2;
     }
 }

@@ -1,0 +1,15 @@
+// Escaping borrow — returning a reference is rejected in v0.5
+// Borrows are call-scoped and cannot escape. Returning a borrow (like storing one
+// in a field or binding one to a local) is post-v0.5 — the `viewing <source>`
+// lifetime contract. No stable diagnostic code yet (Phase F structural rejection).
+type Vec3 = { x: float64; y: float64; z: float64; };
+
+function identity(v: &Vec3): &Vec3 {
+    return v;   // ERROR: a reference cannot escape its call in v0.5 (returning a borrow is post-v0.5)
+}
+
+function main(): int32 {
+    let p: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
+    identity(&p);
+    return 0;
+}

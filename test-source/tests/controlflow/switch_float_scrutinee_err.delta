@@ -1,6 +1,6 @@
 function main(): int32 {
     let f: float32 = 1.0;
     switch (f) {
-        default: { return 0; }
+        default: return 0;
     }
 }

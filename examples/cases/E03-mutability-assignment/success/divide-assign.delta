@@ -1,0 +1,6 @@
+// E03 success — compound divide-assign `/=`.
+function main(): int32 {
+    let total: int32 = 30;
+    total /= 3;
+    return total;
+}

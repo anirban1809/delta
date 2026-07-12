@@ -1,0 +1,67 @@
+// Feature 12 — Ownership tiers, `move`, `clone`
+// Spec: §14 Ownership & Move Semantics, Phase F
+//
+// Three tiers, inferred structurally (only `unique` is ever declared — and that's
+// post-v0.5):
+//   copyable  — primitives, bool, char, &T, views; a record all of whose fields are copyable.
+//   cloneable — not copyable, not unique, fields copyable-or-cloneable (e.g. owns a `heap<T>`).
+//   unique    — contains a unique field / `edit &T`; move-or-reference only.
+//
+// Move transfers ownership and INVALIDATES the source. `clone` produces a new
+// owned value without consuming the source (and may abort/`as result` on OOM).
+//
+// NOTE: move/clone are only observable on NON-copyable types. In v0.5 that means a
+// record owning a `heap<T>` (feature 14). This file forward-references heap.
+//
+// Pipeline work:
+//   semantics  : structural tier inference; move-state lattice over the CFG
+//                (reuses feature 08); use-after-move rejection; `const` cannot be moved.
+//   codegen    : move is compile-time only (transfers the pointer); clone deep-copies.
+
+type Counter = { value: heap<int64>; };   // owns heap -> cloneable, non-copyable, move-meaningful
+
+function main(): int32 {
+    let a: Counter = { value: new 0 };     // `new 0` boxes an int64 on the heap (feature 14)
+
+    let b = move a;                        // ownership moves to `b`; `a` is now invalid
+
+    // const dead = a.value;               // ERROR: use of moved value `a`
+
+    let c = clone b as result;             // deep clone; allocates fresh heap -> may OOM
+    check c {
+        return 1;
+    }
+
+    // const frozen: Counter = { value: new 5 };
+    // let stolen = move frozen;           // ERROR: cannot move out of `const` binding `frozen`
+
+    return 0;
+}
+
+/* === Generated C (illustrative) ===
+   Move is COMPILE-TIME only: the C is a plain struct copy, and the analyzer's
+   drop-elision ensures the moved-from binding is NOT freed at scope exit (so no
+   double free). Clone calls a generated deep-clone that re-allocates the heap
+   field and can fail with AllocError.
+#include <stdbool.h>
+#include <stdint.h>
+
+typedef struct { int64_t* value; } delta__Counter;          // heap<int64> -> int64*
+
+typedef struct { bool is_error; union { delta__Counter ok; uint8_t err; }; }
+    delta__Result_Counter_AllocError;
+
+int32_t main(void) {
+    delta__Counter a = { .value = delta_rt_box_i64(0) };     // `new 0`
+    delta__Counter b = a;                                    // move: `a` dead hereafter
+
+    delta__Result_Counter_AllocError _c0 = delta__Counter__clone(&b);  // `clone ... as result`
+    if (_c0.is_error) { return 1; }
+    delta__Counter c = _c0.ok;
+
+    // scope exit: free live owners only. `a` was moved out -> skipped.
+    delta_rt_free(c.value);
+    delta_rt_free(b.value);
+    return 0;
+}
+*/

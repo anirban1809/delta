@@ -1,0 +1,6 @@
+// E03 success — postfix increment `++` on a mutable integer.
+function main(): int32 {
+    let total: int32 = 5;
+    total++;
+    return total;
+}

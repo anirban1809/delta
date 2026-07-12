@@ -260,7 +260,7 @@
   {
     "file": "let_uninit_both_branches_ok.delta",
     "expect": "pass",
-    "note": "phase B — both arms of `if`/`else` assign `x`; lattice join is Live"
+    "note": "phase B — both arms of `if (b == true)`/`else` assign `x`; lattice join is Live. condition is an explicit comparison, not a bare bool identifier (bare `if (b)` is not a valid condition form)"
   },
   {
     "file": "let_uninit_one_branch_err.delta",

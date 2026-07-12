@@ -1,0 +1,11 @@
+function main(): int32 {
+    let tag: int32 = 2;
+    switch (tag) {
+        case 1:
+            return 1;
+        case 2:
+            return 2;
+        default:
+            return 3;
+    }
+}

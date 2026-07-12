@@ -1,0 +1,6 @@
+// Runtime panic: division by zero
+function main(): int32 {
+    const a: int32 = 2_000_000_000;
+    const divzero: int32 = a / 0;   // TRAP: division by zero
+    return divzero;
+}

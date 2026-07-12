@@ -1,0 +1,13 @@
+type struct Vec3      = { x: int32, y: int32, z: int32 };
+type struct Transform = { position: Vec3, visible: bool };
+
+function invalidTransform(): Transform {
+    return Transform {
+        position: Vec3 { x: 3, y: 5 },
+        visible: true
+    };
+}
+
+function main(): int32 {
+    return 0;
+}

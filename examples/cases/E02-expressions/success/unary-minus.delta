@@ -1,0 +1,5 @@
+// E02 success — unary minus `-`.
+function main(): int32 {
+    const a: int32 = 6;
+    return -a;
+}

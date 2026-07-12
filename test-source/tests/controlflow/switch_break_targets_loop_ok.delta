@@ -2,11 +2,11 @@ function main(): int32 {
     let found: int32 = -1;
     for (let i: int32 = 0; i < 100; i++) {
         switch (i) {
-            case 7: {
+            case 7:
                 found = i;
                 break;
-            }
-            default: { }
+            default:
+                found = 10;
         }
     }
     if (found != 7) { return 1; }

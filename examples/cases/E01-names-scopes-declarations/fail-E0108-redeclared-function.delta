@@ -1,0 +1,12 @@
+// E0108 — `f` is declared more than once (no overloading by name alone)
+function f(n: int32): int32 {
+    return n;
+}
+
+function f(n: int32, m: int32): int32 {   // ERROR[E0108]: `f` is declared more than once (no overloading by name alone)
+    return m;
+}
+
+function main(): int32 {
+    return 0;
+}

@@ -1,0 +1,8 @@
+// E05 success — spread composition `{ ...Base; extra }`.
+type Animal = { legs: int32; sound: int32; };
+type Dog = { ...Animal; goodBoy: bool; };
+
+function main(): int32 {
+    const rex: Dog = { legs: 4, sound: 1, goodBoy: true };
+    return rex.legs;
+}

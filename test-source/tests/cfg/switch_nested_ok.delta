@@ -1,0 +1,15 @@
+function main(): int32 {
+    let outer: int32 = 1;
+    let inner: int32 = 2;
+    switch (outer) {
+        case 1:
+            switch (inner) {
+                case 2:
+                    return 0;
+                default:
+                    return 1;
+            }
+        default:
+            return 2;
+    }
+}

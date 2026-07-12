@@ -1,0 +1,4 @@
+// E02 success — decimal integer literal with `_` separators.
+function main(): int32 {
+    return 1_000_000;
+}

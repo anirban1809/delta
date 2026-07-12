@@ -1,0 +1,10 @@
+function touch(value: int32): int32 {
+    return value;
+}
+
+function main(): int32 {
+    let value: int32 = 1;
+    value = value + 1;
+    touch(value);
+    return value;
+}

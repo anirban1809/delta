@@ -1,0 +1,7 @@
+// Runtime panic: signed division overflow (INT_MIN / -1)
+function main(): int32 {
+    const lo: int32 = int32(0) - 2_147_483_648;   // INT32_MIN
+    const neg: int32 = int32(0) - 1;
+    const bad: int32 = lo / neg;   // TRAP: signed division overflow
+    return bad;
+}

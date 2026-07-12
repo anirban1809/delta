@@ -1,0 +1,5 @@
+// E01 success — a local `const` binding with an initializer.
+function main(): int32 {
+    const base: int32 = 10;
+    return base;
+}

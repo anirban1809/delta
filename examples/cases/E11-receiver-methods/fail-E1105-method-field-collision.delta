@@ -1,0 +1,11 @@
+// E1105 — method `value` collides with field `value` of `Counter`
+type Counter = { value: heap<int64>; };
+
+function (c: &Counter) value(): int64 {   // ERROR[E1105]: method `value` collides with field `value` of `Counter`
+    return c.value;
+}
+
+function main(): int32 {
+    let c: Counter = { value: new 0 };
+    return int32(c.value());
+}

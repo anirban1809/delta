@@ -1,0 +1,14 @@
+// E08 success — an exclusive mutable borrow `edit &T` writes through the reference.
+type Vec3 = { x: float64; y: float64; z: float64; };
+
+function scale(v: edit &Vec3, factor: float64): void {
+    v.x = v.x * factor;
+    v.y = v.y * factor;
+    v.z = v.z * factor;
+}
+
+function main(): int32 {
+    let p: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
+    scale(edit &p, 2.0);
+    return int32(p.x + p.y + p.z);
+}

@@ -1,0 +1,16 @@
+// E1103 — cannot call `edit`-receiver method `add` through a `&T` reference
+type Counter = { value: heap<int64>; };
+
+function (c: edit &Counter) add(amount: int64): void {
+    c.value = c.value + amount;
+}
+
+function bump(c: &Counter): void {
+    c.add(1);   // ERROR[E1103]: cannot call `edit`-receiver method `add` through a `&T` reference
+}
+
+function main(): int32 {
+    let c: Counter = { value: new 0 };
+    bump(&c);
+    return 0;
+}

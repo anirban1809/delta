@@ -1,8 +1,8 @@
 function main(): int32 {
     let n: int32 = 99;
     switch (n) {
-        case 1:   { return 1; }
-        case 2:   { return 2; }
-        default:  { return 0; }
+        case 1:   return 1;
+        case 2:   return 2;
+        default:  return 0;
     }
 }

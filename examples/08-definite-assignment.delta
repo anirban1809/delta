@@ -1,0 +1,59 @@
+// Feature 08 — Definite assignment + return coverage
+// Spec: §3.3, Phase B
+//
+// This is where you should build the CFG + dataflow framework: a non-void
+// function must return on EVERY path, and an uninitialized `let` may not be
+// read on any path where it isn't definitely assigned. Features 12/13 (ownership,
+// borrows) reuse this same machinery, so build it properly here, not as an
+// AST-walk heuristic.
+//
+// Pipeline work:
+//   semantics  : per-binding definite-assignment over the CFG; return-coverage
+//                over the CFG; whole-value-only initialization.
+//   diagnostics: "may be read before assignment", "missing return on some path".
+
+function pickAbs(n: int32, useDefault: bool): int32 {
+    let value: int32;            // OK — declared without initializer (annotation present)
+
+    if (useDefault) {
+        value = 0;
+    } else {
+        value = n;
+    }
+    return value;                // OK — assigned on every path
+}
+
+// function maybe(flag: bool): int32 {
+//     if (flag) {
+//         return 1;
+//     }
+//     // ERROR: missing return on the `flag == false` path
+// }
+
+// function readEarly(): int32 {
+//     let x: int32;
+//     return x;                 // ERROR: `x` may be read before assignment
+// }
+
+function main(): int32 {
+    return pickAbs(7, false) + pickAbs(7, true);
+}
+
+/* === Generated C (illustrative) ===
+   Definite assignment and return coverage are PURELY compile-time. There is no
+   runtime check in the generated C — an uninitialized `let` just becomes an
+   uninitialized C local that the checker has already proven is written before use.
+#include <stdbool.h>
+#include <stdint.h>
+
+int32_t pickAbs(int32_t n, bool useDefault) {
+    int32_t value;                      // proven definitely-assigned below
+    if (useDefault) { value = 0; }
+    else            { value = n; }
+    return value;
+}
+
+int32_t main(void) {
+    return delta_add_i32(pickAbs(7, false), pickAbs(7, true));
+}
+*/

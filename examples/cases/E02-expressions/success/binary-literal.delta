@@ -1,0 +1,4 @@
+// E02 success — binary integer literal with `_` separators.
+function main(): int32 {
+    return 0b1010_0101;
+}

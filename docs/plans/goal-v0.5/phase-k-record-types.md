@@ -1,121 +1,219 @@
-# Plan: Phase K — Custom Record Types (`type`)
+# Plan: Phase K — Custom Types (`type struct` / `type enum` / `type union`)
 
 Date drafted: 2026-06-07
+Revised: 2026-07-05 — adopt the `type struct` / `type enum` / `type union` family; enums and tagged unions folded into scope (previously deferred to a "future tagged-union phase"). Union variant construction is **unqualified** (`Variant{ ... }`, pinned by the surrounding typed context); the qualified `Union.Variant{ ... }` form was dropped.
 Status: planning, not started.
-Predecessor: Phases **A** and **B** landed.
-Successor: Phase E (classes) reuses the field-list, member-access, object-literal-pinning, and structural-`==` machinery introduced here. Phase H (`heap T`) lifts the no-recursion restriction. Phase G (`&T`) and a future tagged-union phase lift two more restrictions called out below.
-Spec basis: [spec-sections/08-type-declarations.md](../../spec-sections/08-type-declarations.md), with knock-on text in §11 (mutability) and §3.3 (definite assignment).
+Predecessor: Phases **A** and **B** landed. (Enum and union matching lean on Phase B's `switch`.)
+Successor: Phase E (classes) reuses the field-list, member-access, and object-literal-pinning machinery introduced here. Phase H (`heap T`) lifts the no-recursion restriction. Phase G (`&T`) lifts the reference restriction called out below.
+Spec basis: [spec-sections/08-type-declarations.md](../../spec-sections/08-type-declarations.md) (§8 predates this revision — it still shows the bare `type X = {...}` form with `;`-separated fields and treats unions/enums as aliases; the syntax below supersedes it and §8 needs a follow-up edit).
+
+## Syntax revision (why this plan changed)
+
+The type-declaration surface was redesigned into a single `type` keyword with a sub-keyword that names the kind, so records, enums, and unions are declared uniformly and the sub-keyword tells the reader how to read `:`:
+
+```delta
+type struct Point = { x: float64, y: float64 }              // product; name : TYPE
+type enum   Color = { Red: 1, Green: 3, Blue: 40 }          // constants; name : VALUE
+type union  Shape = Circle{ r: float64 } | Square{ s: float64 } // sum; variant + payload
+type Meters       = distinct float64                        // transparent alias/newtype (bare RHS)
+```
+
+Settled rules (see also the standing decision record):
+
+- **Fields and enum members are comma-separated** inside `{ }` (was `;` in the old draft). This makes struct field lists and struct object literals use the same separator.
+- **`struct`** = product of fields.
+- **`enum`** = closed set of named constants, **`int32`-backed by default**, ABI/FFI-friendly (bridges C enums). Values via `name: value`. **No mixing** — a declaration is either all-explicit (`{ Red: 1, Green: 3 }`) or all-implicit (`{ Red, Green, Blue }` → auto `0, 1, 2`), never partial.
+- **`union`** = Delta-managed tagged sum (discriminant + payload; **not** an integer). `|`-alternated. **Named payloads only** (`Circle{ r: float64 }`; positional payloads deferred). **Payloadless variants are banned** — every variant must carry a `{ ... }`.
+- The **enum ↔ union distinction is representation/ABI-based, not "does it have a payload"** — deliberately avoiding Rust's enum/union conflation. Decision rule for users: needs to be an integer / cross the C boundary → `enum`; needs per-variant data → `union`.
+- `class` was **not** reintroduced (OO baggage already dropped in favor of `struct` records + free receiver functions).
 
 ## Why land this before Phase E
 
-The existing Phase E plan assumes phases I/D/J/A/B/C have shipped because its acceptance program uses `as result`, `check`, `std/log`, and `OverflowError`. Phase K lets the project add a sizable, demonstrable language slice (records, object literals, field access, member assignment, composition, structural equality) without depending on the error model, modules, or `std/log`. It also pulls forward the front-end machinery Phase E needs — `MemberAccessExpression`, object-literal-pinning by expected type, struct emission and compound-literal codegen, declaration-time fixed-size check — into a smaller and cheaper surface, so Phase E can focus on the class-specific layers (privacy, `this`, `edit`, dispose scaffolding) rather than re-inventing field plumbing.
+The existing Phase E plan assumes phases I/D/J/A/B/C have shipped because its acceptance program uses `as result`, `check`, `std/log`, and `OverflowError`. Phase K lets the project add a sizable, demonstrable language slice (records, enums, tagged unions, object literals, field access, member assignment, composition, variant matching) without depending on the error model, modules, or `std/log`. It also pulls forward the front-end machinery Phase E needs — `MemberAccessExpression`, object-literal-pinning by expected type, struct emission and compound-literal codegen, declaration-time fixed-size check — into a smaller and cheaper surface, so Phase E can focus on the class-specific layers (privacy, `this`, `edit`, dispose scaffolding) rather than re-inventing field plumbing.
 
 ## Goal
 
-A user can declare nominal data records with `type X = { ... };`, alias existing named types with `type Y = X;`, construct values with object literals pinned by their surrounding typed context, read and mutate public fields, compose records with spread (`...`) and intersection (`&`), spread values into other literals, and compare them with compiler-derived structural `==`.
+A user can declare nominal `struct` records, `int32`-backed `enum`s, and tagged `union`s; alias existing named types; construct values (object literals for structs, `Enum.Member` for enums, and unqualified `Variant{ ... }` for unions) pinned by their surrounding typed context; read and mutate struct fields; compose structs with spread (`...`) and intersection (`&`); and match unions with `switch` binding payloads. Custom types (structs and unions) carry no compiler-derived `==` / `!=` — it would introduce hidden control flow behind an operator; only enums compare, as their backing `int32`.
 
 After Phase K, this program compiles and exits with status `9`:
 
 ```delta
-type Vec3   = { x: float64; y: float64; z: float64; };
-type Animal = { species: int32; age: int32; };
-type Dog    = { ...Animal; goodBoy: bool; };
+type struct Vec3   = { x: float64, y: float64, z: float64 };
+type struct Animal = { species: int32, age: int32 };
+type struct Dog    = { ...Animal, goodBoy: bool };
+
+type enum Facing = { North: 0, East: 90, South: 180, West: 270 };
+
+type union Shape =
+      Circle{ r: float64 }
+    | Square{ s: float64 };
+
+function area(sh: Shape): float64 {
+    switch (sh) {
+        case Circle{ r }: return 3.14159 * r * r;
+        case Square{ s }: return s * s;
+    }
+}
 
 function magnitudeSquared(v: Vec3): float64 {
     return v.x * v.x + v.y * v.y + v.z * v.z;
 }
 
-function origin(): Vec3 {
-    return { x: 0.0, y: 0.0, z: 0.0 };
-}
-
 function main(): int32 {
     const a: Vec3 = { x: 1.0, y: 2.0, z: 2.0 };
     const b: Vec3 = { ...a };
-    if (a == b) {
+    const heading: Facing = Facing.East;
+    const sh: Shape = Square{ s: 3.0 };
+
+    if (a.x == b.x && heading == Facing.East) {
         let dog: Dog = { species: 1, age: 3, goodBoy: true };
         dog.age = 4;
         if (dog.goodBoy) {
-            return int32(magnitudeSquared(a));   // 9.0 → 9
+            return int32(area(sh));   // 9.0 → 9
         }
     }
-    return 1;
+    return int32(magnitudeSquared(a));   // fallback: also 9
 }
 ```
 
 ## In-scope language surface
 
-- `type Name = { f1: T1; f2: T2; ... };` — fresh nominal record declaration.
-- `type Alias = Existing;` — alias to a single named type.
-- Object-type literal `{ f: T; ... }` legal **only** on the RHS of a `type` declaration (or as a syntactic operand of `...` / `&` inside such a declaration).
+### Structs (`type struct`)
+
+- `type struct Name = { f1: T1, f2: T2, ... };` — fresh nominal record declaration, comma-separated fields.
+- Object-type literal `{ f: T, ... }` legal **only** on the RHS of a `type struct` declaration (or as a syntactic operand of `...` / `&` inside such a declaration).
 - Object literal `{ f: v, ... }` at expression position, pinned by the surrounding typed context:
   - `const v: Vec3 = { ... };` binding annotation.
-  - `f({ ... })` call-site argument with a record parameter type.
-  - `return { ... };` inside a function whose declared return type is a record.
+  - `f({ ... })` call-site argument with a struct parameter type.
+  - `return { ... };` inside a function whose declared return type is a struct.
 - Object literal coverage rules: every field exactly once. Missing / extra / duplicate fields are compile errors. Field order is irrelevant.
-- `let v: Vec3;` (no initializer) — record-typed binding, **definitely-assigned only by whole-value assignment** (`v = { ... };`).
-- Field read: `v.field` for any record-typed expression.
-- Field assignment: `v.field = expr;` legal only when `v` is a mutable (`let`) binding **and** has already been fully initialized.
-- Type-level composition on the RHS of `type X = ...;`:
-  - Spread form: `type Dog = { ...Animal; breed: int32; };`.
-  - Intersection form: `type Dog = Animal & { breed: int32; };`.
-  - Field-name collisions across operands are compile errors. No override.
-  - Operands must be record types (named or RHS-inline). Aliases that resolve to records are fine.
-- Value-level spread inside an object literal: `const c: Vec3 = { ...base };`, `const c: Vec3 = { ...base, ...other };`. Combined field set must cover the target exactly once; collisions across spreads or between a spread and an explicit field are errors. The spread source's type must be the **same** record type as the target.
-- Compiler-derived structural `==` / `!=` on two values of the same record type, iff every field type supports `==`. Per-field structural comparison; numeric / `bool` / `char` field-types qualify (consistent with current Phase A typing).
-- No methods, no per-field visibility, no field defaults — all rejected at parse / analyze time per §8.5 / §8.11.
+- `let v: Vec3;` (no initializer) — struct-typed binding, **definitely-assigned only by whole-value assignment** (`v = { ... };`).
+- Field read: `v.field`. Field assignment: `v.field = expr;` legal only when `v` is a mutable (`let`) binding **and** already fully initialized.
+- Type-level composition on the RHS of `type struct X = ...;`:
+  - Spread form: `type struct Dog = { ...Animal, breed: int32 };`.
+  - Intersection form: `type struct Dog = Animal & { breed: int32 };`.
+  - Field-name collisions across operands are compile errors. No override. Operands must be struct types (named or RHS-inline); aliases that resolve to structs are fine.
+- Value-level spread inside an object literal: `{ ...base }`, `{ ...base, ...other }`. Combined field set must cover the target exactly once; collisions across spreads or between a spread and an explicit field are errors. The spread source's type must be the **same** struct type as the target.
+
+### Enums (`type enum`)
+
+- `type enum Name = { A: v1, B: v2, ... };` — closed set of named `int32` constants, comma-separated.
+- Two declaration modes, never mixed:
+  - **All-explicit:** every member names a value (`{ North: 0, East: 90 }`). Values must be `int32` literals; duplicate values are allowed (aliasing constants) but duplicate **names** are an error.
+  - **All-implicit:** no member names a value (`{ Red, Green, Blue }`); the compiler assigns `0, 1, 2, …` in declaration order.
+  - A partial mix (`{ Red: 1, Green, Blue: 3 }`) is a compile error ("enum values must be all-explicit or all-implicit").
+- Member reference: `Name.Member` (e.g. `Facing.East`) yields a compile-time `int32` value of type `Name`. An enum member **is** an `int32` literal and interchanges freely with any integer type — no cast is needed to use it as an integer.
+- Comparisons: because a member is an `int32` literal, `==` / `!=` **and** `<` / `>` / `<=` / `>=` work between two enum operands and between an enum and any integer, as ordinary integer comparisons.
+- No cast is needed to read an enum's value — `Facing.East` *is* the `int32` literal `90` (`int32(e)` is redundant, not required). In the reverse direction, an integer **literal** that names a member coerces to the enum by its typed context (`const f: Facing = 90;` → `East`); an integer literal that names **no** member (`= 91`) and any **non-literal / runtime** integer are compile errors. A checked runtime narrowing (trapping on illegal values) is deferred to the FFI phase.
+- Exhaustive `switch` over an enum: every member must have a `case`, or a `default` must be present; a non-exhaustive `switch` with no `default` is a compile error naming the missing members.
+
+### Unions (`type union`)
+
+- `type union Name = A{ f: T, ... } | B{ g: U, ... } | ...;` — tagged sum over named variants, `|`-alternated.
+- **Every variant carries a named-field payload.** Payloadless variants (`A | B{ ... }`) are a parser error. Positional payloads (`A{ float64 }`) are a parser error (named-only for now).
+- Variant names are **not** global free constructors: an unqualified `Variant{ ...payload... }` resolves only against the union pinned by the surrounding typed context (binding annotation, call-arg, return, or an enclosing field/payload). Construction is unqualified — the qualified `Name.Variant{ ... }` form is rejected — and an unpinned `Variant{ ... }` (no typed context) is an error. The payload literal follows the same coverage rules as struct object literals (every payload field exactly once).
+- A union value's payload is only reachable through a `switch` that binds it:
+  ```delta
+  switch (sh) {
+      case Circle{ r }:        // binds r: float64
+      case Square{ s }: ...     // binds s: float64
+  }
+  ```
+  - Patterns bind payload fields by name into the case body (`{ r }` binds `r`; `{ r: radius }` renaming form is out of scope for now — named-shorthand only).
+  - `switch` over a union must be exhaustive (every variant, or a `default`).
+- Equality: **not supported.** `==` / `!=` between union operands is rejected — a compiler-derived comparison would branch on the tag and compare payloads fieldwise, i.e. hidden control flow behind an operator. (Structs are rejected for the same reason; see §Shared.)
+
+### Shared / aliases
+
+- `type Alias = Existing;` — transparent alias to a single named type (struct, enum, union, or primitive). Bare RHS, no sub-keyword.
+- No compiler-derived `==` / `!=` on struct or union values — a synthesized fieldwise (struct) or tag-dispatching (union) comparison is hidden control flow behind an operator, so both are rejected. Enums do compare (`==` / `!=`, and ordering), by their backing `int32`.
+- No methods, no per-field visibility, no field defaults on any form — rejected at parse / analyze time.
 
 ## Explicitly out of scope for Phase K
 
 | Feature | Reason | Eventual home |
 |---|---|---|
-| `heap T` indirection (recursive records) | Spec §8.7; depends on heap allocation story. | Phase H. |
-| `&T` / `edit &T` field-type and parameter types | Spec §8.8; needs reference machinery. | Phase G. |
-| `same(a, b)` identity intrinsic | Spec §8.10; requires `&` / `heap` operands to be well-defined. | Co-lands with G/H. |
-| Tagged unions `type X = A \| B;` | Spec §8.13; separate phase. | Future "tagged-union phase". |
-| Aliases to generic instantiations (`type IntList = Array<int32>;`) | Generics not yet specified. | Future generics phase. |
-| Ordering operators `<` / `>` / `<=` / `>=` on records | Spec §8.9: not defined for records. | Never. |
-| User-overridable `==` | Spec §8.9: compiler-derived only. | Never. |
-| Anonymous object types in parameter / field / return / binding positions | Spec §8.3. | Never. |
-| Per-field visibility (`public` / `private`) | Spec §8.5: types carry no visibility. | Never. |
-| Methods on `type` declarations | Spec §8.5: behavior lives in free functions or classes. | Never. |
-| Field-level default initializers | Spec §8.11: drift / two construction rules. | Never. |
-| `extends` keyword on `type` | Spec §8.14. | Never. |
-| Class records and the `class` keyword | Phase E. | Phase E. |
-| Moving fields out of records | No move story yet. | Phase F (and even there, mostly classes). |
-| Disposal of record-typed bindings | Phase K records hold only primitives, so there's nothing to dispose; the scaffolding lands in Phase E. | Phase E. |
+| `heap T` indirection (recursive structs/unions) | Depends on heap allocation story. | Phase H. |
+| `&T` / `edit &T` field-type and parameter types | Needs reference machinery. | Phase G. |
+| `same(a, b)` identity intrinsic | Requires `&` / `heap` operands. | Co-lands with G/H. |
+| Enum backing types other than `int32` (`type enum E: u8 = ...`) | Needs the explicit-backing-type syntax + range checks. | FFI phase (co-lands with `extern "c"` enum import). |
+| **Runtime / checked** integer → enum narrowing (`Facing(runtimeInt)`, trapping on illegal values) | Admits out-of-range values; needs the trap/validation story. (Compile-time coercion of a *member-naming literal* is in scope — see §Enums.) | FFI phase. |
+| Union pattern **renaming** (`case Circle{ r: radius }`) and nested/guard patterns | Keeps the matcher small this phase. | Later matching phase. |
+| Positional / tuple union payloads (`A{ float64 }`) | Named-only for parity with structs. | Later. |
+| Aliases to generic instantiations (`type List = Array<int32>;`) | Generics not yet specified. | Future generics phase. |
+| Ordering operators `<` / `>` / `<=` / `>=` on struct / union operands | Not defined for records/unions. (Enum operands **do** order — a member is an `int32` literal.) | Never (records/unions). |
+| `==` / `!=` on struct / union operands | A synthesized fieldwise / tag-dispatch comparison is hidden control flow behind an operator. | Never. |
+| Anonymous object types in parameter / field / return / binding positions | §8.3. | Never. |
+| Per-field visibility (`public` / `private`) | Types carry no visibility. | Never. |
+| Methods on `type` declarations | Behavior lives in free functions / receiver functions. | Never. |
+| Field-level default initializers | Drift / two construction rules. | Never. |
+| `class` keyword and class records | Deliberately dropped; Phase E covers class-shaped records if revived. | Phase E. |
+| Moving fields out of records | No move story yet. | Phase F. |
+| Disposal of `type`-bound values | Phase K values hold only primitives, so there's nothing to dispose. | Phase E/F. |
 
 ## What's missing today
 
-- No `type` keyword, no `...` (spread) token, no spread / intersection on type RHS, no anonymous object-type literal.
-- No object-literal expression. The parser does not parse `{ ... }` at expression position; it only recognizes `{` as a block opener inside statements.
+- No `type` keyword; no `struct` / `enum` / `union` sub-keywords; no `...` (spread) token; no spread / intersection on type RHS; no anonymous object-type literal; no `|` in type position.
+- No object-literal expression, no `Enum.Member` value form, no `Union.Variant{ ... }` construction form. The parser only recognizes `{` as a block opener inside statements.
 - No `MemberAccessExpression` AST node (Phase A's `Type.from` path is special-cased in the analyzer).
+- `switch` (Phase B) matches scalar values only — no variant patterns, no payload binding, no exhaustiveness check against a declared member/variant set.
 - No user-defined nominal types in the type table. The current `Type` covers only the primitive set plus `TypeInvalid` / `TypeEmpty`.
-- The analyzer does not propagate an *expected* type into expression checks. Annotations are informational ("known gap" called out in compiler-status: "annotations are currently informational"). Bidirectional inference is required to type-check object literals correctly — they have shape but no name without context.
-- Codegen has no struct emission, no compound-literal emission, no per-type equality helper synthesis, no field-access lowering.
-- Definite-assignment in Phase B is per-binding, not per-field. Partial-init rejection requires no new tracking (we simply disallow `v.field = ...` until DA is satisfied by a whole-value assignment), but the rule has to be wired into the AST-walk DA pass.
+- The analyzer does not propagate an *expected* type into expression checks ("annotations are currently informational"). Bidirectional inference is required to type-check object literals and union payload literals, which have shape but no name without context.
+- Codegen has no struct/enum/union emission, no compound-literal emission, no field-access lowering, no tagged-union tag/payload lowering.
+- Definite-assignment in Phase B is per-binding, not per-field.
 
 ## Decisions
 
-1. **A `type` declaration lowers to a C struct, named `delta__<RecordName>`.** Fields are emitted in declaration order. Aliases (`type Y = X;`) do not emit a new struct; they reuse the aliased type's symbol and C name. The single-module name space matches the current single-file compiler; a per-module prefix is left as a no-op placeholder for Phase I to fill in.
-2. **Anonymous object-type literals are RHS-only, enforced in the parser.** The parser only accepts `{ field: T; ... }` as the body of `type X = ...;` (or as an operand of `...` / `&` within that RHS). Anywhere else (`function f(p: { x: int32; }): void`, `let v: { x: int32 };`) is a parser error pointing at §8.3.
-3. **Object literals at expression position carry shape but no name; the analyzer pins their type from context.** Pinning sources, in order: binding annotation, call-site parameter type, return type. An object literal whose context cannot be pinned is a structured error with the message "object literal needs a typed context; add an annotation, pass to a typed parameter, or return into a typed function." The expression's static type after pinning is the pinned record type.
-4. **A one-level bidirectional inference pass lands here.** The analyzer gains a `typeOfExpr(expr, expected Type)` form. `expected` is passed only at the three pinning sites above and at each field of a known-target object literal (used to type the literal's field initializers). Everywhere else, type checking proceeds bottom-up as today. This closes the existing "annotations are informational" gap for the record path; primitives keep their current behavior (a separate cleanup item).
-5. **`type X = Y;` is a structural alias, not a fresh nominal type.** The analyzer records `X` as another name pointing at `Y`'s `Type` value. `Vec3` and `Position` (where `type Position = Vec3;`) compare equal as types and interchange freely. Fresh nominal identity is reserved for the `{ ... }` and composition RHS forms (§8.2 table).
-6. **Composition is uniform across spread and intersection.** The analyzer collects all operands' field sets, errors on any name collision, and produces a fresh nominal record. Operands that are not records (or aliases to records) are errors. Cyclic composition (`type A = { ...B; }; type B = { ...A; };`) is detected at declaration time by a worklist that expands each declaration's operands eagerly; any back-edge is the structured cycle error from §8.6 / §8.7.
-7. **Direct self-reference is a hard error at declaration time.** Phase K has no `heap T`, so any record cycle is fatal. The diagnostic names every type on the cycle and ends with "introduce indirection (`heap T`) — not supported until Phase H." This is intentional: the cycle check is the same code path that Phase H will refine once `heap T` lands; the only thing Phase H changes is what counts as a cycle-breaker.
-8. **Coverage check happens after pinning, comparing the literal's field-name set against the pinned type's field-name set.** Missing / unknown / duplicate field diagnostics each carry the field name and the target type name. Spread sources contribute their declared field set; if a spread source's static type is not the *same* type as the target, the diagnostic is "spread source is `T1`, target is `T2`; cross-type spread is not allowed (§8.12)."
-9. **`==` is compiler-derived structurally.** For two operands of the same record type, the analyzer accepts the comparison iff every field type supports `==` (numeric, `bool`, `char` today). Codegen synthesizes one `static inline bool delta__<Record>_eq(delta__<Record> a, delta__<Record> b) { return a.x == b.x && ...; }` per record type the program compares, emitted on first use. Records whose fields are all primitives qualify; once `string` is added later, the gate will exclude any record with a `string` field per §8.9 with the suggested fix message.
-10. **Field access (`v.f`) and field assignment (`v.f = e;`) reuse `MemberAccessExpression`.** The analyzer resolves the receiver to a record type, looks up `f` on that type's field list, and yields the field's type (read) or validates the L-value (write). Writes require the receiver binding to be a `let` (or, eventually, `edit &`). Writes to a `const`-bound receiver are the existing "cannot assign to const" diagnostic, extended to record receivers.
-11. **Definite-assignment treats record bindings whole.** `let v: Vec3;` is uninitialized; reading any field of `v` or writing any field of `v` before `v = { ... };` is an error ("`v` is uninitialized"). Whole-value assignment marks the binding initialized; from then on, individual field reads/writes are fine. The DA tracker doesn't need per-field bits, because §8.4 forbids partial field initialization outright.
-12. **No ordering, no field defaults, no methods, no per-field visibility — rejected at the earliest legal stage.** Field defaults (`port: int32 = 8080;`) are a parser error inside the RHS field list. Methods (`name(): T { ... }`) are a parser error. `public` / `private` inside a `type` are parser errors. `<` / `>` / `<=` / `>=` between record operands are analyzer errors. All carry the §8 reference in the help text.
+### Structs
+
+1. **A `type struct` declaration lowers to a C struct, named `delta__<Name>`.** Fields are emitted in declaration order. Aliases (`type Y = X;`) do not emit a new struct; they reuse the aliased type's symbol and C name. Per-module name prefixing is a no-op placeholder for Phase I.
+2. **Anonymous object-type literals are RHS-only, enforced in the parser.** The parser only accepts `{ field: T, ... }` as the body of `type struct X = ...;` (or as an operand of `...` / `&` within that RHS). Anywhere else (`function f(p: { x: int32 }): void`, `let v: { x: int32 }`) is a parser error pointing at §8.3.
+3. **Object literals at expression position carry shape but no name; the analyzer pins their type from context.** Pinning sources, in order: binding annotation, call-site parameter type, return type, and (for union payloads) the variant selected by `Union.Variant`. An unpinnable object literal is the structured error "object literal needs a typed context; add an annotation, pass to a typed parameter, or return into a typed function."
+4. **A one-level bidirectional inference pass lands here.** The analyzer gains `typeOfExpr(expr, expected Type)`. `expected` is passed at the pinning sites above and at each field of a known-target object literal / union payload. Everywhere else, checking proceeds bottom-up. This closes the "annotations are informational" gap for the type-declaration path; primitives keep their current behavior (additive change).
+5. **`type X = Y;` is a transparent alias, not a fresh nominal type.** The analyzer records `X` as another name pointing at `Y`'s `Type`. Fresh nominal identity is reserved for the `struct` / `enum` / `union` RHS forms.
+6. **Struct composition is uniform across spread and intersection.** Collect all operands' field sets, error on any name collision, produce a fresh nominal struct. Non-struct operands are errors. Cyclic composition is detected at declaration time by a worklist expanding each declaration's operands eagerly; any back-edge is the structured cycle error.
+7. **Direct self-reference is a hard error at declaration time** (structs and unions alike). Phase K has no `heap T`, so any value-type cycle is fatal. The diagnostic names every type on the cycle and ends with "introducing `heap T` would break this cycle, but `heap T` is not implemented yet (Phase H); a value type cannot recurse directly." Wording lifted from §8.7 to stay stable across phases.
+8. **Struct coverage check happens after pinning**, comparing the literal's field-name set against the pinned type's field-name set. Missing / unknown / duplicate diagnostics carry the field name and the target type name. Spread sources contribute their declared field set; a spread source whose static type is not the *same* type as the target is "spread source is `T1`, target is `T2`; cross-type spread is not allowed."
+9. **Field access (`v.f`) and field assignment (`v.f = e;`) reuse `MemberAccessExpression`.** Resolve the receiver to a struct type, look up `f`, yield the field's type (read) or validate the L-value (write). Writes require the receiver binding to be a `let`. Writes to a `const` receiver are the existing "cannot assign to const" diagnostic, extended to struct receivers.
+10. **Definite-assignment treats struct bindings whole.** `let v: T;` is uninitialized; reading or writing any field before `v = { ... };` is an error. Whole-value assignment marks it initialized. No per-field bits — partial field initialization is forbidden outright.
+
+### Enums
+
+11. **A `type enum` lowers to a C enum backed by `int32`.** Emit `typedef enum delta__Facing { delta__Facing_North = 0, delta__Facing_East = 90, ... } delta__Facing;`. The backing type is fixed at `int32` this phase (explicit backing types are out of scope). Implicit-mode members receive `0, 1, 2, …` computed at analyze time and emitted as explicit initializers, so the C output does not depend on the C compiler's enum-numbering rules.
+12. **Enum mode is enforced in the parser.** All members bare → implicit. All members `name: literal` → explicit. Any mix → parser error. Explicit values must be integer literals; the analyzer checks each fits `int32`. Duplicate member **names** are an error; duplicate **values** are allowed.
+13. **`Enum.Member` is a `MemberAccessExpression` whose receiver resolves to an enum type name.** The analyzer yields an `int32`-valued member of the enum type that interchanges with any integer type without a cast (`int32(e)` is redundant, not required). Integer → enum: an integer **literal** naming a member coerces by the pinned expected type (`const f: Facing = 90;`); an integer literal that names no member, or any non-literal / runtime integer, is a compile error. A runtime checked narrowing (trapping on illegal values) is deferred to the FFI phase.
+14. **Enum comparisons lower to integer comparison** on the backing value — `==`/`!=` **and** `<`/`>`/`<=`/`>=`, between two enum operands or an enum and any integer (a member is an `int32` literal). No synthesized helper needed.
+
+### Unions
+
+15. **A `type union` lowers to a tagged C struct** — a discriminant enum plus an anonymous `union` of per-variant payload structs:
+    ```c
+    typedef struct delta__Shape {
+        enum { delta__Shape_Circle, delta__Shape_Square } tag;
+        union {
+            struct { double r; } Circle;
+            struct { double s; } Square;
+        } payload;
+    } delta__Shape;
+    ```
+    Variants and their payload fields are emitted in declaration order.
+16. **Payloadless and positional payloads are parser errors.** Every variant must be `Variant{ named: T, ... }`. The two diagnostics ("union variants must carry a `{ ... }` payload" / "union payloads must use named fields") point at the union spec text.
+17. **Construction is unqualified `Variant{ ... }`, pinned by the surrounding typed context.** The pinned expected type must resolve to a union; the `Variant` name selects one of its variants (and thus the payload type). The analyzer sets the value's type to that union, records the active variant tag, and type-checks the payload literal against the variant's field list using the same coverage/collision rules as struct literals (Decision 8). An unpinned `Variant{ ... }` (no typed context) is an error (mirrors Decision 3); a qualified `Union.Variant{ ... }` is rejected with a fix-it to drop the qualifier; a `Variant` the pinned union does not declare, or a `Variant` without a `{ ... }` payload, is an error.
+18. **Union consumption is exhaustive `switch` with variant patterns.** `case Variant{ a, b }:` matches the tag and binds each named payload field into the case scope (shorthand binding only; renaming is out of scope). The analyzer requires the case set to cover every variant unless a `default` is present; a non-exhaustive `switch` with no `default` lists the missing variants. Pattern field names must exactly match the variant's payload fields (missing/unknown/duplicate binding → error).
+19. **Union `==`/`!=` is rejected — no compiler-derived equality.** A synthesized comparison would branch on the discriminant and compare the active payload fieldwise; hiding that control flow behind `==` is disallowed (as it is for structs). The analyzer reports a structured error on any `==`/`!=` with a union operand; no `delta__<Union>_eq` helper is generated.
+
+### Cross-cutting
+
+20. **No ordering, no field defaults, no methods, no per-field visibility — rejected at the earliest legal stage.** Field defaults (`port: int32 = 8080`) are a parser error inside any RHS field/payload list. Methods and `public`/`private` inside a `type` body are parser errors. `<`/`>`/`<=`/`>=` between struct/union operands are analyzer errors.
 
 ## Tokenizer changes
 
-- New reserved keyword: `type`. (`interface` is already reserved by the spec but is not added to the tokenizer in this phase — adding it would only be motivated when post-MVP trait/interface work begins.)
-- New token: `...` (three-dot ellipsis). Lexed with lookahead so `..` (range — Phase B) is not consumed prematurely. The tokenizer prefers the longest match: three dots → `...`, two dots → `..`, otherwise `.`.
-- No other tokenizer changes. `&` already exists (bitwise AND); the parser disambiguates type-position `&` (intersection) from expression-position `&` (bitwise).
-- `.` (single dot) needs to be recognized as a token for field access; today it is only used inside `Type.from(x)` via a special parse path. Promote it to a first-class punctuation token.
+- New reserved keyword: `type`.
+- New keywords `struct`, `enum`, `union`, recognized **only immediately after `type`** (contextual keywords), so existing identifiers named `struct`/`enum`/`union` elsewhere are not stolen. (If the parser sees `type` followed by anything other than one of these three or a plain identifier/`{`… it errors; `type Name = …` without a sub-keyword is the alias form.)
+- New token: `...` (three-dot ellipsis). Lexed with longest-match lookahead so `..` (range — Phase B) is not consumed prematurely: three dots → `...`, two → `..`, else `.`.
+- `|` already exists (bitwise OR); the parser disambiguates type-position `|` (union alternation) from expression-position `|`.
+- `&` already exists (bitwise AND); the parser disambiguates type-position `&` (struct intersection) from expression-position `&`.
+- Promote `.` (single dot) to a first-class punctuation token for member access (`v.f`, `Enum.Member`, `Union.Variant`); today it is only used inside `Type.from(x)` via a special parse path.
 
 ## Parser changes
 
@@ -123,183 +221,146 @@ function main(): int32 {
   ```go
   type TypeDeclaration struct {
       Name     string
-      RHS      TypeRHS         // RecordRHS, AliasRHS, or CompositionRHS
-      Exported bool            // Phase I will populate this; Phase K writes false
+      RHS      TypeRHS   // StructRHS, EnumRHS, UnionRHS, AliasRHS, or CompositionRHS
+      Exported bool      // Phase I populates; Phase K writes false
       Position Position
   }
 
-  type RecordRHS struct {
-      Fields   []RecordField   // inline { f: T; ... }
-      Position Position
-  }
-  type AliasRHS struct {
-      Target   TypeReference   // a single named type
-      Position Position
-  }
+  type StructRHS struct { Fields []RecordField; Position Position }   // inline { f: T, ... }
+  type AliasRHS  struct { Target TypeReference; Position Position }
   type CompositionRHS struct {
-      Operands []CompositionOperand   // each is a TypeReference or a RecordRHS
-      Style    CompositionStyle       // SpreadForm or IntersectionForm; informational only
+      Operands []CompositionOperand   // each a TypeReference or a StructRHS
+      Style    CompositionStyle       // SpreadForm or IntersectionForm; informational
       Position Position
   }
   type RecordField struct { Name string; Type TypeReference; Position Position }
 
-  type ObjectLiteralExpression struct {
-      Elements []ObjectLiteralElement   // FieldInit or SpreadElement
+  type EnumRHS struct {
+      Members  []EnumMember
+      Mode     EnumMode   // Explicit or Implicit; parser-determined
       Position Position
   }
-  type FieldInit       struct { Name string; Value Expression; Position Position }
-  type SpreadElement   struct { Source Expression; Position Position }
+  type EnumMember struct { Name string; Value *int64; Position Position }   // Value nil in implicit mode
 
-  type MemberAccessExpression struct {
-      Receiver Expression
-      Member   string
+  type UnionRHS struct { Variants []UnionVariant; Position Position }
+  type UnionVariant struct { Name string; Payload []RecordField; Position Position }  // Payload non-empty (enforced)
+
+  type ObjectLiteralExpression struct { Elements []ObjectLiteralElement; Position Position }
+  type FieldInit     struct { Name string; Value Expression; Position Position }
+  type SpreadElement struct { Source Expression; Position Position }
+
+  type VariantConstructionExpression struct {   // Variant{ ... }; union pinned by context
+      Variant  string
+      Payload  *ObjectLiteralExpression
       Position Position
   }
+
+  type MemberAccessExpression struct { Receiver Expression; Member string; Position Position }
   ```
-- Statement-vs-expression `{` disambiguation: at expression position (after `=`, `return`, inside call arg lists, inside another object literal value), `{` introduces an `ObjectLiteralExpression`. At statement-leading position, `{` still introduces a `BlockStatement`. The expression grammar gains `parseObjectLiteral`; the statement grammar is unchanged.
-- Type-position `&` parsing: inside a `type` RHS, `&` is intersection. Outside, it stays bitwise AND. Parens around an RHS are not yet legal (no `(A & B) | C` until tagged unions land; the parser rejects parenthesized RHS with a "parentheses in type RHS are not supported" diagnostic that points at the tagged-union spec section).
-- Member access: extend the postfix-expression loop to recognize `.identifier`, producing `MemberAccessExpression`. Phase A's `Type.from(x)` path becomes a special case of "member access whose receiver resolves to a type name and whose call site picks the conversion path"; no parser change needed beyond emitting the generic node and letting the analyzer interpret it.
-- Object literal element parsing: `Name : Expression` and `...Expression`, comma-separated, optional trailing comma. The block-vs-literal disambiguation falls out of expression-position vs statement-position.
-- Field-list parsing inside a record RHS: `Name : TypeReference ;` repeated. The parser rejects `Name : TypeReference = Expression ;` (field defaults), `Name (...) : TypeReference { ... }` (methods), and `public Name : ...;` / `private Name : ...;` (visibility) at the parser, each with a §8.5 / §8.11 reference.
+- **`type` RHS dispatch:** after `type`, peek for `struct` / `enum` / `union`; else parse an alias/composition RHS. `struct` → field list; `enum` → member list with mode detection; `union` → `|`-separated variant list. Parenthesized RHS is rejected ("parentheses in type RHS are not supported").
+- **Struct field list:** `Name : TypeReference` repeated, comma-separated, optional trailing comma. Reject field defaults (`Name : T = Expr`), methods (`Name(...) : T { ... }`), and visibility (`public`/`private Name`) at the parser with §8 references.
+- **Enum member list:** either all `Name` (implicit) or all `Name : IntLiteral` (explicit); a mix is a parser error. Comma-separated, optional trailing comma.
+- **Union variant list:** `Name { payload-field-list }` separated by `|`. A variant with no `{ ... }` → "union variants must carry a payload." A payload field without `Name :` (positional) → "union payloads must use named fields."
+- **Statement-vs-expression `{`:** at expression position (`=`, `return`, call args, inside a literal value, after `Union.Variant`) `{` opens an `ObjectLiteralExpression`; at statement-leading position `{` stays a `BlockStatement`.
+- **Member access & construction:** extend the postfix loop to recognize `.identifier` → `MemberAccessExpression`. When an identifier at expression position is immediately followed by `{`, parse a `VariantConstructionExpression` (unqualified `Variant{ ... }`) — the same `Identifier { ... }` shape the future class literal reuses; the analyzer resolves the variant against the union pinned by context. A qualified `Type.Variant{ ... }` still parses (member-access followed by a literal) and is rejected in the analyzer. `Type.from(x)` remains a member-access special case interpreted by the analyzer.
+- **`switch` patterns (extends Phase B):** a `case` label may now be `Variant{ bindingList }` (union) or an `Enum.Member` / enum-member name (enum) in addition to scalar cases. Binding list is comma-separated bare identifiers.
 
 ## Semantic analyzer changes
 
-- **New type kind:** `TypeUserRecord` with `Name string`, `Fields []RecordField` (each carrying a resolved `Type`), and a `Position` for diagnostics. The `Type` equality check treats two record references as equal iff they point at the same `*UserRecord` (nominal identity). Aliases reuse the same `*UserRecord`.
-- **Type-declaration registration.** Three passes interleave with the existing function/const passes:
-  1. **Declare phase.** Each `type X = ...;` adds an empty `*UserRecord` to the symbol table under name `X` (or, for alias RHS, defers — recorded as "alias pending"). Forward references between record declarations are allowed within the file.
-  2. **Resolve phase.** Each declaration's RHS is walked. For a `RecordRHS`, fields are typed (their `TypeReference` resolved against the symbol table, which already contains forward record names). For an `AliasRHS`, the target is resolved and the alias name is bound to the same `*UserRecord`. For a `CompositionRHS`, operands are walked, each operand's field set is fetched (alias-followed), collisions are checked, and the combined field set populates the fresh `*UserRecord`.
-  3. **Cycle check.** A worklist over record declarations: for each, expand spread / intersection operands and inline field types to detect any back-edge to the declaration itself. Inline field types of type `RecordX` are also followed (a direct self-reference field is a cycle of length 1). Any cycle → structured diagnostic naming every type on the cycle, with the "introduce `heap T` — not yet supported" tail.
-- **Object-literal typing (bidirectional).** A new `typeOfExpr(expr, expected Type)` helper. Call sites that pass a non-empty `expected`:
-  - `VariableDeclarationStatement` with a non-empty type annotation: `typeOfExpr(initializer, annotation)`. (This also fixes the long-standing "annotations are informational" gap for record-typed bindings; primitive bindings keep their existing behavior — the change is additive.)
-  - `AssignmentStatement` where the target is a record-typed L-value: pass the L-value's type as the expected type for the RHS.
-  - `FunctionCallExpression` arguments: pass the parameter's declared type as each argument's expected type.
-  - `ReturnStatement`: pass the enclosing function's declared return type to each return value (using the matching position when there is more than one return slot).
-  - `ObjectLiteralExpression` field values: with a pinned target type, pass each field's declared type to its value expression. (This is the "one level" — the expected-type propagation does not recurse beyond the literal's immediate children, matching §4.1's stated machinery.)
-
-  For an `ObjectLiteralExpression`:
-  - If `expected` is empty → structured error per Decision 3.
-  - If `expected` is not a record type → "object literal cannot satisfy non-record type `T`".
-  - Otherwise: walk elements, classify each as `FieldInit` or `SpreadElement`.
-    - For each `FieldInit`, check the field exists on the expected type (else "unknown field `f` on `T`"), check no field has been provided twice (else "duplicate field `f`"), and type-check the value against the field's declared type.
-    - For each `SpreadElement`, type-check `Source` (no expected type), require its type to be the same `*UserRecord` as the expected type (else cross-type-spread error), and contribute the source's full field set to the "provided" set (with duplicate detection against earlier elements).
-    - At the end, require coverage: every field of the expected type appears in the provided set (else "missing field `f` of `T`").
-- **Member access typing.** For `v.f`:
-  - Resolve `v`'s type. Errors propagate.
-  - If `v`'s type is `TypeUserRecord`, look up `f` in its field list. Found → expression's type is the field's type. Not found → "type `T` has no field `f`".
-  - If `v`'s type is a primitive, allow the existing `Type.from` / `Type(x)` paths as today; everything else is "left operand of `.` must be a record".
-  - If `v`'s type is `TypeInvalid`, return `TypeInvalid` (cascade suppression).
-- **Field assignment.** `v.f = e;` is permitted iff (a) `v.f` is a writable L-value — receiver is a `let` binding, field exists — and (b) the DA tracker has `v` marked initialized. The value's type is checked against the field's type with bidirectional inference. A receiver that is a `const` binding or a function name is the existing "cannot assign to const" diagnostic; the new wrinkle is the DA check for uninitialized record locals (Decision 11).
-- **Definite-assignment.** Treat the binding atomically. `let v: T;` (record `T`) starts uninitialized; reading or writing any field is an error. `v = { ... };` marks the binding initialized. After that, field reads and writes are unconstrained.
-- **Equality typing.** `==` / `!=` between two operands of the same record type is accepted iff every field type supports `==` (primitive + `bool` + `char`). The analyzer records the per-record-type equality-helper requirement in a new `RecordEqs` map so codegen knows which helpers to synthesize. If any field type does not support `==`, the diagnostic names the blocking field and the type's declaration site.
-- **Ordering rejection.** `<` / `>` / `<=` / `>=` with any record operand → structured error referencing §8.9.
+- **New type kinds:**
+  - `TypeUserStruct` — `Name`, `Fields []{Name, Type}`, `Position`. Nominal identity: two references equal iff same `*UserStruct`. Aliases reuse the pointer.
+  - `TypeUserEnum` — `Name`, `Members []{Name, Value int32}`, `Position`. Underlying repr `int32`.
+  - `TypeUserUnion` — `Name`, `Variants []{Name, Payload []{Name, Type}}`, `Position`.
+- **Type-declaration registration**, interleaved with the existing function/const passes:
+  1. **Declare phase.** Each `type X = ...;` adds an empty nominal placeholder of the right kind under name `X` (alias RHS → "alias pending"). Forward references between declarations are allowed within the file.
+  2. **Resolve phase.** `StructRHS` → type each field. `EnumRHS` → assign values (implicit: `0..n-1`; explicit: as written, checking each fits `int32`, duplicate names rejected). `UnionRHS` → type each variant's payload fields. `AliasRHS` → resolve target, bind the alias name to its `Type`. `CompositionRHS` → merge struct operand field sets with collision checks into a fresh `*UserStruct`.
+  3. **Cycle check.** Worklist over struct/union declarations expanding composition operands and inline field/payload types; any back-edge (including a length-1 self field/payload) → the "introduce `heap T`" structured diagnostic (Decision 7).
+- **Bidirectional inference.** `typeOfExpr(expr, expected Type)`; `expected` passed at: binding annotations, record-typed assignment L-values, call arguments (parameter type), return values (declared return type), object-literal field values, and union-payload field values (variant's field type). One level only.
+- **Object-literal typing.** With a pinned struct target: classify elements; each `FieldInit` must name an existing field, not duplicated, value checked against the field type; each `SpreadElement` must be the same `*UserStruct` as the target and contributes its full field set; require exact coverage. Empty `expected` → Decision 3 error; non-struct `expected` → "object literal cannot satisfy non-struct type `T`".
+- **Enum typing.** `Enum.Member` (member access with an enum-type-name receiver) → an `int32`-valued member of the enum type; unknown member → "enum `E` has no member `m`". A member interchanges with any integer type without a cast. Integer literal → enum: a literal naming a member coerces by the pinned expected type; a non-member literal, or any non-literal / runtime integer flowing into an enum slot, is an error. `==`/`!=` and `<`/`>`/`<=`/`>=` accepted between enum operands and between an enum and any integer.
+- **Union typing.** `VariantConstructionExpression` (unqualified `Variant{ ... }`): resolve the pinned expected type to a union `U` (unpinned → "needs a typed context" error, Decision 3), resolve `Variant` to one of `U`'s variants (else "union `U` has no variant `V`"), type the payload literal against that variant's field list (struct coverage rules), yield type `U` with the recorded active variant. A qualified `U.Variant{ ... }` is rejected with a drop-the-qualifier fix-it. `switch` over a union: each `case Variant{ bindings }:` must name a real variant, bindings must exactly match that variant's payload field names (missing/unknown/duplicate → error) and are introduced into the case scope with the payload field types; require exhaustive variant coverage unless `default` present (non-exhaustive → list missing variants). Reading a union field outside a matching `case` is impossible by construction (no `.field` on unions) — attempting `u.field` is "cannot access variant payload directly; match with `switch`".
+- **Member access typing (structs).** `v.f`: resolve `v` to a struct, look up `f`, yield its type (read) or validate L-value (write, `let`-only). Primitive receivers keep the `Type.from` path; `TypeInvalid` cascades.
+- **Definite-assignment.** Struct bindings atomic (Decision 10). Enum/union bindings are likewise whole-value: `let x: Facing;` / `let s: Shape;` uninitialized until assigned a whole value.
+- **Equality rejection.** Any `==`/`!=` with a struct or union operand is a structured error (custom types have no compiler-derived equality — it would be hidden control flow). No helper registry and no `RecordEqs`. Enum `==`/`!=` is accepted and lowers to an integer compare (no helper).
+- **Ordering rejection.** `<`/`>`/`<=`/`>=` with any struct/union operand → structured error. Enum operands are **allowed** (integer ordering — a member is an `int32` literal).
 
 ## Codegen changes
 
-- **Struct emission.** For each declared record type, emit:
-  ```c
-  typedef struct delta__Vec3 {
-      double x;
-      double y;
-      double z;
-  } delta__Vec3;
-  ```
-  Field order matches declaration order; no padding tricks. Aliases emit no new struct.
-- **Object-literal lowering.** A pinned `ObjectLiteralExpression` lowers to a C compound literal: `(delta__Vec3){ .x = ..., .y = ..., .z = ... }`. Field order in the emitted compound literal matches the *declaration* order, not the literal's source order, so the C output is stable across source-order variations. Spread sources are expanded fieldwise: for each field not already explicitly provided, emit `.f = (source).f`. (Two-pass: first pass collects explicit fields by name, second pass walks the target type's fields in declaration order and emits either the explicit value or the matching spread-source projection.)
-- **Member access lowering.** `v.f` → `v.f`. No deref; record values live inline.
-- **Field assignment lowering.** `v.f = e;` → `v.f = e;`.
-- **Equality helper synthesis.** For each record type used in an `==` or `!=`, emit one helper into the TU preamble (after the struct definition):
-  ```c
-  static inline bool delta__Vec3_eq(delta__Vec3 a, delta__Vec3 b) {
-      return a.x == b.x && a.y == b.y && a.z == b.z;
-  }
-  ```
-  `a == b` lowers to `delta__Vec3_eq(a, b)`; `a != b` lowers to `!delta__Vec3_eq(a, b)`. The helper is emitted only when the analyzer's `RecordEqs` map records that the record was compared.
-- **Pass-by-value semantics.** Records flow through C as struct values: parameters are declared `delta__Vec3 v`, return types are `delta__Vec3`, locals are `delta__Vec3 v;`. Phase E's "intentional struct-copy gap" is the same gap that already applies here — pass-by-value duplicates the C struct without any ownership tracking. There are no resources inside Phase K records (only primitives), so the gap is silent rather than unsound, but it is the same hole Phase F closes.
-- **Forward-declaration order.** Add a pre-pass that emits all `typedef struct` declarations and their definitions in topological order over inline-field dependencies before any function bodies or eq-helpers. The cycle check in semantics guarantees a valid order exists.
+- **Struct emission.** `typedef struct delta__Vec3 { double x; double y; double z; } delta__Vec3;`, fields in declaration order. Aliases emit nothing.
+- **Enum emission.** `typedef enum delta__Facing { delta__Facing_North = 0, delta__Facing_East = 90, ... } delta__Facing;` with every value emitted explicitly (implicit mode resolved in the analyzer). `Enum.Member` lowers to the C enum constant `delta__Facing_East` (already `int32`-compatible — no cast wrapper); comparisons `a == b` / `a < b` lower to `a == b` / `a < b`; a member-naming integer literal coerced into an enum slot lowers to that member's constant.
+- **Union emission.** Tagged struct per Decision 15. `U.Variant{ ... }` lowers to a compound literal setting `.tag` and the matching `.payload.Variant` sub-struct: `(delta__Shape){ .tag = delta__Shape_Square, .payload.Square = { .s = 3.0 } }`. A `switch (u) { case Variant{ b }: ... }` lowers to `switch (u.tag) { case delta__Shape_Square: { double s = u.payload.Square.s; ... } }`, each binding a local from the active payload sub-struct.
+- **Object-literal lowering (structs).** Pinned literal → C compound literal in **declaration** field order (stable across source order). Spread sources expanded fieldwise for any field not explicitly provided (two-pass: collect explicit by name, then walk target fields).
+- **Member access / field assignment lowering.** `v.f` → `v.f`; `v.f = e;` → `v.f = e;`. Records/unions/enums flow through C by value.
+- **No equality helpers.** Struct/union `==`/`!=` is rejected at analyze time, so codegen never synthesizes a `delta__<T>_eq` helper. Enum `==`/`!=` lowers directly to an integer comparison.
+- **Forward-declaration order.** Pre-pass emits all `typedef`s (structs, enums, unions) in topological order over inline field / payload dependencies before function bodies. Enums have no dependencies; the semantic cycle check guarantees a valid order for structs/unions. Aliases collapse to their target before sorting.
 
 ## Testing strategy
 
-New fixtures under `test-source/tests/codegen/records/`.
+New fixtures under `test-source/tests/codegen/records/` (structs), `.../enums/`, and `.../unions/`.
 
-**Declarations (4)**
-- `record_basic_ok` — `type Vec3 = { x: float64; y: float64; z: float64; };` + main constructs and reads.
-- `record_alias_ok` — `type Position = Vec3;` + interchanging values.
-- `record_composition_spread_ok` — `type Dog = { ...Animal; goodBoy: bool; };`.
-- `record_composition_intersection_ok` — `type Cat = Animal & { color: int32; };`.
+**Struct declarations & construction (9)** — carried over from the previous draft, re-spelled with `type struct` and comma fields: `struct_basic_ok`, `struct_alias_ok`, `struct_composition_spread_ok`, `struct_composition_intersection_ok`, `literal_pinned_by_annotation_ok`, `literal_pinned_by_call_arg_ok`, `literal_pinned_by_return_ok`, `literal_unpinned_err`, `literal_field_set_errors_err` (missing/extra/duplicate).
 
-**Construction (5)**
-- `literal_pinned_by_annotation_ok` — `const v: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };`.
-- `literal_pinned_by_call_arg_ok` — `f({ x: 1.0, y: 2.0, z: 3.0 });`.
-- `literal_pinned_by_return_ok` — `function f(): Vec3 { return { ... }; }`.
-- `literal_unpinned_err` — `const v = { x: 1.0 };` rejected ("needs a typed context").
-- `literal_field_set_errors_err` — three sub-cases: missing field, extra field, duplicate field.
+**Struct field access, spread, composition, cycles, rejections (14)** — carried over: `field_read_ok`, `field_write_ok`, `field_write_const_err`, `field_partial_init_err`, `value_spread_full_ok`, `value_spread_cross_type_err`, `value_spread_collision_err`, `composition_field_collision_err`, `composition_non_struct_operand_err`, `composition_cycle_err`, `struct_self_field_err`, `struct_mutual_cycle_err`, `struct_eq_err` (struct `==` rejected), `struct_ordering_err`.
 
-**Field access and assignment (4)**
-- `field_read_ok` — `return int32(v.x + v.y);`.
-- `field_write_ok` — `let v: Vec3 = { ... }; v.x = 5.0;`.
-- `field_write_const_err` — `const v: Vec3 = { ... }; v.x = 5.0;` rejected.
-- `field_partial_init_err` — `let v: Vec3; v.x = 1.0;` rejected ("uninitialized").
+**Enums (7)**
+- `enum_explicit_ok` — `{ North: 0, East: 90 }`, member reference + equality.
+- `enum_implicit_ok` — `{ Red, Green, Blue }` auto `0,1,2`.
+- `enum_mixed_err` — `{ Red: 1, Green, Blue: 3 }` rejected at parser.
+- `enum_dup_name_err` / `enum_dup_value_ok` — duplicate names rejected; duplicate values accepted.
+- `enum_as_int_ok` — a member is an `int32` literal usable with integer types directly (no cast), across widths; `enum_ordering_ok` — `<`/`>`/`<=`/`>=` on enum members. `enum_from_literal_ok` — an integer literal naming a member coerces by context (`const f: Facing = 90;`); `enum_from_nonmember_literal_err` — `= 91` rejected; `enum_from_runtime_int_err` — a runtime integer into an enum slot rejected (checked narrowing deferred to FFI).
+- `enum_switch_exhaustive_ok` / `enum_switch_nonexhaustive_err` — missing-member diagnostic.
+- `enum_emitted_ok` — snapshot: explicit C enum initializers.
 
-**Spread at value level (3)**
-- `value_spread_full_ok` — `const c: Vec3 = { ...a };`.
-- `value_spread_cross_type_err` — spread of different record type rejected.
-- `value_spread_collision_err` — `{ ...a, x: 5.0 }` rejected as "duplicate field `x`".
+**Unions (8)**
+- `union_basic_ok` — construct + `switch` + payload read (the acceptance `Shape`/`area` slice).
+- `union_payloadless_err` — `A | B{ ... }` rejected at parser.
+- `union_positional_payload_err` — `A{ float64 }` rejected at parser.
+- `union_construct_qualified_err` — the qualified `Shape.Square{ ... }` form is rejected (construction is unqualified). `union_construct_unpinned_err` — an unqualified `Square{ ... }` with no typed context is rejected (mirrors `literal_unpinned_err`).
+- `union_construct_bad_variant_err` — `Shape.Triangle{ ... }` rejected.
+- `union_switch_nonexhaustive_err` — missing-variant diagnostic; `union_switch_default_ok` — `default` satisfies exhaustiveness.
+- `union_direct_field_access_err` — `sh.r` rejected ("match with `switch`").
+- `union_eq_err` (union `==` rejected), `union_self_payload_err` (recursion → `heap T` tail).
 
-**Composition rejections (3)**
-- `composition_field_collision_err` — two operands declare the same field.
-- `composition_non_record_operand_err` — `type Bad = int32 & { x: int32; };`.
-- `composition_cycle_err` — `type A = { ...B; }; type B = { ...A; };` — diagnostic names every type on cycle.
+**Out-of-scope rejections (5)** — carried over/extended: `record_method_err`, `record_visibility_err`, `record_default_err`, `anonymous_object_type_err`, `class_keyword_err` (`class` / `type class` rejected with "use `type struct`").
 
-**Cycle / self-reference (2)**
-- `record_self_field_err` — `type Tree = { value: int32; left: Tree; };` rejected with the "introduce `heap T`" tail.
-- `record_mutual_cycle_err` — `type A = { b: B; }; type B = { a: A; };` rejected.
-
-**Equality (3)**
-- `record_eq_ok` — `Vec3 == Vec3` returns expected bool.
-- `record_eq_helper_emitted_ok` — snapshot test asserting the generated C contains exactly one `delta__Vec3_eq` definition.
-- `record_ordering_err` — `a < b` between records rejected.
-
-**Out-of-scope rejections (4)**
-- `record_method_err` — method inside `{ ... }` rejected at parser.
-- `record_visibility_err` — `public x: int32;` inside `{ ... }` rejected at parser.
-- `record_default_err` — `x: int32 = 0;` inside `{ ... }` rejected at parser.
-- `anonymous_object_type_err` — `let v: { x: int32 };` rejected at parser with §8.3 reference.
-
-All earlier-phase fixtures continue to pass. Two existing fixtures may need touchup if they relied on the old behavior of `{` always opening a block at expression-following positions (none currently do, but this is the obvious regression risk).
+All earlier-phase fixtures continue to pass. Regression risk: existing fixtures that relied on `{` always opening a block at expression-following positions (none currently do).
 
 ## Stage-by-stage implementation order
 
-1. Tokenizer: `type` keyword, `...` token, promote `.` to a first-class punctuation token (verify no regressions in the existing `Type.from(x)` parse path).
-2. Parser: `TypeDeclaration` with `RecordRHS` / `AliasRHS` / `CompositionRHS`, RHS-only object-type literal enforcement, parser-stage rejections for methods / visibility / defaults / anonymous object types in non-RHS positions.
-3. Parser: `MemberAccessExpression` (postfix-expression loop extension), `ObjectLiteralExpression` (expression-position `{`), and `SpreadElement` element form. Audit the `Type.from` path to confirm it still parses.
-4. Analyzer scaffolding: `TypeUserRecord`, type-declaration registration passes (declare → resolve → cycle check), alias resolution.
-5. Analyzer composition: spread + intersection field-set merging with collision and operand-kind checks; cycle detector across composition and inline fields.
-6. Analyzer bidirectional inference: `typeOfExpr(expr, expected Type)` introduced and threaded through the four pinning sites (annotation, call arg, return, literal field value).
-7. Analyzer object-literal typing: pinning, coverage, spread handling, error messages.
-8. Analyzer member access and field assignment, including the DA hookup for "uninitialized record local".
-9. Analyzer equality and ordering rules for records, plus the `RecordEqs` map for codegen.
-10. Codegen: struct emission with topological ordering, including a quick smoke pass that the existing codegen output compiles unchanged for non-record programs.
-11. Codegen: object-literal compound-literal emission, spread expansion, member access, field assignment.
-12. Codegen: equality helper synthesis on demand.
-13. Fixture suite.
+1. Tokenizer: `type` keyword; contextual `struct`/`enum`/`union`; `...` token; promote `.` to a punctuation token (verify no `Type.from(x)` regression).
+2. Parser: `TypeDeclaration` RHS dispatch — `StructRHS` / `AliasRHS` / `CompositionRHS`; RHS-only object-type enforcement; parser rejections for methods / visibility / defaults / anonymous object types / `class`.
+3. Parser: `EnumRHS` (mode detection + mixed-mode rejection) and `UnionRHS` (payloadless + positional rejection).
+4. Parser: `MemberAccessExpression`, `ObjectLiteralExpression`, `SpreadElement`, `VariantConstructionExpression`; `switch` variant/enum case labels + binding lists. Audit `Type.from`.
+5. Analyzer scaffolding: `TypeUserStruct` / `TypeUserEnum` / `TypeUserUnion`; declare→resolve→cycle-check passes; alias resolution.
+6. Analyzer struct composition: spread + intersection merging; cycle detector across composition + inline field/payload types.
+7. Analyzer bidirectional inference: `typeOfExpr(expr, expected)` threaded through all pinning sites.
+8. Analyzer struct object-literal typing: pinning, coverage, spread, errors.
+9. Analyzer enums: member access, `int32(e)` cast, equality, exhaustive `switch`.
+10. Analyzer unions: `Union.Variant{ ... }` construction typing, `switch` variant patterns + payload binding + exhaustiveness, no-direct-access rule.
+11. Analyzer member access / field assignment / DA hookup; equality + ordering **rejection** rules for structs & unions (no `==`/`<`/`>`); enum comparisons resolve to integer compares.
+12. Codegen: struct + enum + union type emission with topological ordering; smoke-check unchanged output for non-`type` programs.
+13. Codegen: struct compound literals + spread; enum member/cast lowering; union construction + `switch` tag/payload lowering; member access / field assignment.
+14. Fixture suite.
 
-Steps 1–3 are parser-heavy. Steps 4–9 are analyzer-heavy. Steps 10–12 are codegen-heavy. Step 6 (bidirectional inference) is the load-bearing analyzer change; expect it to take the most iterations because it's the first time the front end propagates expected types.
+Steps 1–4 parser-heavy; 5–11 analyzer-heavy; 12–13 codegen-heavy. Step 7 (bidirectional inference) and step 10 (union matching) are the load-bearing changes.
 
 ## Risks and open questions
 
-- **Statement-vs-expression `{` ambiguity.** The disambiguation rule ("`{` at expression position is an object literal; `{` at statement-leading position is a block") is unambiguous in the grammar but easy to get wrong in the parser. Risk: `{ x: 1.0, y: 2.0 }` evaluated as a statement-expression — i.e., a labeled-statement-style misparse — silently becoming a block. Mitigation: the expression-position `{` parser only fires when the postfix / primary expression parser is called; statement-leading `{` continues to dispatch to the block parser unchanged. A focused parser test confirms `{ x: 1.0 } ;` is *not* a valid statement on its own.
-- **Bidirectional inference rollout.** Adding `expected Type` to expression typing touches every call site. The change is mechanically simple but broad. Risk: a missed call site produces "literal needs a typed context" in code where the context exists. Mitigation: do the propagation as a single PR with a fixture verifying each pinning site, before object-literal typing depends on it. Primitive typing is unchanged because the existing flow ignores `expected` when the literal already has an inferred type — the new helper degrades to the current behavior for everything that isn't an object literal.
-- **`==` on records containing floats.** Float `==` already exists in Phase A; the per-field structural lowering inherits its IEEE-754 NaN semantics. Acceptable. Once `string` lands, the gate (every field supports `==`) excludes string-bearing records per §8.9 with the suggested fix message; nothing in this phase changes when that happens.
-- **Cycle-check diagnostic phrasing.** The "introduce `heap T` — not yet supported" tail is correct but easy to misread as "the feature exists, the user did something wrong." Mitigation: phrase as "introducing `heap T` would break this cycle, but `heap T` is not implemented yet (Phase H); a record cannot recurse directly." Lift the wording exactly from §8.7's diagnostic to keep wording stable across phases.
-- **Alias chains.** `type A = B; type B = C; type C = { x: int32; };`. The resolve phase needs to follow the chain to find the underlying `*UserRecord`. Risk: alias-of-alias-of-record causes lookup loops. Mitigation: alias-chain resolution uses a small visited-set; alias cycles (`type A = B; type B = A;`) are a structured error caught in the cycle pass.
-- **Codegen forward-declaration ordering.** Record types may reference each other through inline fields (e.g., `type Outer = { inner: Inner; };`). The codegen TU has to declare `Inner` before `Outer`. Mitigation: the topological sort is over the inline-field dependency graph, which the semantic cycle check already validates is acyclic. Aliases collapse to their target before sorting.
-- **Phase E plan overlap.** Phase E's `MemberAccessExpression`, `ClassLiteralExpression`, `FieldInitializer`, and dispose scaffolding ideas overlap with this phase. Recommendation: when Phase E begins, fold the Phase K AST nodes in instead of re-introducing them; Phase E's `ClassLiteralExpression` becomes a parser-level distinction (`Identifier { ... }`) on top of the same field-initializer shape.
+- **Statement-vs-expression `{` ambiguity.** Unchanged from the previous draft: expression-position `{` fires only from the postfix/primary parser; statement-leading `{` stays a block. A focused test confirms `{ x: 1.0 };` is not a valid statement. Union construction adds `Variant{` — an identifier directly followed by `{` in expression position, disambiguated the same way as struct object literals and the future class literal `Identifier { ... }`.
+- **Union matching is the new load-bearing feature.** Payload binding introduces the first pattern-binding scope in the language. Risk: binding scope / shadowing bugs, or exhaustiveness holes. Mitigation: land union typing (step 10) behind its own fixtures before codegen; keep patterns to shorthand binding only (no renaming/nesting/guards) this phase.
+- **Enum implicit numbering stability.** Implicit `{ Red, Green, Blue }` must resolve to `0,1,2` at analyze time and be emitted as explicit C initializers, so a later reordering of members is a visible source change rather than a silent value shift, and the C output never depends on the host compiler.
+- **`int32` backing lock-in.** Fixing the backing type at `int32` now keeps FFI honest later only if the explicit-backing-type syntax (`type enum E: u8 = ...`) is purely additive. Reserve the `type enum Name: Type = ...` grammar slot now (parse-and-reject with "explicit enum backing types are not supported yet") so adding it later doesn't churn the parser.
+- **No custom-type equality.** Structs and unions have no compiler-derived `==` / `!=` — a synthesized fieldwise (struct) or tag-dispatch (union) comparison hides control flow behind an operator. Enums compare as their backing `int32`, so no float-`==` or (future) `string`-`==` question arises for custom types.
+- **Cycle-check diagnostic phrasing.** Shared across structs and unions; lift the wording from §8.7 verbatim so it stays stable ("`heap T` would break this cycle but is not implemented yet").
+- **Alias chains.** `type A = B; type B = C; type C = struct{...};` — resolve follows the chain with a visited-set; alias cycles are a structured error in the cycle pass.
+- **Codegen forward-declaration ordering.** Structs/unions may reference each other through inline fields/payloads. Topological sort over the field/payload dependency graph (validated acyclic by semantics); enums have no deps; aliases collapse to target before sorting.
+- **Spec §8 drift.** §8 still documents the bare `type X = {...}` form with `;` fields and treats unions/enums as RHS aliases. This plan supersedes it; §8 (and §8.13) need a follow-up edit to the `type struct`/`type enum`/`type union` family before or alongside implementation.
+- **Phase E overlap.** Phase E's `MemberAccessExpression`, class-literal, field-initializer, and dispose scaffolding overlap here. When Phase E begins, fold these AST nodes in rather than re-introducing them; a class literal becomes `Identifier { ... }` on top of the same field-initializer shape.
 
 ## Definition of done
 
-- The Phase K acceptance program (Vec3 / Animal / Dog with composition, value spread, structural equality, field read/write) compiles and runs, exiting with status `9`.
-- All Phase K fixtures pass.
-- All earlier-phase fixtures continue to pass.
-- The generated C contains a `typedef struct delta__<Record>` for each declared record, an emitted `delta__<Record>_eq` for each record actually compared with `==` / `!=`, and zero spurious equality helpers (verified by snapshot).
-- The analyzer rejects every out-of-scope construct listed in the table above with a structured diagnostic that references the relevant §8 section.
-- Phase E can reuse, without reimplementing, the `MemberAccessExpression` AST node, the bidirectional `typeOfExpr` plumbing, the struct-emission codegen pass, and the literal-coverage / collision-checking analyzer logic.
+- The Phase K acceptance program (Vec3 / Animal / Dog with composition + value spread, `Facing` enum with equality, `Shape` union with `switch`-based `area`) compiles and runs, exiting with status `9`.
+- All Phase K fixtures pass; all earlier-phase fixtures continue to pass.
+- The generated C contains a `typedef struct delta__<Struct>` per struct, a `typedef enum delta__<Enum>` (explicit `int32` initializers) per enum, and a tagged `typedef struct delta__<Union>` per union. No `delta__<T>_eq` helpers are emitted — struct/union `==`/`!=` is rejected at analyze time.
+- The analyzer rejects every out-of-scope construct in the table with a structured diagnostic referencing the relevant §8 section — including mixed-mode enums, payloadless/positional union variants, qualified (`Union.Variant{ ... }`) and unpinned variant construction, non-exhaustive `switch`, direct union field access, struct/union `==`/`!=`, and the `class` keyword.
+- Phase E can reuse, without reimplementing, the `MemberAccessExpression` AST node, the bidirectional `typeOfExpr` plumbing, the struct/enum/union emission codegen pass, the variant-matching `switch` machinery, and the literal-coverage / collision-checking analyzer logic.

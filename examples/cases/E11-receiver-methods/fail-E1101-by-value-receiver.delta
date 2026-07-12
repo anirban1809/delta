@@ -1,0 +1,11 @@
+// E1101 — receiver must be a reference (`&T` or `edit &T`), not a by-value `T`
+type Counter = { value: int64; };
+
+function (c: Counter) get(): int64 {   // ERROR[E1101]: receiver must be a reference (`&T` or `edit &T`), not a by-value `T`
+    return c.value;
+}
+
+function main(): int32 {
+    const c: Counter = { value: 5 };
+    return int32(c.get());
+}

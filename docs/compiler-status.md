@@ -891,8 +891,8 @@ Implemented and exercised by the suites auto-discovered by `delta test` from
 each `test-source/tests/<dir>/tests.json` (`pass`/`fail`/`trap`/`codegen_match`
 verbs run end-to-end through clang). The current suites and case counts:
 
-- `codegen` (17), `primitives` (23), `controlflow` (61), `recordtypes` (47),
-  `errors` (35) — the v0.5a numeric / control-flow / record / error surface.
+- `codegen` (17), `primitives` (23), `controlflow` (61), `customtypes` (69),
+  `errors` (35) — the v0.5a numeric / control-flow / custom-type / error surface.
 - `ownership` (66) and `ownership-codegen` (11) — move/borrow/copy analysis
   and its lowering (Phases F/G).
 - `heap-codegen` (1) and `receivers` (20) — `heap<T>`/`new` lowering (Phase H)
@@ -1713,7 +1713,8 @@ compiler-derived structural `==`/`!=` — now flow end-to-end through
 tokenize → parse → analyze → C → clang. This required the first real piece
 of one-level bidirectional inference (an *expected* type threaded into the
 pinning sites) and struct / compound-literal / equality-helper codegen. It
-is verified by the 30-case `test-source/tests/recordtypes/` suite, and the
+is verified by the `test-source/tests/customtypes/` suite (structs, enums,
+and tagged unions), and the
 Phase K acceptance program (Vec3 / Animal / Dog with composition, value
 spread, structural equality, field read/write) compiles and exits with
 status `9`. The machinery here (the `MemberAccessExpression` node, the

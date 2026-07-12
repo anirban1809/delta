@@ -1,7 +1,7 @@
 function vowel(c: char): int32 {
     switch (c) {
-        case 'a', 'e', 'i', 'o', 'u': { return 0; }
-        default:                       { return 1; }
+        case 'a', 'e', 'i', 'o', 'u': return 0;
+        default:                       return 1;
     }
 }
 

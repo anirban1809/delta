@@ -1,0 +1,12 @@
+// E0805 — cannot read `x` while it is mutably borrowed
+type Vec3 = { x: float64; y: float64; z: float64; };
+
+function bump(v: edit &Vec3, addend: float64): void {
+    v.x = v.x + addend;
+}
+
+function main(): int32 {
+    let p: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
+    bump(edit &p, p.x);   // ERROR[E0805]: cannot read `p` while it is mutably borrowed
+    return 0;
+}

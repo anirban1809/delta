@@ -1,0 +1,12 @@
+// E04 success — value `switch` with multi-label cases and a required `default`.
+function dayKind(day: int32): int32 {
+    switch (day) {
+        case 0, 6: { return 1; }             // weekend
+        case 1, 2, 3, 4, 5: { return 0; }    // weekday
+        default: { return int32(0) - 1; }    // invalid
+    }
+}
+
+function main(): int32 {
+    return dayKind(3);
+}

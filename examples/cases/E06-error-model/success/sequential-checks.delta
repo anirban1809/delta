@@ -1,0 +1,21 @@
+// E06 success — two sequential fallible operations, each with its own result name;
+// a helper propagates `OverflowError` and the caller handles it.
+function sumThree(a: int64, b: int64, c: int64): int64 | OverflowError {
+    const ab = a + b as first;
+    check first {
+        return error as OverflowError { };
+    }
+    const abc = ab + c as second;
+    check second {
+        return error as OverflowError { };
+    }
+    return abc;
+}
+
+function main(): int32 {
+    const total = sumThree(10, 20, 30) as result;
+    check result {
+        return 1;
+    }
+    return int32(total);
+}

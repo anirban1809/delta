@@ -1,0 +1,50 @@
+// Feature 17 — Modules (the entry module)
+// Spec: §1.4, §2.5, Phase I
+//
+// `import { Name } from "./relative/path"` resolves to `./relative/path.delta`.
+// Imports must form a DAG — cycles are a compile error naming the cycle path.
+// Each module lowers to its own C translation unit with name-mangled exports
+// (`delta__<module>__<name>`); the entry module's `main` is the program entry.
+//
+// Pipeline work:
+//   parser     : `import { A, B } from "..."`; `export` modifier on declarations.
+//   semantics  : build the module graph by following imports; topological order;
+//                import-cycle detection; reject importing a non-exported name;
+//                resolve imported names + their methods.
+//   codegen    : one TU per module; mangle exported symbols per module.
+
+import { Vec3, add } from "./geometry";
+
+function main(): int32 {
+    const a: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
+    const b: Vec3 = { x: 4.0, y: 5.0, z: 6.0 };
+
+    const sum: Vec3 = add(&a, &b);
+    const lenSq: float64 = sum.lengthSquared();   // method imported with the type
+
+    // import { scaleInPlace } from "./geometry"; // ERROR: `scaleInPlace` is not exported
+
+    return int32(lenSq);
+}
+
+/* === Generated C: build/<mode>/c/main.c (illustrative) ===
+   The entry module references imported symbols via `extern` declarations (their
+   definitions live in geometry.c). The shared struct layout is repeated per TU
+   (or emitted to a shared header); clang links the TUs together. `main` is the
+   one symbol left unmangled so it is the process entry point.
+#include <stdint.h>
+
+typedef struct { double x; double y; double z; } delta__geometry__Vec3;
+
+extern double delta__geometry__Vec3__lengthSquared(const delta__geometry__Vec3*);
+extern delta__geometry__Vec3 delta__geometry__add(
+        const delta__geometry__Vec3*, const delta__geometry__Vec3*);
+
+int32_t main(void) {
+    const delta__geometry__Vec3 a = { .x = 1.0, .y = 2.0, .z = 3.0 };
+    const delta__geometry__Vec3 b = { .x = 4.0, .y = 5.0, .z = 6.0 };
+    const delta__geometry__Vec3 sum = delta__geometry__add(&a, &b);
+    const double lenSq = delta__geometry__Vec3__lengthSquared(&sum);
+    return (int32_t)lenSq;
+}
+*/

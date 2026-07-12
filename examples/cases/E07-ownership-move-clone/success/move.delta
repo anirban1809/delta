@@ -1,0 +1,9 @@
+// E07 success — `move` transfers ownership of a heap-owning (non-copyable) record;
+// the source binding is invalid afterward and is not freed at scope exit.
+type Counter = { value: heap<int64>; };
+
+function main(): int32 {
+    let a: Counter = { value: new 0 };
+    let b = move a;              // ownership moves to `b`; `a` is now invalid
+    return 0;
+}

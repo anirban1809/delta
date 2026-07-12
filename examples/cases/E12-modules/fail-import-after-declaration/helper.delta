@@ -1,0 +1,2 @@
+// Supporting module for the import-ordering case.
+export const ANSWER: int32 = 42;

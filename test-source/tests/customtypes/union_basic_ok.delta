@@ -1,0 +1,9 @@
+type struct Circle = { r: float64 };
+type struct Square = { s: float64 };
+
+type union Shape = Circle | Square;
+
+function main(): int32 {
+    const sh: Shape = Square { s: 3.0 };
+    return 0;
+}

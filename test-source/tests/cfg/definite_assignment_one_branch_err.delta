@@ -1,0 +1,7 @@
+function main(): int32 {
+    let value: int32;
+    if (true) {
+        value = 1;
+    }
+    return value;
+}

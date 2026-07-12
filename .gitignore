@@ -9,3 +9,5 @@ test-source/tests/codegen/.codegen-out
 test-source/tests/codegen/test-results
 test-source/tests/*/test-results
 .flux/sessions
+dist
+node_modules

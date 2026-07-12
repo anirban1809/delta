@@ -1,0 +1,43 @@
+// Feature 17 — Modules (the imported module)
+// Spec: §1.4 Module-to-File Mapping, §2.5 Import DAG, Phase I
+//
+// One file = one module. `export` exposes a top-level declaration. Importing a
+// non-exported name is an error. Methods travel with their type across modules.
+
+export type Vec3 = { x: float64; y: float64; z: float64; };
+
+export function (v: &Vec3) lengthSquared(): float64 {
+    return v.x * v.x + v.y * v.y + v.z * v.z;
+}
+
+export function add(a: &Vec3, b: &Vec3): Vec3 {
+    return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z };
+}
+
+// Not exported — module-private. Importing `scaleInPlace` from another file is an error.
+function scaleInPlace(v: edit &Vec3, factor: float64): void {
+    v.x = v.x * factor;
+    v.y = v.y * factor;
+    v.z = v.z * factor;
+}
+
+/* === Generated C: build/<mode>/c/geometry.c (illustrative) ===
+   Exported symbols are mangled `delta__<module>__<name>`. A non-exported
+   declaration becomes a C `static` (module-private, not visible to other TUs).
+#include <stdint.h>
+
+typedef struct { double x; double y; double z; } delta__geometry__Vec3;
+
+double delta__geometry__Vec3__lengthSquared(const delta__geometry__Vec3* v) {
+    return v->x * v->x + v->y * v->y + v->z * v->z;
+}
+
+delta__geometry__Vec3 delta__geometry__add(
+        const delta__geometry__Vec3* a, const delta__geometry__Vec3* b) {
+    return (delta__geometry__Vec3){ .x = a->x + b->x, .y = a->y + b->y, .z = a->z + b->z };
+}
+
+static void delta__geometry__scaleInPlace(delta__geometry__Vec3* v, double factor) {
+    v->x = v->x * factor; v->y = v->y * factor; v->z = v->z * factor;
+}
+*/

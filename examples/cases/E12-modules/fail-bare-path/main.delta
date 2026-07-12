@@ -1,0 +1,7 @@
+// Unknown import root — import paths must start with `./`, `../`, or `std/`
+// (Phase I). A bare path is rejected before resolution.
+import { thing } from "some/library";   // ERROR: unknown import root `some/library`
+
+function main(): int32 {
+    return 0;
+}
