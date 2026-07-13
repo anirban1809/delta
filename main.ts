@@ -4,7 +4,8 @@ import { Tokenizer } from "./src/ast/tokenizer.js";
 import { Parser } from "./src/ast/parser.js";
 import { Diagnostics } from "./src/diagnostics/diagnostics.js";
 import { Formatter } from "./src/ast/formatter.js";
-import { Analyzer } from "./src/analysis/analyzer.js";
+// import { Analyzer } from "./src/analysis/analyzer.js";
+import { AnalyzerCore } from "./src/analysis/core.js";
 import { Emitter } from "./src/codegen/emitter.js";
 
 function build(content: string, filepath: string) {
@@ -23,7 +24,8 @@ function build(content: string, filepath: string) {
 
         return;
     }
-    const analyzer = new Analyzer(ast, diagnostics);
+    // const analyzer = new Analyzer(ast, diagnostics);
+    const analyzer = new AnalyzerCore(ast, diagnostics);
     const globalScope = analyzer.analyze();
 
     if (diagnostics.errors.length > 0) {

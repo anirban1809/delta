@@ -36,6 +36,7 @@ import {
 } from "../ast/types.js";
 import type { Diagnostics } from "../diagnostics/diagnostics.js";
 import { Error } from "../diagnostics/diagnostics.js";
+import { Scope } from "./scope.js";
 
 /** What a {@link Symbol} declares — used to distinguish entries in a {@link Scope}. */
 export enum SymbolKind {
@@ -109,28 +110,6 @@ export type BlockContext = {
 };
 
 /**
- * A lexical scope: a list of symbols plus a link to its enclosing scope.
- *
- * Scopes form a chain from the innermost block out to the global scope (whose
- * `parent` is undefined), so name lookup can walk outward through enclosing
- * scopes.
- */
-export class Scope {
-    parent: Scope | undefined; //parent scope can be empty for global scope
-    symbols: Map<string, Symbol>;
-
-    constructor(parent?: Scope) {
-        this.parent = parent;
-        this.symbols = new Map();
-    }
-
-    /** Declares a symbol in this scope. */
-    addSymbol(s: Symbol) {
-        this.symbols.set(s.name, s);
-    }
-}
-
-/**
  * Semantic analyzer: validates a parsed {@link Module} and builds its symbol
  * table.
  *
@@ -153,20 +132,6 @@ export class Analyzer {
     }
 
     /**
-     * Looks up `name`, starting in `scope` and walking outward through enclosing
-     * scopes. Returns the matching {@link Symbol}, or `undefined` if undeclared.
-     */
-    getSymbol(scope: Scope, name: string): Symbol | undefined {
-        let found = scope.symbols.get(name);
-        if (!found) {
-            if (scope.parent) {
-                found = this.getSymbol(scope.parent!, name);
-            }
-        }
-        return found;
-    }
-
-    /**
      * Analyzes a function declaration: validates that its parameter, return,
      * and error types are all legal, then analyzes the function body within a
      * {@link BlockKind.FunctionBlock} context.
@@ -175,7 +140,7 @@ export class Analyzer {
         const functionScope = new Scope(this.globalScope);
         //check param types
         decl.parameters.forEach((x) => {
-            const s = this.getSymbol(functionScope, x.name.name);
+            const s = functionScope.getSymbol(x.name.name);
 
             if (s) {
                 this.diagnostics.addError(
@@ -241,7 +206,7 @@ export class Analyzer {
         });
 
         //check function body
-        const s = this.getSymbol(this.globalScope, decl.name.name);
+        const s = this.globalScope.getSymbol(decl.name.name);
         if (decl.name.name == "main") {
             const v = this.verifyMainFunctionSignature(s?.signature!);
             if (!v) {
@@ -312,7 +277,7 @@ export class Analyzer {
 
         switch (e.kind) {
             case "identifier":
-                const s = this.getSymbol(scope, e.name);
+                const s = scope.getSymbol(e.name);
                 if (!s) {
                     this.diagnostics.addError(
                         Error(
@@ -342,7 +307,7 @@ export class Analyzer {
                 }
 
                 if (s.type?.value == TypeValue.TypeCustom) {
-                    const typeSym = this.getSymbol(scope, s.type.name.name);
+                    const typeSym = scope.getSymbol(s.type.name.name);
                     if (!typeSym) {
                         return CreateType("invalid", TypeValue.TypeInvalid);
                     }
@@ -396,7 +361,7 @@ export class Analyzer {
     }
 
     validateObjectLiteral(e: ObjectLiteralExpression, scope: Scope): boolean {
-        const typeSym = this.getSymbol(scope, e.type.name.name);
+        const typeSym = scope.getSymbol(e.type.name.name);
         if (!typeSym) {
             this.diagnostics.addError(
                 Error(
@@ -603,7 +568,7 @@ export class Analyzer {
             }
 
             if (unaryExpr.operand.kind == "identifier") {
-                const symbol = this.getSymbol(scope, unaryExpr.operand.name);
+                const symbol = scope.getSymbol(unaryExpr.operand.name);
                 if (!symbol) {
                     this.diagnostics.addError(
                         Error(
@@ -743,7 +708,7 @@ export class Analyzer {
      * {@link TypeValue.TypeInvalid} for an unknown callee.
      */
     analyzeFunctionCallExpression(scope: Scope, e: FunctionCallExpression): U<Type> {
-        const sym = this.getSymbol(scope, e.callee.name);
+        const sym = scope.getSymbol(e.callee.name);
 
         if (sym) {
             if (!sym.signature) {
@@ -773,7 +738,7 @@ export class Analyzer {
                 let wantT = sym.signature?.parameters[i]?.type;
 
                 if (wantT?.value == TypeValue.TypeCustom) {
-                    const typeSymbol = this.getSymbol(scope, wantT.name.name);
+                    const typeSymbol = scope.getSymbol(wantT.name.name);
                     if (!typeSymbol) {
                         this.diagnostics.addError(
                             Error(
@@ -916,7 +881,7 @@ export class Analyzer {
      * reported with guidance to use an explicit cast.
      */
     analyzeVariableDeclarationStatement(s: VariableDeclarationStatement, scope: Scope): Flow {
-        const symbol = this.getSymbol(scope, s.name.name);
+        const symbol = scope.getSymbol(s.name.name);
         if (symbol) {
             this.diagnostics.addError(
                 Error(
@@ -931,7 +896,7 @@ export class Analyzer {
 
         let wantT = s.type;
         if (s.type.value == TypeValue.TypeCustom) {
-            const typeSymbol = this.getSymbol(scope, s.type.name.name);
+            const typeSymbol = scope.getSymbol(s.type.name.name);
             if (!typeSymbol) {
                 this.diagnostics.addError(
                     Error(
@@ -950,7 +915,7 @@ export class Analyzer {
         let haveT = this.getExpressionType(s.value!, scope);
 
         if (haveT.value == TypeValue.TypeCustom) {
-            const typeSymbol = this.getSymbol(scope, haveT.name.name);
+            const typeSymbol = scope.getSymbol(haveT.name.name);
             if (!typeSymbol) {
                 this.diagnostics.addError(
                     Error(
@@ -1157,12 +1122,12 @@ export class Analyzer {
         ) {
             return true;
         }
-        const t1sym = this.getSymbol(scope, t1.name.name);
+        const t1sym = scope.getSymbol(t1.name.name);
         if (!t1sym) {
             return false;
         }
 
-        const t2sym = this.getSymbol(scope, t2.name.name);
+        const t2sym = scope.getSymbol(t2.name.name);
         if (!t2sym) {
             return false;
         }
@@ -1305,7 +1270,7 @@ export class Analyzer {
             rootName = (s.root.receiver as Identifier).name;
         }
 
-        const symbol = this.getSymbol(scope, rootName);
+        const symbol = scope.getSymbol(rootName);
         if (!symbol) {
             this.diagnostics.addError(
                 Error(
@@ -1842,7 +1807,7 @@ export class Analyzer {
     }
 
     analyzeTypeDeclaration(decl: TypeDeclaration) {
-        const symbol = this.getSymbol(this.globalScope, decl.name.name);
+        const symbol = this.globalScope.getSymbol(decl.name.name);
         if (symbol) {
             this.diagnostics.addError(
                 Error(
@@ -1955,7 +1920,7 @@ export class Analyzer {
 
         if (declKind == TypeDeclKind.Alias) {
             const declValue = decl.declaration as TypeAlias;
-            const sym = this.getSymbol(this.globalScope, decl.name.name);
+            const sym = this.globalScope.getSymbol(decl.name.name);
             if (sym) {
                 this.diagnostics.addError(
                     Error(
@@ -1968,7 +1933,7 @@ export class Analyzer {
                 return;
             }
 
-            const targetSym = this.getSymbol(this.globalScope, declValue.target.name.name);
+            const targetSym = this.globalScope.getSymbol(declValue.target.name.name);
             if (!targetSym) {
                 this.diagnostics.addError(
                     Error(
@@ -2018,7 +1983,7 @@ export class Analyzer {
         this.ast.declarations.forEach((decl) => {
             switch (decl.kind) {
                 case "function_declaration":
-                    const s = this.getSymbol(this.globalScope, decl.name.name);
+                    const s = this.globalScope.getSymbol(decl.name.name);
                     if (s) {
                         this.diagnostics.addError(
                             Error(

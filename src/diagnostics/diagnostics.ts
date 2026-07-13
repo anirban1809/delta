@@ -59,7 +59,9 @@ function getColumnIndex(filePath: string, charIndex: number): number {
  */
 export class Diagnostics {
     errors: Error[];
+    fileName: string;
     constructor() {
+        this.fileName = "";
         this.errors = [];
     }
 

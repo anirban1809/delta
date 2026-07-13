@@ -1,14 +1,14 @@
-# Plan: Phase A — Primitive Type Surface (v0.5)
+# Plan: Phase A — Primitive Type Surface and Fixed Arrays (v0.5)
 
 Date drafted: 2026-06-03
 Status: planning, not started.
 Predecessor: Phases **I (multi-file modules)**, **D (extern "c")**, **J (std/log)** from [compiler-goal-v0.5.md](../../compiler-goal-v0.5.md) are expected to land before this plan starts. Phase A operates in a multi-TU world but does not itself add new module-system features.
-Successor: Phase **B** (control flow + flow analysis) consumes Phase A's expanded numeric surface; Phase **C** (error model) later upgrades trap sites to be recoverable through `as result`.
-Spec basis: [spec-sections/05-primitive-numeric-types.md](../../spec-sections/05-primitive-numeric-types.md), [spec-sections/06-other-primitive-types.md](../../spec-sections/06-other-primitive-types.md), [spec-sections/04-type-inference.md](../../spec-sections/04-type-inference.md) §4.3.
+Successor: Phase **B** (control flow + flow analysis) consumes Phase A's expanded numeric surface and fixed-array indexing; Phase **C** (error model) later upgrades trap sites to be recoverable through `as result`.
+Spec basis: [spec-sections/05-primitive-numeric-types.md](../../spec-sections/05-primitive-numeric-types.md), [spec-sections/06-other-primitive-types.md](../../spec-sections/06-other-primitive-types.md), [spec-sections/04-type-inference.md](../../spec-sections/04-type-inference.md) §4.3, and [main-spec.md](../../main-spec.md) §16.
 
 ## Goal
 
-Expand the compiler's primitive numeric surface from the v0 baseline (`int32`, `bool`, `void`) to the full §5–§6 type set, with trap-by-default arithmetic, the new operator families (modulus, bitwise, compound assignment), and the `char` primitive. The deliverable is:
+Expand the compiler's primitive surface from the v0 baseline (`int32`, `bool`, `void`) to the full §5–§6 type set, with trap-by-default arithmetic, the new operator families (modulus, bitwise, compound assignment), the `char` primitive, and fixed arrays as a compiler-known primitive type constructor. The deliverable is:
 
 ```bash
 $ delta build hello.delta
@@ -24,6 +24,7 @@ $ echo $?
 - `%`, `&`, `|`, `^`, `~`, `<<`, `>>`, and every compound assignment form.
 - `T(x)` and `T.from(x)` numeric conversions, with narrowing and sign-flipping conversions trapping at runtime.
 - Operator `+`, `-`, `*` on integers trapping on overflow.
+- Inline fixed arrays such as `uint8[4]`, array literals such as `[1, 2, 3]`, and bounds-checked indexing.
 
 …and any program that overflows, divides by zero, hits `int_MIN / -1`, shifts out of range, or narrows out of range **panics** at the trap site with a source-located message and exits non-zero. Recoverability of these traps via `as result` / `check` is **out of scope** for Phase A and lands in Phase C.
 
@@ -38,6 +39,9 @@ New since v0:
 - Compound assignment: `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`.
 - Call-style numeric conversions: `int64(x)`, `uint32(x)`, `float32(x)`, `char(x)`, plus the `T.from(x)` alias.
 - `char` operators: `==`, `!=`, `<`, `<=`, `>`, `>=` only (no arithmetic, no other methods).
+- **Fixed arrays are primitive type forms.** `T[N]` is recognized directly by the parser and analyzer; it is not a type alias, a `std` declaration, or an instantiation of user-defined generics. `T` must be a Phase-A storable primitive and `N` must be a positive compile-time integer literal. Arrays have inline storage, a `uintsize` `.length` property, array-literal construction, whole-array assignment, and `a[i]` read/write indexing.
+- Array literals: `[a, b, c]`. In a `T[N]` context every element is checked against `T` and the literal must contain exactly `N` elements. Without context, a non-empty literal infers `T[N]` from its first element and every remaining element must have that same type. Integer literals receive the array element type as their one-level inference context. Empty array literals are rejected in Phase A because neither their element type nor their length can be inferred.
+- Indexing: `a[i]`, where `a: T[N]` and `i: uintsize`, yields `T`; integer literals in index position adopt `uintsize`. Every dynamic index is bounds-checked and panics at the index expression when `i >= a.length`. A compile-time literal index outside `[0, N)` is an analyzer error. `let` arrays permit `a[i] = value`; `const` arrays do not.
 - Trap-on-overflow lowering for every operation listed in §5.3, with a built-in `panic` mechanism that terminates the process and prints `delta: panic at <file>:<line>:<col>: <kind>`.
 
 Already working in v0 (unchanged by Phase A):
@@ -58,6 +62,9 @@ Already working in v0 (unchanged by Phase A):
 | Strict `intsize`/`uintsize` nominal distinctness from `int64`/`uint64` on 64-bit targets | Spec is firm that they are nominally distinct types even when ABI-identical. Phase A enforces this in the analyzer; codegen lowers both to the same C type. | Already in scope; called out so we don't accidentally relax it. |
 | Builtin numeric methods like `.isNaN()`, `.isFinite()` on floats | Mentioned in §5; small surface; could land in Phase A but is not on the critical path. | **Stretch goal within Phase A** — see "Stretch" below. |
 | `panic(msg)`, `process.exit(code)`, `unreachable()` as user-callable intrinsics | §6 defines them; the trap mechanism uses an internal panic, but the user-facing intrinsics are a separate surface. | Phase B or Phase C, depending on which one needs them first. |
+| Heap-backed `Array<T>` | This phase establishes the primitive, inline `T[N]` form only. A growable owner needs allocation failure handling, disposal, and move-state rules. | After Phases F and H, as the standard heap-backed collection built on the fixed-array representation. |
+| `Slice<T>` / `&T[]`, slicing, or `for...of` over arrays | Views, lifetimes, and collection iteration require the borrow and iterator work that Phase A deliberately precedes. | Phases G and B, respectively, after heap-backed arrays land. |
+| Zero-length and variable-length arrays | `T[0]` needs a distinct C representation, while runtime lengths would make the layout non-fixed. Neither is needed to establish the first-class fixed-array model. | Post-v0.5 design work. |
 
 If a program uses a Phase-A-out-of-scope construct that the analyzer happens to accept, codegen emits a structured "unsupported in Phase A" diagnostic at the offending position and fails the build *before* invoking clang. This extends the fail-closed convention from v0 codegen.
 
@@ -70,6 +77,7 @@ Working against the v0 baseline ([compiler-status.md](../../compiler-status.md))
 - **Semantic analyzer**: `TypeKind` covers `TypeInt32`, `TypeBool`, `TypeString`, `TypeChar`, `TypeVoid`, `TypeEmpty`, `TypeInvalid`. The full numeric family, including `intsize`/`uintsize` and the float types, must be added. Operator typing rules cover the v0 set only — bitwise/shift/modulus rules are absent, as is the rule "operands must have identical numeric type; no implicit widening." Call-as-conversion is not distinguished from function call. `char` comparison is missing.
 - **Codegen**: type mapping covers only `int32 → int32_t`, `bool → bool`, `void → void`, `char → char` (currently emitted but never reached by analyzer-typed programs). No trap helpers, no `<stdint.h>` for the wider integer types beyond what's already included, no panic mechanism. Binary expression emission emits raw C operators with no overflow checks.
 - **Runtime**: no Delta-level runtime helpers exist. There is no place to put trap helpers, no `delta_runtime.h`, no panic printf/abort routine.
+- **Arrays**: there is no array type descriptor, array-literal or index-expression AST node, contextual element typing, bounds analysis, or C layout/lowering. Brackets are not currently available in type or expression grammar.
 
 ## Decisions already made
 
@@ -85,6 +93,10 @@ These are the calls I'm making up front so the implementation steps are unambigu
 8. **Float arithmetic does not trap; float-to-int conversion does.** Per §5.10. `+`/`-`/`*`/`/` on floats produce `Inf`/`NaN` per IEEE 754. `int32(my_float)` traps on NaN/Inf/out-of-range. Codegen guards float-to-int with an explicit `isnan(x) || isinf(x) || x < INT32_MIN || x > INT32_MAX` check.
 9. **Modulus follows truncated division.** §3 specifies `%` as truncated-division remainder (sign of result follows dividend). C is already truncated-division on signed `%`, so codegen emits `%` directly with the same trap guards as `/`. No Python-style floor-edit fallback.
 10. **Compound assignment is lowered, not de-sugared.** `x += y` lowers to a single C `x += y`, not to `x = x + y`, so x is evaluated once even at the C level. The trap helper is called inline: `x = delta_rt_add_i32(x, y, __FILE__, __LINE__);` — which means compound forms cannot use the literal C `+=` operator and instead must lower to `x = delta_rt_add_i32(x, y, ...);`. So decision (10) actually means: **emit a helper call assigned back to the LHS**, never use C's compound operator at the output. This keeps the trap site uniform regardless of source-level form.
+11. **Phase A arrays are fixed, inline arrays written `T[N]`.** They are a compiler primitive type constructor with structural identity `(element type, length)`, not a library `Array<T>` and not a user-generic instantiation. This gives the language safe array literals and indexing without prematurely choosing heap growth, allocation-failure, disposal, or ownership-transfer semantics.
+12. **Only positive, literal lengths are accepted.** The length is parsed as an unsigned decimal integer literal and checked to fit `uintsize`; `int32[N]`, `int32[0]`, `int32[-1]`, and `int32[n]` are errors. Rejecting zero length keeps every Phase-A array representable as a standard C array without a compiler-specific zero-length extension.
+13. **The Phase-A element set is deliberately scalar-only.** An element type may be any non-`void` primitive available in this phase (`bool`, `char`, numeric types); arrays cannot nest and cannot contain `string`, `heap<T>`, records, or future resource-owning types. This makes whole-array copy well-defined before Phase F's ownership and disposal analysis. The restriction is lifted only with an explicit Phase-F-compatible element capability rule.
+14. **Array bounds failures use the existing panic path.** Codegen emits a `delta_rt_index` guard before a dynamic index and reports `array index out of bounds`; no unchecked indexing syntax exists. Phase C may later make the same site recoverable through `as result`.
 
 ## Type system changes
 
@@ -120,14 +132,21 @@ const (
     // Floating-point
     TypeFloat32
     TypeFloat64
+
+    // Fixed arrays. The complete type carries element type and length below.
+    TypeArray
 )
 ```
 
-Helpers `IsInteger(k)`, `IsSignedInteger(k)`, `IsUnsignedInteger(k)`, `IsFloat(k)`, `IsNumeric(k)`, `BitWidth(k)` (returns 0 for `intsize`/`uintsize`, see "pointer-width" handling below). The display names use the full spec form (`int32`, `uint64`, etc., never `i32`/`u64`).
+`TypeArray` is not sufficient on its own: the semantic type representation grows `Element *Type` and `Length uintsize` fields, populated only when `Kind == TypeArray`. Equality and the type-interning key include both fields, so `uint8[4]` and `uint8[8]` are distinct types while two independently written `uint8[4]` references are identical. `String()` renders the canonical `T[N]` spelling.
+
+Helpers `IsInteger(k)`, `IsSignedInteger(k)`, `IsUnsignedInteger(k)`, `IsFloat(k)`, `IsNumeric(k)`, `BitWidth(k)` (returns 0 for `intsize`/`uintsize`, see "pointer-width" handling below), and `IsPhaseAArrayElement(t)`. The display names use the full spec form (`int32`, `uint64`, etc., never `i32`/`u64`).
 
 ### Type-name resolution
 
 Parser still produces `TypeReference` nodes carrying an identifier string. The analyzer's existing `lookupPrimitive` (called from `validateSignature` and binding annotations) expands to recognize the new names. Unrecognized type names continue to produce `TypeInvalid` with a structured diagnostic.
+
+For an array type reference, the parser produces `ArrayTypeReference{Element: TypeReference, Length: IntegerLiteral}`. The analyzer resolves `Element`, applies `IsPhaseAArrayElement`, verifies the positive `uintsize`-fitting literal length, then interns the resulting `TypeArray`. `Array` by itself and `Array<T>` are not Phase-A type names; diagnostics should point users to `T[N]` and explain that the growable collection is not yet available.
 
 ### Operator typing matrix
 
@@ -187,6 +206,7 @@ Allowed direction matrix (rows are source, columns are destination; `✓` = allo
   - Compound assignments: `Op_PlusEq`, `Op_MinusEq`, `Op_StarEq`, `Op_SlashEq`, `Op_PercentEq`, `Op_AmpEq`, `Op_PipeEq`, `Op_CaretEq`, `Op_LShiftEq`, `Op_RShiftEq`.
   - Type-name keywords: handled either as dedicated `Type_*` token kinds (matching the commented-out `Type_Int32` in the current code) or as identifiers checked at parse time. **Decision: keep them as identifiers.** Adding twelve new token kinds for type names is noise; the analyzer already does the keyword-vs-identifier disambiguation through `lookupPrimitive`. Reserve dedicated tokens only if the parser ever needs to make a syntactic decision based on whether the next token is a primitive type, which it does not.
 - **Multi-character operator disambiguation:** `<<` must out-prefer `<`, `<=` keeps its precedence, `<<=` out-prefers `<<`. Same pattern for `>>` / `>>=`. The current tokenizer's lookahead suffices; extend the per-character switch.
+- **Array punctuation:** add `[` and `]` token kinds. They are structural punctuation, not operators. The tokenizer continues to emit ordinary integer-literal tokens between them; the parser, not the tokenizer, decides whether a bracket pair is a type length, an array literal, or an index suffix.
 
 ## Parser changes
 
@@ -209,6 +229,9 @@ Allowed direction matrix (rows are source, columns are destination; `✓` = allo
 - **Assignment statement parsing** must accept any of the eleven assignment operators on the LHS-side check. Today it only matches `=`. Refactor into a small `isAssignmentOp(tok)` helper; the resulting `AssignmentStatement` AST node grows an `Op` field carrying the operator kind.
 - **No new expression productions.** Compound assignment is statement-level; conversions reuse the function-call production; literal forms reuse `IntegerLiteral` / new `FloatLiteral`.
 - **`FloatLiteral` AST node** added alongside `IntegerLiteral`. Stores the original lexeme and a parsed `float64` value. Formatter prints the original lexeme to preserve source style.
+- **Fixed-array type references.** After parsing a base type reference, accept one `[` integer-literal `]` suffix and build `ArrayTypeReference`. The length is intentionally syntactic at this stage: semantic validation owns positive-value and `uintsize` range checks. Repeated suffixes (`int32[2][3]`) are rejected in Phase A rather than accidentally introducing nested arrays.
+- **Array literals.** In primary-expression position, `[` starts `ArrayLiteralExpression{Elements []Expression}`; elements are comma-separated and a trailing comma is accepted. `[]` parses successfully so the analyzer can issue its targeted “array literal needs element type and length” diagnostic.
+- **Index expressions.** The postfix parser accepts `expression '[' expression ']'` and builds `IndexExpression{Receiver, Index}`. Postfix parsing makes calls/member access/indexing bind more tightly than unary operators, so `a[i] + 1` and `f()[0]` have the expected shape. Only an array receiver is accepted by Phase A semantics; parsing `f()[0]` now is harmless and produces a source-located type error if `f()` is not an array.
 
 ## Semantic analyzer changes
 
@@ -221,6 +244,9 @@ Allowed direction matrix (rows are source, columns are destination; `✓` = allo
 - **`T.from(x)` recognition.** Member-access syntax in callee position is new — today's parser only supports identifier callees. Add a minimal member-access path: when the parser sees `Identifier '.' Identifier` followed by `(`, build `Call(Member(receiver, name), args)`. The analyzer recognizes this only for the `Type.from(arg)` shape and rejects all other member-access uses with "member access not yet supported." (Member access in general lands with classes — Phase E.)
 - **`bool ↔ int` rejection.** Any conversion attempt in this direction emits a "no implicit bool/int conversion" diagnostic with a hint: "use a ternary (`b ? 1 : 0`) or comparison (`n != 0`) instead."
 - **Mixed-precision rejection.** Any binary expression with operands of different numeric types is a structured diagnostic naming both types and suggesting `T(x)` for the explicit conversion.
+- **Array literal typing.** With an expected `T[N]`, require exactly `N` elements and type every element with expected type `T`. Without an expected type, reject `[]`; otherwise type the first element normally, use its type as `T`, type each remaining element in that context, and infer `T[element-count]`. A mismatch points at the mismatching element and names the inferred element type. `void` is never a valid element type.
+- **Array indexing and assignment.** `IndexExpression` requires a `TypeArray` receiver and a `uintsize` index. Its result is the receiver element type and it is addressable when its receiver is addressable. An integer-literal index is range-checked against the fixed length in the analyzer: a bad constant is a build failure; a nonliteral index records a required runtime bounds guard. Assignment through an index follows the ordinary `const`/`let` rule and requires the assigned value to match the element type exactly.
+- **Array `.length`.** Recognize `array.length` as a compiler-known read-only property when `array` has `TypeArray`; its type is `uintsize` and its value is the statically known length. General member access remains out of scope. Because the length is immutable, no storage field or C-level property lookup is needed.
 
 ## Codegen changes
 
@@ -243,6 +269,7 @@ Allowed direction matrix (rows are source, columns are destination; `✓` = allo
   | `float32` | `float` |
   | `float64` | `double` |
   | `char` | `uint32_t` |
+  | `T[N]` | an interned `typedef struct { T data[N]; } delta_arr_<T>_<N>` |
 
   Every generated `.c` includes `<stdint.h>` (already present), `<stdbool.h>` (already present), and now `<math.h>` (for `isnan`, `isinf`) and `<stdlib.h>` (for `abort`) and `<stdio.h>` (for `fprintf(stderr, ...)`).
 
@@ -288,6 +315,8 @@ Allowed direction matrix (rows are source, columns are destination; `✓` = allo
   - Compound assignment `x += y` lowers to `x = delta_rt_add_T(x, y, file, line);` — never a raw C `+=`.
   - Conversion expressions lower through the appropriate `delta_rt_narrow_*` or `delta_rt_sign_*` helper for trapping conversions, or a plain `(T)x` cast for free conversions.
 - **`#line` integration.** The trap helpers take `__FILE__` / `__LINE__` arguments because the C-level `#line` directive shifts them. Verify on a small fixture that a panic from line 12 of `src.delta` actually prints `src.delta:12`, not `src.c:<C line>`.
+- **Fixed-array layouts and expressions.** For every distinct `T[N]` used by a translation unit, emit one deterministic wrapper typedef before the functions that use it. A wrapper struct, rather than a raw C `T[N]`, preserves Delta's whole-array assignment, parameter, and return-value semantics, which C arrays do not have. Lower `[a, b, c]` to a compound literal of that wrapper (`(delta_arr_i32_3){ .data = { a, b, c } }`); lower `a[i]` to `a.data[i]`. `.length` lowers to a width-correct `uintsize` literal and emits no C member access.
+- **Bounds helper.** Add `delta_rt_index(uintptr_t index, uintptr_t length, const char *file, int line)` (`uintsize`'s C lowering). It panics with `array index out of bounds` when `index >= length` and otherwise returns `index`, so a dynamic source index emits exactly once as `a.data[delta_rt_index(i, 4, __FILE__, __LINE__)]`. Constant-valid indexes omit the helper. This helper is selected by the same per-TU reachability tracker as numeric trap helpers.
 
 ## CLI / build behavior
 
@@ -328,7 +357,7 @@ Semantics:
 - `"expect": "trap"` means: build must succeed; running the binary must exit non-zero (via `abort()`); the panic line on stderr must match `panic_contains` and `panic_at`.
 - `"expect": "build_fail"` covers analyzer- or codegen-level rejection (already supported from v0 codegen plan).
 
-Initial fixtures (twenty-three, grouped):
+Initial fixtures (twenty-eight, grouped):
 
 **Integer breadth (8)**
 - `uint8_add_ok.delta`, `int64_arith_ok.delta`, `uintsize_arith_ok.delta`, `mixed_widths_err.delta` (compile error), `int32_to_int64_ok.delta`, `int64_to_int32_narrow_trap.delta`, `int32_to_uint32_sign_flip_trap.delta`, `int_max_constant_ok.delta`.
@@ -348,20 +377,23 @@ Initial fixtures (twenty-three, grouped):
 **Literals (1)**
 - `hex_binary_underscore_ok.delta` (covers `0xFF_FF`, `0b1010_1010`, `1_000_000`).
 
+**Fixed arrays (5)**
+- `array_literal_inferred_ok.delta` (`const xs = [1, 2, 3];` is `int32[3]`), `array_literal_contextual_ok.delta` (`const bytes: uint8[3] = [1, 2, 3];`), `array_index_and_mutation_ok.delta`, `array_constant_index_oob_err.delta`, `array_dynamic_index_oob_trap.delta`.
+
 The pre-existing v0 fixtures must still pass unchanged — Phase A is purely additive on top of `int32`/`bool`/`void`.
 
 ## Stage-by-stage implementation order
 
 1. **Type system foundation.** Extend `TypeKind`, the printable names, and the predicates. Add `lookupPrimitive` entries for the new names. Land with unit tests in `internal/semantics/` that round-trip type-name resolution. No tokenizer/parser/codegen changes yet; analyzer rejects programs that use new types because the tokenizer still treats `int64` as a generic identifier — that's fine, the existing identifier path already produces a `TypeReference` for type-position uses, so this step really does work in isolation.
 2. **Tokenizer expansion.** Add hex/binary/float literal forms and the new operator tokens. Land with tokenizer tests covering each new token kind and each rejection case (`0x_FF`, malformed exponents, etc.). Codegen unaffected; parser still ignores the new tokens.
-3. **Parser expansion.** Add precedence slots for shifts, bitwise, and the modulus operator. Add compound-assignment parsing. Add `FloatLiteral` AST node and `Op` field on `AssignmentStatement`. Add the minimal `Type.from(x)` member-access path. Land with parser tests covering precedence (mixed `&` / `&&` / `==`), associativity, and compound-assignment shapes.
-4. **Analyzer operator typing.** Implement the operator-typing matrix. Implement literal-fits-target. Implement conversion-call recognition. Implement mixed-precision and `bool ↔ int` rejection. Land with analyzer unit tests on each rule.
-5. **Codegen type mapping.** Extend the type-mapping table; verify a program using `int64` / `float64` / `char` compiles through to an executable that exits with the right value, **without** trap helpers yet — division by zero produces a clang/runtime error, not a Delta panic. This is the milestone where the new types are end-to-end visible.
-6. **Trap helpers — emission machinery.** Add the per-TU tracker that records which trap families are used and emits only those at the top of the TU. Land with codegen unit tests that snapshot the emitted preamble for a few representative programs.
-7. **Trap helpers — coverage.** Implement all helper families per the table above. Each one as a function template parametrized by Delta type; emission picks the right one based on operand types from the analyzer. Land with the panic-on-overflow fixtures.
-8. **Conversion lowering.** Emit `delta_rt_narrow_*`, `delta_rt_sign_*`, `delta_rt_f_to_i_*` for trapping conversions; plain casts for free ones. Land with conversion fixtures.
-9. **Compound assignment lowering.** Implement the helper-call-assigned-back form. Land with compound fixtures.
-10. **`#line`-aware panic messages.** Verify panic file/line strings carry through `#line`; fix the directive emission if the helper position is wrong. Land with one end-to-end fixture that asserts on the panic location.
+3. **Parser expansion.** Add precedence slots for shifts, bitwise, and the modulus operator. Add compound-assignment parsing. Add `FloatLiteral` AST node and `Op` field on `AssignmentStatement`. Add the minimal `Type.from(x)` member-access path, array type suffixes, array literals, and postfix index expressions. Land with parser tests covering precedence (mixed `&` / `&&` / `==`), associativity, compound-assignment shapes, and nested postfix parsing.
+4. **Analyzer operator and array typing.** Implement the operator-typing matrix, literal-fits-target, conversion-call recognition, mixed-precision and `bool ↔ int` rejection. Add array-type interning, array literal contextual/inferred typing, `.length`, index typing, and constant-index bounds diagnostics. Land with analyzer unit tests on each rule.
+5. **Codegen type mapping and fixed arrays.** Extend the type-mapping table and emit interned fixed-array wrappers. Verify programs using `int64`, `float64`, `char`, and `uint8[3]` compile through to executables with correct values, **without** trap helpers yet — division by zero and dynamic out-of-bounds access still produce a clang/runtime error. This is the milestone where the new types are end-to-end visible.
+6. **Trap helpers — emission machinery.** Add the per-TU tracker that records which trap families are used and emits only those at the top of the TU. Include the array-index guard. Land with codegen unit tests that snapshot the emitted preamble for representative numeric and array programs.
+7. **Trap helpers — coverage.** Implement all helper families per the table above. Each one as a function template parametrized by Delta type; emission picks the right one based on operand types from the analyzer. Land with the panic-on-overflow and dynamic-index fixtures.
+8. **Conversion lowering.** Emit `delta_rt_narrow_*`, `delta_rt_sign_*`, `delta_rt_f_to_i_*` for trapping conversions; plain casts for free conversions. Land with conversion fixtures.
+9. **Compound assignment lowering.** Implement the helper-call-assigned-back form, including index LHSs after evaluating the receiver and index once. Land with compound and indexed-assignment fixtures.
+10. **`#line`-aware panic messages.** Verify panic file/line strings carry through `#line`; fix the directive emission if the helper position is wrong. Land with end-to-end fixtures that assert the panic location for both arithmetic and array indexing.
 11. **Phase-A fail-closed guards.** Add codegen-level diagnostics for the Phase-A-out-of-scope constructs the analyzer might accept once Phase B lands but Phase C has not (e.g., the literal `OverflowError` type name); emit "Phase A: not yet supported, see Phase C" with a source-located message.
 
 Steps 1–4 are mostly analyzer/parser plumbing; steps 5–7 are the risk-bearing milestone (this is where overflow behavior actually changes); steps 8–11 are mechanical fill-in.
@@ -380,6 +412,9 @@ Steps 1–4 are mostly analyzer/parser plumbing; steps 5–7 are the risk-bearin
 - **What happens to v0 programs?** Every v0-passing fixture must still pass. The new operator-typing rules forbid mixed-precision, but the only types v0 had were `int32` / `bool` / `void`, so there's no opportunity for v0 programs to use mixed precision. Safe.
 - **Where do trap helpers go when the runtime lands?** Pre-committed in Decision §1: `static inline` per TU now, real library later. No design work needed in Phase A to support the move.
 - **Should `let x: int32 = 0xFFFFFFFF;` be a compile error or a runtime trap?** Compile error — the literal-fits-target check catches it at parse-into-analyzer time, before any runtime semantics apply. Same for `let x: int8 = 256;`. The trap path is for *computed* values, not literals.
+- **Why fixed arrays before `Array<T>`?** A primitive fixed layout gives codegen a safe, copyable array value with no allocator, destructor, aliasing, or growth policy. Treating a growable heap owner as a primitive before Phase F would either leak or silently create shallow aliases. The heap-backed collection therefore remains a separate, ownership-aware milestone.
+- **Can arrays nest in Phase A?** No. `int32[2][3]` would be mechanically lowerable, but allowing it now would turn the scalar-only capability rule into an accidental ownership policy. The parser rejects it and the later element-capability design reopens it deliberately.
+- **How does array compound assignment preserve single evaluation?** `xs[i] += y` must not lower to an expression that evaluates `xs` or `i` twice. The codegen captures the lvalue location/index once before applying the relevant numeric trap helper; this is the same semantic promise as identifier compound assignment and needs a focused fixture.
 - **Does the precedence change break any existing test?** Bitwise operators currently aren't parsed at all, so adding them between equality and comparison won't reshape any existing tree. Verify by re-running the existing parser snapshot tests.
 
 ## Definition of done for Phase A
@@ -388,6 +423,7 @@ Steps 1–4 are mostly analyzer/parser plumbing; steps 5–7 are the risk-bearin
 - The trap fixtures, when run, exit non-zero and print a Delta panic line on stderr whose file:line:col matches the source location of the trapping operation.
 - All v0 codegen fixtures keep passing unchanged.
 - A focused unit-test pass exists for each Phase-A surface change: tokenizer (new literals + operators), parser (precedence + compound), analyzer (operator typing + conversions + mixed-precision rejection), codegen (trap helper emission + selection).
+- Fixed arrays are first-class compiler primitive types: `T[N]` preserves structural type identity across declarations, literals infer or consume the correct element type, `.length` is `uintsize`, valid indexing and mutation execute correctly, and invalid constant/dynamic indexes fail at compile time/runtime respectively.
 - `delta build` continues to work on Phase-A-using programs with no measurable startup-time regression (target: codegen still finishes in well under a second on the acceptance program from the goal doc; the runtime-preamble overhead is bounded by the helper-emission gating from Step 6).
 - The Phase B plan can start without revisiting any Phase A decision; in particular, `for`-loop bodies can freely use the wider integer surface and compound assignment without further codegen work.
 
