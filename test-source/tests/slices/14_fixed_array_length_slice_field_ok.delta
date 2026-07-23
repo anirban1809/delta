@@ -1,0 +1,21 @@
+type struct list<T> = {
+    data: T[],
+    capacity: uintsize,
+    length: uintsize
+};
+
+function list_new<T>(data: T[5]): list<T> {
+    return list{
+        data: data,
+        capacity: data.length,
+        length: data.length
+    };
+}
+
+function main(): int8 {
+    const numbers = list_new<int32>([1, 2, 3, 4, 5]);
+    if (numbers.capacity == uintsize(5) && numbers.length == uintsize(5)) {
+        return 0;
+    }
+    return 1;
+}

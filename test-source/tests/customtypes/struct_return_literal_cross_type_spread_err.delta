@@ -6,6 +6,6 @@ function invalidPosition(source: Vec3): Position {
     return Position { ...source };
 }
 
-function main(): int32 {
+function main(): int8 {
     return 0;
 }

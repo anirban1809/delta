@@ -1,0 +1,86 @@
+[
+    {
+        "file": "01_empty_literal_ok.delta",
+        "expect": "run",
+        "expected_exit": 0,
+        "note": "An element annotation gives an empty slice literal its type."
+    },
+    {
+        "file": "02_literal_index_ok.delta",
+        "expect": "run",
+        "expected_exit": 0,
+        "note": "A non-empty literal creates block-lifetime backing storage."
+    },
+    {
+        "file": "03_fixed_array_view_ok.delta",
+        "expect": "run",
+        "expected_exit": 0,
+        "note": "A fixed array converts to a slice without copying."
+    },
+    {
+        "file": "04_parameter_literal_ok.delta",
+        "expect": "run",
+        "expected_exit": 0,
+        "note": "A slice parameter supplies context to an array literal."
+    },
+    {
+        "file": "05_slice_reference_ok.delta",
+        "expect": "run",
+        "expected_exit": 0,
+        "note": "A reference to T[] lowers to a pointer to the slice descriptor."
+    },
+    {
+        "file": "06_slice_assignment_ok.delta",
+        "expect": "run",
+        "expected_exit": 0,
+        "note": "Existing slice bindings accept contextually typed literals."
+    },
+    {
+        "file": "07_untyped_empty_err.delta",
+        "expect": "fail",
+        "contains": "empty array literal",
+        "note": "Bare [] remains uninferable without a slice context."
+    },
+    {
+        "file": "08_element_mismatch_err.delta",
+        "expect": "fail",
+        "contains": "invalid type for slice element"
+    },
+    {
+        "file": "09_empty_index_trap.delta",
+        "expect": "trap",
+        "panic_contains": "slice index out of bounds"
+    },
+    {
+        "file": "10_codegen_shape.delta",
+        "expect": "codegen_contains",
+        "emits": [
+            "typedef struct delta_slice_int32",
+            "int32_t* data;",
+            "uintptr_t size;",
+            "const delta_slice_int32* values"
+        ]
+    },
+    {
+        "file": "11_record_element_slice_ok.delta",
+        "expect": "run",
+        "expected_exit": 0
+    },
+    {
+        "file": "12_slice_record_field_ok.delta",
+        "expect": "run",
+        "expected_exit": 0
+    },
+    {
+        "file": "13_generic_slice_length_ok.delta",
+        "expect": "run",
+        "expected_exit": 0,
+        "note": "Slice .length is uintsize and lowers to the descriptor size field, including for T[]."
+    },
+    {
+        "file": "14_fixed_array_length_slice_field_ok.delta",
+        "expect": "run",
+        "expected_exit": 0,
+        "note": "A generic fixed-array parameter lowers .length to its constant while converting the array to a slice field."
+    }
+]

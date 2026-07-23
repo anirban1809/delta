@@ -1,5 +1,5 @@
 // E0207 — unary `-` expects a numeric operand, found `bool`
-function main(): int32 {
+function main(): int8 {
     const flag: bool = true;
     const n: bool = -flag;   // ERROR[E0207]: unary `-` expects a numeric operand, found `bool`
     return 0;

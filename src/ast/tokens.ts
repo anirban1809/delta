@@ -53,6 +53,7 @@ export enum TokenKind {
     Keyword_Check = "Keyword_Check",
     Keyword_Import = "Keyword_Import",
     Keyword_Export = "Keyword_Export",
+    Keyword_Module = "Keyword_Module",
     Keyword_From = "Keyword_From",
     Keyword_Edit = "Keyword_Edit",
     Keyword_New = "Keyword_New",
@@ -63,12 +64,20 @@ export enum TokenKind {
     Keyword_Struct = "Keyword_Struct",
     Keyword_Enum = "Keyword_Enum",
     Keyword_Union = "Keyword_Union",
+    Keyword_Extern = "Keyword_Extern",
+    Keyword_Ffi = "Keyword_Ffi",
+    Keyword_Header = "Keyword_Header",
+    Keyword_Unsafe = "Keyword_Unsafe",
+    Keyword_Static = "Keyword_Static",
+    Keyword_Dynamic = "Keyword_Dynamic",
 
     //symbols
     Symbol_LeftParen = "Symbol_LeftParen",
     Symbol_RightParen = "Symbol_RightParen",
     Symbol_LeftBrace = "Symbol_LeftBrace",
     Symbol_RightBrace = "Symbol_RightBrace",
+    Symbol_LeftBracket = "Symbol_LeftBracket",
+    Symbol_RightBracket = "Symbol_RightBracket",
     Symbol_Colon = "Symbol_Colon",
     Symbol_Semicolon = "Symbol_Semicolon",
     Symbol_Comma = "Symbol_Comma",
@@ -96,6 +105,13 @@ export enum TokenKind {
     Symbol_PlusEquals = "Symbol_PlusEquals",
     Symbol_MinusEquals = "Symbol_MinusEquals",
     Symbol_AsteriskEquals = "Symbol_AsteriskEquals",
+    Symbol_FSlashEquals = "Symbol_FSlashEquals",
+    Symbol_PercentEquals = "Symbol_PercentEquals",
+    Symbol_AmpersandEquals = "Symbol_AmpersandEquals",
+    Symbol_PipeEquals = "Symbol_PipeEquals",
+    Symbol_CaretEquals = "Symbol_CaretEquals",
+    Symbol_ShiftLeftEquals = "Symbol_ShiftLeftEquals",
+    Symbol_ShiftRightEquals = "Symbol_ShiftRightEquals",
     Symbol_Increment = "Symbol_Increment",
     Symbol_Decrement = "Symbol_Decrement",
     Symbol_Dot = "Symbol_Dot",
@@ -169,6 +185,8 @@ export function string(kind: TokenKind): string {
             return "import";
         case TokenKind.Keyword_Export:
             return "export";
+        case TokenKind.Keyword_Module:
+            return "module";
         case TokenKind.Keyword_From:
             return "from";
         case TokenKind.Keyword_Edit:
@@ -189,6 +207,18 @@ export function string(kind: TokenKind): string {
             return "union";
         case TokenKind.Keyword_Enum:
             return "enum";
+        case TokenKind.Keyword_Extern:
+            return "extern";
+        case TokenKind.Keyword_Ffi:
+            return "ffi";
+        case TokenKind.Keyword_Header:
+            return "header";
+        case TokenKind.Keyword_Unsafe:
+            return "unsafe";
+        case TokenKind.Keyword_Static:
+            return "static";
+        case TokenKind.Keyword_Dynamic:
+            return "dynamic";
 
         case TokenKind.Symbol_LeftParen:
             return "(";
@@ -198,6 +228,10 @@ export function string(kind: TokenKind): string {
             return "{";
         case TokenKind.Symbol_RightBrace:
             return "}";
+        case TokenKind.Symbol_LeftBracket:
+            return "[";
+        case TokenKind.Symbol_RightBracket:
+            return "]";
         case TokenKind.Symbol_Colon:
             return ":";
         case TokenKind.Symbol_Semicolon:
@@ -252,6 +286,20 @@ export function string(kind: TokenKind): string {
             return "-=";
         case TokenKind.Symbol_AsteriskEquals:
             return "*=";
+        case TokenKind.Symbol_FSlashEquals:
+            return "/=";
+        case TokenKind.Symbol_PercentEquals:
+            return "%=";
+        case TokenKind.Symbol_AmpersandEquals:
+            return "&=";
+        case TokenKind.Symbol_PipeEquals:
+            return "|=";
+        case TokenKind.Symbol_CaretEquals:
+            return "^=";
+        case TokenKind.Symbol_ShiftLeftEquals:
+            return "<<=";
+        case TokenKind.Symbol_ShiftRightEquals:
+            return ">>=";
         case TokenKind.Symbol_Increment:
             return "++";
         case TokenKind.Symbol_Decrement:
@@ -313,6 +361,8 @@ export function getTokenKind(s: string): TokenKind {
             return TokenKind.Keyword_Import;
         case "export":
             return TokenKind.Keyword_Export;
+        case "module":
+            return TokenKind.Keyword_Module;
         case "from":
             return TokenKind.Keyword_From;
         case "edit":
@@ -333,6 +383,18 @@ export function getTokenKind(s: string): TokenKind {
             return TokenKind.Keyword_Union;
         case "enum":
             return TokenKind.Keyword_Enum;
+        case "extern":
+            return TokenKind.Keyword_Extern;
+        case "ffi":
+            return TokenKind.Keyword_Ffi;
+        case "header":
+            return TokenKind.Keyword_Header;
+        case "unsafe":
+            return TokenKind.Keyword_Unsafe;
+        case "static":
+            return TokenKind.Keyword_Static;
+        case "dynamic":
+            return TokenKind.Keyword_Dynamic;
 
         case "true":
         case "false":
@@ -346,6 +408,10 @@ export function getTokenKind(s: string): TokenKind {
             return TokenKind.Symbol_LeftBrace;
         case "}":
             return TokenKind.Symbol_RightBrace;
+        case "[":
+            return TokenKind.Symbol_LeftBracket;
+        case "]":
+            return TokenKind.Symbol_RightBracket;
         case ":":
             return TokenKind.Symbol_Colon;
         case ";":

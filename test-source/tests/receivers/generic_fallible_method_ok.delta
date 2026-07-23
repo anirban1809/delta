@@ -1,0 +1,23 @@
+type struct List<T> = {
+    data: T[],
+    length: uintsize
+};
+
+type struct OutOfRangeError = {};
+
+function (list: &List<T>) at<T>(index: uintsize): T | OutOfRangeError {
+    if (index >= list.length) {
+        return error as OutOfRangeError{};
+    }
+    return list.data[index];
+}
+
+function main(): int8 {
+    const values: int32[] = [1, 2, 4, 5];
+    const list = List<int32>{ data: values, length: values.length };
+    const value = list.at(uintsize(3)) as result;
+    check result {
+        return int8(-1);
+    }
+    return int8(value);
+}

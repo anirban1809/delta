@@ -2,17 +2,23 @@ import { convert } from "@catalystic/json-to-yaml";
 import type {
     AssignmentStatement,
     BlockStatement,
+    CheckBlockStatement,
     Declaration,
     EnumDecl,
     Expression,
     ExpressionStatement,
     ForStatement,
+    ForwardStatement,
     FunctionDeclaration,
     FunctionParameter,
     Identifier,
     IfStatement,
+    ImportDeclaration,
     Module,
+    ObjectLiteralElement,
+    ObjectLiteralExpression,
     ReturnStatement,
+    ReturnErrorStatement,
     Statement,
     StructDecl,
     SwitchCase,
@@ -43,6 +49,7 @@ export class Formatter {
             kind: "assignment_statement",
             root: this.formatExpression(e.root),
             target: this.formatExpression(e.target),
+            ...(e.asResult ? { asResult: e.asResult.resultName.name } : {}),
         };
     }
 
@@ -82,12 +89,52 @@ export class Formatter {
         };
     }
 
+    /** Formats an object-literal field or spread while dropping source positions. */
+    formatObjectLiteralElement(element: ObjectLiteralElement): any {
+        switch (element.kind) {
+            case "field_init":
+                return {
+                    kind: "field_init",
+                    field: {
+                        name: this.formatIdentifier(element.field.name),
+                        value: this.formatExpression(element.field.value),
+                    },
+                };
+            case "spread_element":
+                return {
+                    kind: "spread_element",
+                    source: this.formatExpression(element.source),
+                };
+        }
+    }
+
+    /** Formats a record/object literal and recursively formats its elements. */
+    formatObjectLiteralExpression(expression: ObjectLiteralExpression): any {
+        return {
+            kind: "object_literal",
+            type: this.formatType(expression.type),
+            ...(expression.genericTypes?.length
+                ? { typeArguments: expression.genericTypes.map((type) => this.formatType(type)) }
+                : {}),
+            elements: expression.elements.map((element) =>
+                this.formatObjectLiteralElement(element),
+            ),
+        };
+    }
+
     /** Formats a single expression node. */
     formatExpression(e?: Expression): any {
         if (!e) {
             return {};
         }
         switch (e.kind) {
+            case "new_expression":
+                return {
+                    kind: "new_expression",
+                    expression: this.formatExpression(e.expression),
+                };
+            case "object_literal":
+                return this.formatObjectLiteralExpression(e);
             case "identifier":
                 return this.formatIdentifier(e);
             case "integer_literal":
@@ -105,11 +152,35 @@ export class Formatter {
                     kind: "boolean_literal",
                     value: e.value,
                 };
+            case "char_literal":
+                return {
+                    kind: "char_literal",
+                    value: e.value,
+                };
+            case "string_literal":
+                return {
+                    kind: "string_literal",
+                    value: e.value,
+                };
+            case "array_literal_expression":
+                return {
+                    kind: "array_literal_expression",
+                    elements: e.elements.map((x) => this.formatExpression(x)),
+                };
+            case "index_expression":
+                return {
+                    kind: "index_expression",
+                    receiver: this.formatExpression(e.receiver),
+                    index: this.formatExpression(e.index),
+                };
             case "function_call_expression":
                 return {
                     kind: "function_call_expression",
                     conversion: e.conversion,
-                    callee: this.formatIdentifier(e.callee),
+                    callee: this.formatExpression(e.callee),
+                    ...(e.genericTypes?.length
+                        ? { typeArguments: e.genericTypes.map((x) => this.formatType(x)) }
+                        : {}),
                     arguments: e.arguments.map((x) => this.formatExpression(x)),
                 };
             case "unary_expression":
@@ -141,6 +212,7 @@ export class Formatter {
                 return {
                     kind: "expression_statement",
                     expression: this.formatExpression((b as ExpressionStatement).expression),
+                    ...(b.asResult ? { asResult: b.asResult.resultName.name } : {}),
                 };
             case "assignment_statement":
                 return this.formatAssignmentStatement(b as AssignmentStatement);
@@ -149,12 +221,34 @@ export class Formatter {
                     kind: "return_statement",
                     expression: this.formatExpression((b as ReturnStatement).expression),
                 };
+            case "return_error_statement":
+                return {
+                    kind: "return_error_statement",
+                    value: this.formatExpression((b as ReturnErrorStatement).value),
+                };
+            case "check_block_statement":
+                return {
+                    kind: "check_block_statement",
+                    resultName: (b as CheckBlockStatement).resultName.name,
+                    ...((b as CheckBlockStatement).errorType
+                        ? { errorType: (b as CheckBlockStatement).errorType!.name.name }
+                        : {}),
+                    body: this.formatBlockStatement((b as CheckBlockStatement).body),
+                };
+            case "forward_statement":
+                return {
+                    kind: "forward_statement",
+                    resultName: (b as ForwardStatement).resultName.name,
+                };
             case "variable_declaration_statement":
                 return {
                     kind: "variable_declaration_statement",
                     name: b.name.name,
                     type: b.type.name.name,
+                    ...(b.type.arrayLengths?.length ? { arrayLengths: b.type.arrayLengths } : {}),
+                    ...(b.type.slice ? { slice: true } : {}),
                     value: this.formatExpression(b.value),
+                    ...(b.asResult ? { asResult: b.asResult.resultName.name } : {}),
                 };
         }
     }
@@ -173,11 +267,16 @@ export class Formatter {
     }
 
     /** Formats a type reference, including its name and resolved value. */
-    formatType(t: Type) {
+    formatType(t: Type): any {
         return {
             kind: t.kind,
             name: this.formatIdentifier(t.name),
             value: t.value,
+            ...(t.arrayLengths?.length ? { arrayLengths: t.arrayLengths } : {}),
+            ...(t.slice ? { slice: true } : {}),
+            ...(t.typeParameters?.length
+                ? { typeParameters: t.typeParameters.map((x) => this.formatType(x)) }
+                : {}),
         };
     }
 
@@ -196,9 +295,14 @@ export class Formatter {
         return {
             kind: "function_declaration",
             name: f.name,
+            ...(f.typeParameters?.length
+                ? { typeParameters: f.typeParameters.map((x) => this.formatType(x)) }
+                : {}),
             parameters,
             returnTypes: f.returnTypes.map((x) => this.formatType(x)),
             errorType: f.errorTypes.map((x) => this.formatType(x)),
+            ...(f.external ? { external: f.external } : {}),
+            ...(f.exported ? { exported: true } : {}),
             body,
         };
     }
@@ -250,6 +354,22 @@ export class Formatter {
     /** Formats a top-level declaration, dispatching on its `kind`. */
     formatDeclaration(d: Declaration) {
         switch (d.kind) {
+            case "import_declaration": {
+                const declaration = d as ImportDeclaration;
+                return {
+                    kind: declaration.kind,
+                    ...(declaration.unsafe ? { unsafe: true } : {}),
+                    ...(declaration.namespace
+                        ? {
+                              module: declaration.namespace.module.name,
+                              ...(declaration.namespace.alias
+                                  ? { alias: declaration.namespace.alias.name }
+                                  : {}),
+                          }
+                        : { specifiers: declaration.specifiers.map((x) => x.name.name) }),
+                    path: declaration.path,
+                };
+            }
             // case "variable_declaration_statement":
             //     return this.formatVar;
             case "function_declaration":
@@ -265,6 +385,14 @@ export class Formatter {
         return {
             file: this.ast.fileName,
             declarations,
+            ...(this.ast.exportModule
+                ? { exportModule: this.ast.exportModule.name.name }
+                : {}),
+            ...(this.ast.ffiHeaders?.length ? { ffiHeaders: this.ast.ffiHeaders } : {}),
+            ...(this.ast.ffiModuleName ? { ffiModule: this.ast.ffiModuleName } : {}),
+            ...(this.ast.ffiLibraries?.length
+                ? { ffiLibraries: this.ast.ffiLibraries.map(({ kind, path }) => ({ kind, path })) }
+                : {}),
         };
     }
 

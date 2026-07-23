@@ -1,8 +1,8 @@
-function main(): int32 {
+function main(): int8 {
     let a: char = 'A';
     let b: char = 'B';
     if (a < b) {
-        return 0;
+        return int8(0);
     }
-    return 1;
+    return int8(1);
 }

@@ -10,7 +10,7 @@
 //                binding type; compound ops + `++` require an integer `let`.
 //   codegen    : compound ops and `++` lower to the overflow-checked helpers (feature 06).
 
-function main(): int32 {
+function main(): int8 {
     let total: int32 = 0;
     const step: int32 = 5;
 
@@ -23,7 +23,7 @@ function main(): int32 {
     // step++;           // ERROR: cannot mutate `const` binding `step`
     // total = true;     // ERROR: type mismatch: expected `int32`, found `bool`
 
-    return total;
+    return int8(total);
 }
 
 /* === Generated C (illustrative) ===

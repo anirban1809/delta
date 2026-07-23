@@ -1,0 +1,4 @@
+function main(): int8 {
+    const values = [];
+    return 0;
+}

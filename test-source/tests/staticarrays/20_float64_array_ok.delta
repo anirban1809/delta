@@ -1,0 +1,5 @@
+function main(): int8 {
+    const xs: float64[3] = [1.5, 2.5, 3.5];
+    if (xs[1] < 2.0) { return int8(1); }
+    return int8(0);
+}

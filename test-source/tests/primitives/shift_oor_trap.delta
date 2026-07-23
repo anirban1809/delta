@@ -1,6 +1,6 @@
-function main(): int32 {
+function main(): int8 {
     let a: uint32 = 1;
     let s: uint32 = 32;
     let r: uint32 = a << s;
-    return 0;
+    return int8(0);
 }

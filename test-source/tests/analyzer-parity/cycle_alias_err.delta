@@ -2,6 +2,6 @@
 type X = Y;
 type Y = X;
 
-function main(): int32 {
+function main(): int8 {
     return 0;
 }

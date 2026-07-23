@@ -47,7 +47,7 @@ examples follow the **v0.5 phase plans + the verbose `int32` naming of §5**.
 |------|---------|--------------------|
 | `12-ownership-move-clone.delta`  | tiers, `move`, `clone`        | move-state lattice (reuses CFG) |
 | `13-references-borrows.delta`    | `&T`, `edit &T`               | exclusivity / root-locking checks |
-| `14-heap.delta`                   | `heap<T>`, `new`             | malloc/free lowering, auto-deref |
+| `14-heap.delta`                   | `owned<T>`, `new`             | malloc/free lowering, auto-deref |
 | `15-lifetimes.delta`             | `@lifetime(...)`              | compiler-generated lifetime inference |
 
 ## Milestone 5 — methods, modules, stdlib
@@ -71,14 +71,14 @@ show the *intent*, not a byte-exact target. Conventions used throughout:
 - Trap-set ops lower to runtime helpers that panic: `delta_add_i32`, `delta_sub_i32`,
   `delta_mul_i32`, `delta_div_i32`, `delta_cast_i64_to_i32`, … (defined in feature 06).
 - Records → `struct delta__<Name>`; fallible returns → a tagged
-  `{ bool is_error; union { ok; err; }; }`; `heap<T>` → `T*` via `delta_rt_alloc`/
+  `{ bool is_error; union { ok; err; }; }`; `owned<T>` → `T*` via `delta_rt_alloc`/
   `delta_rt_free`; `&T` → `const T*`, `edit &T` → `T*`; exports mangle to
   `delta__<module>__<name>`.
 
 ## Notes on cross-feature dependencies
 - `move`/`clone` (12) are only *observable* on non-copyable types. In v0.5
-  the only non-copyable record is one owning a `heap<T>` field, so file 12
-  forward-references `heap<T>` from file 14. Implement the move *machinery*
+  the only non-copyable record is one owning a `owned<T>` field, so file 12
+  forward-references `owned<T>` from file 14. Implement the move *machinery*
   at step 12 but expect to write its real fixtures once heap lands.
 - There is no `class`/`enum`/`interface` — `type` records + receiver methods
   are the v0.5 substitute. `unique type` is post-v0.5; records are unique

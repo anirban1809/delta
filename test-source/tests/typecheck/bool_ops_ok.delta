@@ -3,6 +3,6 @@ function func(a: bool, b: bool): bool{
 }
 
 function func2(i: int32, b: int32): int32 {
-    func(1, 2);
+    func(true, false);
     return 0;
 }

@@ -5,7 +5,7 @@ function add(left: &Counter, right: &Counter): int32 {
     return left.value + right.value;
 }
 
-function main(): int32 {
+function main(): int8 {
     const counter: Counter = { value: 7 };
-    return add(counter, counter);
+    return int8(add(counter, counter));
 }

@@ -1,5 +1,5 @@
 // E0305 — `++` requires a mutable integer binding
-function main(): int32 {
+function main(): int8 {
     let ratio: float64 = 1.5;
     ratio++;   // ERROR[E0305]: `++` requires a mutable integer binding
     return int32(ratio);

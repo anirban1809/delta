@@ -1,4 +1,4 @@
-// E09 success — a record with a `heap<T>` field, built by a factory that threads
+// E09 success — a record with a `owned<T>` field, built by a factory that threads
 // `AllocError` out via `new ... as result`. The owner is freed at scope exit.
 type Payload = { count: int64; stride: int64; };
 type BoxedCounter = { payload: heap<Payload>; };
@@ -11,7 +11,7 @@ function makeBoxedCounter(count: int64, stride: int64): BoxedCounter | AllocErro
     return { payload: p };
 }
 
-function main(): int32 {
+function main(): int8 {
     const bc = makeBoxedCounter(10, 2) as result;
     check result {
         return 1;

@@ -1,0 +1,19 @@
+type struct OverflowError = { overflow: bool };
+type struct DivideByZeroError = { divideByZero: bool };
+
+function calculate(): int32 | OverflowError, DivideByZeroError {
+    return 1;
+}
+
+function invalidWrapper(): int32 | OverflowError {
+    const value = calculate() as result;
+    check result as OverflowError {
+        return 0;
+    }
+    forward result;
+    return value;
+}
+
+function main(): int8 {
+    return 0;
+}

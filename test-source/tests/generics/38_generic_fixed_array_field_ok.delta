@@ -1,0 +1,15 @@
+type struct Stack<T> = {
+    pointer: uintsize;
+    data: T[5];
+};
+
+function stack_new<T>(init_data: T[5]): Stack<T> {
+    return Stack<T>{
+        pointer: uintsize(0),
+        data: init_data,
+    };
+}
+
+function main(): int8 {
+    return 0;
+}

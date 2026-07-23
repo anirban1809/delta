@@ -1,0 +1,9 @@
+ffi header "<unistd.h>";
+
+export extern {
+    function write(
+        fd: c.int,
+        buffer: c.ptr<c.const<c.void>>,
+        count: c.size_t
+    ): c.ssize_t;
+}

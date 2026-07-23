@@ -1,0 +1,11 @@
+type struct Box<T> = { value: T };
+type struct Holder = { box: owned<Box<int32>> };
+
+function main(): int8 {
+    const box = new Box<int32> { value: 8 };
+    const holder: Holder = Holder {
+        box: box
+    };
+    const result = holder.box.value;
+    return int8(result);
+}

@@ -4,4 +4,4 @@ type Session = { handle: Handle; };
 
 function (session: edit &Session) dispose() { }
 
-function main(): int32 { return 0; }
+function main(): int8 { return 0; }

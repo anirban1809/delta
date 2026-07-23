@@ -9,18 +9,23 @@ import { DeclarationAnalyzer } from "./declarations.js";
  * {@link DeclarationAnalyzer}.
  */
 export class AnalyzerCore {
-    globalScope = new Scope();
+    globalScope: Scope;
     private declarationAnalyzer: DeclarationAnalyzer;
 
     constructor(
         public ast: Module,
         public diagnostics: Diagnostics,
+        globalScope: Scope = new Scope(),
     ) {
+        this.globalScope = globalScope;
         this.declarationAnalyzer = new DeclarationAnalyzer(ast, diagnostics, this.globalScope);
     }
 
     /** Registers functions first, then analyzes every declaration. */
     analyze(): Scope {
+        this.declarationAnalyzer.registerTypes();
+        this.declarationAnalyzer.finish();
+        this.declarationAnalyzer.registerMethods();
         this.declarationAnalyzer.registerFunctions();
         this.ast.declarations.forEach((declaration) =>
             this.declarationAnalyzer.analyze(declaration),

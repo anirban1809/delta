@@ -4,11 +4,11 @@ function copyVec3(source: Vec3): Vec3 {
     return Vec3 { ...source };
 }
 
-function main(): int32 {
+function main(): int8 {
     const source: Vec3 = Vec3 { x: 2, y: 3, z: 5 };
     const copy: Vec3 = copyVec3(source);
-    if (copy.x != 2) { return 1; }
-    if (copy.y != 3) { return 2; }
-    if (copy.z != 5) { return 3; }
-    return 0;
+    if (copy.x != 2) { return int8(1); }
+    if (copy.y != 3) { return int8(2); }
+    if (copy.z != 5) { return int8(3); }
+    return int8(0);
 }

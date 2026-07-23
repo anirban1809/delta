@@ -1,0 +1,198 @@
+[
+    {
+        "file": "01_fn_identity_ok.delta",
+        "expect": "pass",
+        "note": "generic function identity<T>; explicit type argument at the call site; monomorphized for int32"
+    },
+    {
+        "file": "02_fn_inferred_targ_ok.delta",
+        "expect": "pass",
+        "note": "instantiation-site inference: identity(42) infers T = int32 from the argument"
+    },
+    {
+        "file": "03_fn_type_param_local_ok.delta",
+        "expect": "pass",
+        "note": "a local binding typed with the type parameter (let y: T = x)"
+    },
+    {
+        "file": "04_fn_nested_call_ok.delta",
+        "expect": "pass",
+        "note": "nested generic calls identity(identity(9)); inner instantiation feeds the outer"
+    },
+    {
+        "file": "05_fn_two_instantiations_ok.delta",
+        "expect": "pass",
+        "note": "the same generic function used at int32 and bool forces two distinct monomorphizations"
+    },
+    {
+        "file": "06_fn_multi_param_ok.delta",
+        "expect": "pass",
+        "note": "multiple type parameters first<T, U>; both inferred, returns the T argument"
+    },
+    {
+        "file": "07_bound_copyable_reuse_ok.delta",
+        "expect": "pass",
+        "note": "a type parameter reused across two local bindings in the body"
+    },
+    {
+        "file": "08_undeclared_type_param_err.delta",
+        "expect": "fail",
+        "note": "parameter typed T but no <T> declared on the function; T is an unknown type"
+    },
+    {
+        "file": "09_duplicate_type_param_err.delta",
+        "expect": "fail",
+        "note": "duplicate type parameter name in <T, T>"
+    },
+    {
+        "file": "10_targ_arity_fn_err.delta",
+        "expect": "fail",
+        "note": "identity<T> called with two explicit type arguments; arity mismatch"
+    },
+    {
+        "file": "11_inference_conflict_err.delta",
+        "expect": "fail",
+        "note": "same<T>(a: T, b: T) called as same(5, true); T cannot unify to both int32 and bool"
+    },
+    {
+        "file": "12_struct_box_ok.delta",
+        "expect": "pass",
+        "note": "generic record type struct Box<T>; construction with an explicit type argument and field read"
+    },
+    {
+        "file": "13_struct_box_bool_ok.delta",
+        "expect": "pass",
+        "note": "Box<bool> instantiation (separate monomorphization from Box<int32>)"
+    },
+    {
+        "file": "14_struct_pair_multi_param_ok.delta",
+        "expect": "pass",
+        "note": "two-parameter generic record Pair<T, U> with mixed concrete arguments"
+    },
+    {
+        "file": "15_struct_nested_instantiation_ok.delta",
+        "expect": "pass",
+        "note": "nested generic instantiation Box<Box<int32>>; access via .value.value"
+    },
+    {
+        "file": "16_struct_generic_field_in_concrete_ok.delta",
+        "expect": "pass",
+        "note": "a concrete struct with a Box<int32> field alongside a scalar field"
+    },
+    {
+        "file": "17_struct_infer_targ_ok.delta",
+        "expect": "pass",
+        "note": "day4? — type argument inferred from a struct literal: `Box { value: 5 }` => Box<int32>. OPEN: struct-literal inference may lag function inference; pin with Box<int32> if unsupported"
+    },
+    {
+        "file": "18_targ_arity_too_many_err.delta",
+        "expect": "fail",
+        "note": "Box<T> given two type arguments (Box<int32, bool>); arity mismatch"
+    },
+    {
+        "file": "19_field_type_mismatch_err.delta",
+        "expect": "fail",
+        "note": "Box<int32> constructed with a bool field value; substitution requires value: int32"
+    },
+    {
+        "file": "20_missing_targ_err.delta",
+        "expect": "fail",
+        "note": "bare generic type `Box` used as an annotation with no type argument and no inference context"
+    },
+    {
+        "file": "21_infinite_size_err.delta",
+        "expect": "fail",
+        "note": "self-referential generic record Node<T> by value has infinite size; needs indirection"
+    },
+    {
+        "file": "22_fn_returns_generic_struct_ok.delta",
+        "expect": "pass",
+        "note": "generic function constructs and returns a generic struct Box<T>; T inferred at the call"
+    },
+    {
+        "file": "23_fn_takes_generic_struct_ok.delta",
+        "expect": "pass",
+        "note": "generic function accepting Box<T>; T is inferred from the Box<int32> argument"
+    },
+    {
+        "file": "24_struct_holds_array_ok.delta",
+        "expect": "pass",
+        "note": "generic record whose type argument is a fixed array: Box<int32[3]>"
+    },
+    {
+        "file": "25_fn_union_type_argument_ok.delta",
+        "expect": "pass",
+        "note": "generic identity<T> specializes T to a tagged union and returns a union-typed value"
+    },
+    {
+        "file": "26_fn_multi_param_union_ok.delta",
+        "expect": "pass",
+        "note": "a multi-parameter generic function specializes one type parameter to a tagged union"
+    },
+    {
+        "file": "27_generic_union_declaration_ok.delta",
+        "expect": "pass",
+        "note": "generic tagged-union declaration: Result<T, E> has generic Ok<T> and Error<E> variants"
+    },
+    {
+        "file": "28_generic_union_variants_ok.delta",
+        "expect": "pass",
+        "note": "construct both variants of Result<int32, char> with their independently substituted payload types"
+    },
+    {
+        "file": "29_generic_union_function_signature_ok.delta",
+        "expect": "pass",
+        "note": "a generic function accepts and returns Result<T, E>, preserving both type arguments"
+    },
+    {
+        "file": "30_generic_union_factory_return_ok.delta",
+        "expect": "pass",
+        "note": "a generic function constructs an Ok<T> value and returns it through Result<T, E>"
+    },
+    {
+        "file": "31_generic_union_multi_instantiation_ok.delta",
+        "expect": "pass",
+        "note": "one Result<T, E> function has separate specializations for int32/char and bool/int32 pairs"
+    },
+    {
+        "file": "32_nested_generic_union_ok.delta",
+        "expect": "pass",
+        "note": "a Result may contain another fully-instantiated Result as its Ok payload"
+    },
+    {
+        "file": "33_generic_union_targ_arity_too_few_err.delta",
+        "expect": "fail",
+        "contains": "type argument",
+        "note": "Result<T, E> requires both type arguments"
+    },
+    {
+        "file": "34_generic_union_targ_arity_too_many_err.delta",
+        "expect": "fail",
+        "contains": "type argument",
+        "note": "Result<T, E> rejects a third type argument"
+    },
+    {
+        "file": "35_generic_union_variant_payload_mismatch_err.delta",
+        "expect": "fail",
+        "contains": "int32",
+        "note": "Ok<int32> requires an int32 payload even when it is constructed in Result<int32, char> context"
+    },
+    {
+        "file": "36_generic_union_function_type_mismatch_err.delta",
+        "expect": "fail",
+        "contains": "argument",
+        "note": "Result<int32, char> cannot be passed to a Result<bool, char> generic instantiation"
+    },
+    {
+        "file": "37_generic_union_unknown_variant_type_err.delta",
+        "expect": "fail",
+        "contains": "unknown type identifier: null",
+        "error_count": 1,
+        "note": "union variants must be declared types or type parameters; null is neither"
+    },
+    {
+        "file": "38_generic_fixed_array_field_ok.delta",
+        "expect": "pass",
+        "note": "substituting T in a T[5] field preserves the fixed-array extent"
+    }
+]

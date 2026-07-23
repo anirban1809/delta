@@ -28,7 +28,7 @@ function (c: edit &Counter) add(amount: int64): void {
     c.value = c.value + amount;
 }
 
-function main(): int32 {
+function main(): int8 {
     let c: Counter = { value: new 0 };
 
     c.add(5);                  // OK — `c` is a `let`, may call an `edit`-receiver method
@@ -38,7 +38,7 @@ function main(): int32 {
     // const frozen: Counter = { value: new 0 };
     // frozen.add(1);          // ERROR: cannot call `edit`-receiver method on `const` binding
 
-    return int32(total);
+    return int8(total);
 }
 
 /* === Generated C (illustrative) ===

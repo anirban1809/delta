@@ -2,9 +2,9 @@
 unique type Handle = { id: int32; };
 type Session = { handle: Handle; generation: int32; };
 
-function main(): int32 {
+function main(): int8 {
     let session: Session = { handle: { id: 1 }, generation: 1 };
     let next: Handle = { id: 2 };
     session.handle = move next;
-    return session.handle.id;
+    return int8(session.handle.id);
 }

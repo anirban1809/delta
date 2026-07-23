@@ -1,0 +1,11 @@
+type struct AllocError = { };
+type struct Payload = { count: int32 };
+
+function main(): int8 {
+    const payload = new Payload { count: 4 } as result;
+    check result {
+        return int8(1);
+    }
+    const count = payload.count;
+    return int8(count);
+}

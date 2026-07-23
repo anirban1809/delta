@@ -1,4 +1,4 @@
-type NarrowingError = { };
+type struct NarrowingError = { };
 
 function safeNarrow(big: int64): int32 | NarrowingError {
     const small = int32(big) as result;
@@ -8,13 +8,13 @@ function safeNarrow(big: int64): int32 | NarrowingError {
     return small;
 }
 
-function main(): int32 {
+function main(): int8 {
     const v = safeNarrow(42) as result;
     check result {
-        return 1;
+        return int8(1);
     }
     if (v == 42) {
-        return 0;
+        return int8(0);
     }
-    return 2;
+    return int8(2);
 }

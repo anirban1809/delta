@@ -1,10 +1,10 @@
-type OverflowError = { };
+type struct OverflowError = { };
 
 function mightFail(x: int32): int32 | OverflowError {
     return x;
 }
 
-function main(): int32 {
+function main(): int8 {
     let x = mightFail(5);
     return 0;
 }

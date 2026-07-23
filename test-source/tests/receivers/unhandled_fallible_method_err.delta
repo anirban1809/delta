@@ -6,7 +6,7 @@ function (c: &Counter) checked(): int32 | MathError {
     return c.value;
 }
 
-function main(): int32 {
+function main(): int8 {
     let c: Counter = { value: 1 };
     return c.checked();
 }

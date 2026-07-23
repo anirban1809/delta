@@ -6,6 +6,6 @@ function maybe(flag: bool): int32 {   // ERROR[E0403]: missing return: `maybe` m
     // falls off the end on the `flag == false` path
 }
 
-function main(): int32 {
+function main(): int8 {
     return maybe(true);
 }

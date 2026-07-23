@@ -144,6 +144,29 @@
     "note": "phase C — `as r1` followed by `check r2 { ... }` has no matching result name"
   },
   {
+    "file": "check_multi_error_exhaustive_ok.delta",
+    "expect": "pass",
+    "note": "phase C — every member of a multi-error result has a mandatory typed check before the success value becomes valid"
+  },
+  {
+    "file": "check_multi_error_missing_err.delta",
+    "expect": "fail",
+    "contains": "missing check",
+    "note": "phase C — omitting one typed check from a multi-error result is rejected"
+  },
+  {
+    "file": "check_multi_error_untyped_err.delta",
+    "expect": "fail",
+    "contains": "multiple errors",
+    "note": "phase C — an untyped check cannot consume a multi-error result"
+  },
+  {
+    "file": "check_multi_error_duplicate_err.delta",
+    "expect": "fail",
+    "contains": "already checked",
+    "note": "phase C — a typed check for the same error variant cannot appear twice"
+  },
+  {
     "file": "return_error_ok.delta",
     "expect": "pass",
     "note": "phase C — `return error as { };` directly in a branch; caller checks and re-propagates"
@@ -186,5 +209,33 @@
     "file": "acceptance_program_ok.delta",
     "expect": "pass",
     "note": "phase C — the plan acceptance program (safeAdd + nested checks), info() dropped (Phase J)"
+  },
+  {
+    "file": "forward_result_ok.delta",
+    "expect": "pass",
+    "note": "phase C — `forward result` propagates the received error unchanged and validates the success binding"
+  },
+  {
+    "file": "forward_remaining_errors_ok.delta",
+    "expect": "pass",
+    "note": "phase C — typed checks remove handled variants, then `forward result` propagates only the remaining error set"
+  },
+  {
+    "file": "forward_remaining_error_not_in_set_err.delta",
+    "expect": "fail",
+    "contains": "cannot forward",
+    "note": "phase C — every error remaining after typed checks must still belong to the enclosing function's error set"
+  },
+  {
+    "file": "forward_error_not_in_set_err.delta",
+    "expect": "fail",
+    "contains": "cannot forward",
+    "note": "phase C — forwarding is rejected unless the result error set is a subset of the enclosing function's set"
+  },
+  {
+    "file": "forward_unknown_result_err.delta",
+    "expect": "fail",
+    "contains": "as result",
+    "note": "phase C — `forward` must name a live result introduced by `as result`"
   }
 ]

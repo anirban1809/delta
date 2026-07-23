@@ -1,4 +1,4 @@
-function main(): int32 {
+function main(): int8 {
     let value: int32 = 0;
     for (let i: int32 = 0; i < 3; i++) {
         switch (i) {
@@ -9,5 +9,5 @@ function main(): int32 {
                 value = value + 1;
         }
     }
-    return value;
+    return int8(value);
 }

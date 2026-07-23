@@ -1,9 +1,9 @@
-function main(): int32 {
+function main(): int8 {
     let a: uint32 = 0xFF;
     let b: uint32 = 0x0F;
     let and: uint32 = a & b;
     let or:  uint32 = a | b;
     let xor: uint32 = a ^ b;
     let not: uint32 = ~a;
-    return 0;
+    return int8(0);
 }

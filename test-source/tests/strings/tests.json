@@ -1,0 +1,69 @@
+[
+  {
+    "file": "both_quote_styles.delta",
+    "expect": "codegen_contains",
+    "emits": [
+      "char* data;",
+      "uintptr_t length;",
+      "} delta_string;",
+      "static char __delta_string_0[8] = { 65, 110, 105, 114, 98, 97, 110, 0 };",
+      "static char __delta_string_1[8] = { 65, 110, 105, 114, 98, 97, 110, 0 };",
+      "delta_string passThrough(delta_string value)",
+      "delta_string name2 = (delta_string){ .data = __delta_string_1, .length = 7 };"
+    ],
+    "note": "double- and multi-character single-quoted literals both infer string and lower to distinct static char blocks"
+  },
+  {
+    "name": "both quote styles produce compilable C",
+    "file": "both_quote_styles.delta",
+    "expect": "run",
+    "note": "the generated char pointer signatures and fixed blocks compile and execute"
+  },
+  {
+    "file": "empty_single_quote.delta",
+    "expect": "codegen_contains",
+    "emits": [
+      "static char __delta_string_0[1] = { 0 };",
+      "delta_string empty = (delta_string){ .data = __delta_string_0, .length = 0 };"
+    ],
+    "note": "an empty single-quoted literal is a string"
+  },
+  {
+    "file": "utf8_fixed_block.delta",
+    "expect": "codegen_contains",
+    "emits": [
+      "static char __delta_string_0[6] = { 99, 97, 102, 195, 169, 0 };"
+    ],
+    "note": "fixed block length is based on UTF-8 bytes and includes the trailing NUL"
+  },
+  {
+    "file": "file_scope_string.delta",
+    "expect": "codegen_contains",
+    "emits": [
+      "static const delta_string product = (delta_string){ .data = __delta_string_0, .length = 5 };",
+      "delta_string productName()"
+    ],
+    "note": "a file const keeps the pointer binding fixed without making the static character block const"
+  },
+  {
+    "name": "file-scope string produces compilable C",
+    "file": "file_scope_string.delta",
+    "expect": "run"
+  },
+  {
+    "file": "operators_deferred_err.delta",
+    "expect": "fail",
+    "contains": "cannot be compared",
+    "note": "content comparison is rejected until string operators have defined semantics"
+  },
+  {
+    "file": "rebind_updates_length.delta",
+    "expect": "run",
+    "note": "reassigning a string slice copies both its data pointer and its new byte length"
+  },
+  {
+    "file": "length_is_read_only_err.delta",
+    "expect": "fail",
+    "contains": "string length is read-only"
+  }
+]

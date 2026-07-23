@@ -1,4 +1,4 @@
-const x: int64 = 1;
+const x: Missing = 1;
 
 function f(): int32 {
     return 0;

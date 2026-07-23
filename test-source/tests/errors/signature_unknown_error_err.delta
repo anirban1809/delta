@@ -2,6 +2,6 @@ function f(): int32 | NoSuchError {
     return 0;
 }
 
-function main(): int32 {
+function main(): int8 {
     return 0;
 }

@@ -1,0 +1,6 @@
+type struct Left = { right: Right };
+type struct Right = { left: Left };
+
+function main(): int8 {
+    return 0;
+}

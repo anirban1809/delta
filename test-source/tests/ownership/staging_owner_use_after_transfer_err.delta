@@ -1,0 +1,9 @@
+type Holder = { value: owned<int32>; };
+
+function read(value: int32): int32 { return value; }
+
+function main(): int8 {
+    const staging = new 7;
+    const holder: Holder = { value: staging };
+    return read(staging);
+}

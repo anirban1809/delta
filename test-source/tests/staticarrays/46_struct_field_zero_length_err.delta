@@ -1,0 +1,5 @@
+type struct Bad = { data: int32[0] };
+
+function main(): int8 {
+    return 0;
+}

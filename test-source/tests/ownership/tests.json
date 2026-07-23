@@ -371,5 +371,29 @@
     "expect": "fail",
     "contains": "capability",
     "note": "phase G integration semantic — an `&T` parameter cannot be upgraded to `edit &T`"
+  },
+  {
+    "file": "noncopyable_field_copy_err.delta",
+    "expect": "fail",
+    "contains": "non-copyable",
+    "note": "a non-copyable field path cannot be copied into a new binding; clone is required"
+  },
+  {
+    "file": "noncopyable_global_return_err.delta",
+    "expect": "fail",
+    "contains": "global",
+    "note": "return transfer cannot consume module storage; a non-copyable global must be cloned"
+  },
+  {
+    "file": "copyable_clone_as_result_err.delta",
+    "expect": "fail",
+    "contains": "cannot fail",
+    "note": "Copyable clone performs no allocation, so it cannot open an AllocError result channel."
+  },
+  {
+    "file": "staging_owner_use_after_transfer_err.delta",
+    "expect": "fail",
+    "contains": "moved",
+    "note": "A direct-new staging owner is consumed when installed into an owned field."
   }
 ]

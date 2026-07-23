@@ -3,6 +3,6 @@ function f(): int32 {
     return 1, 2;   // ERROR[E0215]: `return` here yields `2` values, but `f` declares `1`
 }
 
-function main(): int32 {
+function main(): int8 {
     return f();
 }

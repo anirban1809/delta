@@ -27,7 +27,7 @@ function scale(v: edit &Vec3, factor: float64): void {  // mutable borrow
     v.z = v.z * factor;
 }
 
-function main(): int32 {
+function main(): int8 {
     let p: Vec3 = { x: 1.0, y: 2.0, z: 2.0 };
 
     const n: float64 = lengthSquared(&p);   // explicit `&` at the owner call site
@@ -38,7 +38,7 @@ function main(): int32 {
     // scale(edit &frozen, 2.0);             // ERROR: `const` cannot produce an `edit &` reference
     // lengthSquared(&Vec3{ x: 0.0,... });   // ERROR: cannot reference a temporary
 
-    return int32(n);
+    return int8(n);
 }
 
 /* === Generated C (illustrative) ===

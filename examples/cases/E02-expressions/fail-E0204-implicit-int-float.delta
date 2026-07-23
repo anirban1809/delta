@@ -1,5 +1,5 @@
 // E0204 — no implicit conversion between `int32` and `float64` — write `float64(x)`
-function main(): int32 {
+function main(): int8 {
     const small: int32 = 10;
     const f: float64 = small;   // ERROR[E0204]: no implicit conversion between `int32` and `float64` — write `float64(x)`
     return int32(f);

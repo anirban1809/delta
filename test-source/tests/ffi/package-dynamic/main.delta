@@ -1,0 +1,8 @@
+import { multiply } from "./external/multiplier/multiplier.ffi";
+
+function main(): int8 {
+    if (multiply(6, 7) != 42) {
+        return 1;
+    }
+    return 0;
+}

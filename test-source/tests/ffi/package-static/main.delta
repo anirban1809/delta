@@ -1,0 +1,12 @@
+import arithmetic from "./external/arithmetic/arithmetic.ffi";
+
+function main(): int8 {
+    if (arithmetic.add(arithmetic.BASE, 2) != 42) {
+        return 1;
+    }
+    const pair: arithmetic.Pair = arithmetic.Pair { left: 20, right: 22 };
+    if (arithmetic.sum(pair) != 42) {
+        return 2;
+    }
+    return 0;
+}

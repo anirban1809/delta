@@ -4,7 +4,7 @@ function readAngle(): int32 {
     return 90;
 }
 
-function main(): int32 {
+function main(): int8 {
     // a runtime (non-literal) integer cannot be proven a member at compile time;
     // a checked runtime narrowing is deferred to the FFI phase
     const angle: int32 = readAngle();

@@ -3,8 +3,8 @@ type Box = { value: heap<int32>; };
 
 function consume(value: Box) { }
 
-function main(): int32 {
+function main(): int8 {
     let value: Box = { value: new 7 };
     consume(move value);
-    return 0;
+    return int8(0);
 }

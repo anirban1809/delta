@@ -1,57 +1,15 @@
 [
-  {
-    "file": "01_plain_copy.delta",
-    "expect": "codegen_match",
-    "note": "VERIFIED NOW: Copyable record copies by plain C assignment (`const delta__Point b = a;`)."
-  },
-  {
-    "file": "02_byvalue_owned_param.delta",
-    "expect": "codegen_match",
-    "note": "FAILS until Phase F move+drop: callee drops its owned `value` param via delta__Handle_drop(&value); caller's `move` emits no drop."
-  },
-  {
-    "file": "03_borrow_read_param.delta",
-    "expect": "codegen_match",
-    "note": "FAILS until Phase F borrow lowering: `&T` -> `const delta__Counter*`, field access `counter->value`, call `inspect(&counter)`. Currently lowers WRONG (by value)."
-  },
-  {
-    "file": "04_borrow_edit_param.delta",
-    "expect": "codegen_match",
-    "note": "FAILS until Phase F borrow lowering: `edit &T` -> `delta__Counter*`, mutate via `->`, call `increment(&counter)`."
-  },
-  {
-    "file": "05_auto_borrow_call.delta",
-    "expect": "codegen_match",
-    "note": "FAILS until Phase F auto-borrow lowering: `add(&counter, &counter)`, `increment(&counter)`, pointer params."
-  },
-  {
-    "file": "06_reborrow_passthrough.delta",
-    "expect": "codegen_match",
-    "note": "FAILS until Phase F reborrow lowering: re-passed borrow forwards the pointer unchanged -> `inspect(counter)` (no new `&`)."
-  },
-  {
-    "file": "07_receiver_dispatch.delta",
-    "expect": "codegen_match",
-    "note": "VERIFIED NOW (Phase L): `counter.bump()`/`counter.get()` -> `delta__Counter_bump(&counter)`/`delta__Counter_get(&counter)` with pointer receivers."
-  },
-  {
-    "file": "08_move_noop.delta",
-    "expect": "codegen_match",
-    "note": "FAILS until Phase F move lowering: no dispose / Copyable field -> no _drop anywhere; `move value` -> bare `value`, nothing dropped."
-  },
-  {
-    "file": "09_implicit_return_transfer.delta",
-    "expect": "codegen_match",
-    "note": "FAILS until Phase F move+drop: `identity` transfers `value` out (no drop); main materializes result.id into __delta_return_0, drops result, returns."
-  },
-  {
-    "file": "10_dispose_drop_scope_exit.delta",
-    "expect": "codegen_match",
-    "note": "FAILS until Phase F dispose/drop: emit delta__Handle_dispose + delta__Handle_drop, and call delta__Handle_drop(&handle) at scope exit. `_dispose` lowers today; the _drop helper and scope-exit call are missing."
-  },
-  {
-    "file": "11_owned_replacement_move.delta",
-    "expect": "codegen_match",
-    "note": "FAILS until Phase F replacement: materialize __delta_replacement_0 -> drop old current -> store; next is Moved (not dropped); scope exit drops current."
-  }
+  { "file": "01_plain_copy.delta", "expect": "run", "expected_exit": 1 },
+  { "file": "02_byvalue_owned_param.delta", "expect": "run", "expected_exit": 0 },
+  { "file": "03_borrow_read_param.delta", "expect": "run", "expected_exit": 7 },
+  { "file": "04_borrow_edit_param.delta", "expect": "run", "expected_exit": 8 },
+  { "file": "05_auto_borrow_call.delta", "expect": "run", "expected_exit": 22 },
+  { "file": "06_reborrow_passthrough.delta", "expect": "run", "expected_exit": 7 },
+  { "file": "07_receiver_dispatch.delta", "expect": "run", "expected_exit": 8 },
+  { "file": "08_move_noop.delta", "expect": "run", "expected_exit": 0 },
+  { "file": "09_implicit_return_transfer.delta", "expect": "run", "expected_exit": 7 },
+  { "file": "10_dispose_drop_scope_exit.delta", "expect": "run", "expected_exit": 0 },
+  { "file": "11_owned_replacement_move.delta", "expect": "run", "expected_exit": 2 },
+  { "file": "12_deep_clone_independent.delta", "expect": "run", "expected_exit": 7 },
+  { "file": "13_nested_deep_clone.delta", "expect": "run", "expected_exit": 11 }
 ]

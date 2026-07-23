@@ -1,4 +1,4 @@
-function main(): int32 {
+function main(): int8 {
     continue;
     return 0;
 }

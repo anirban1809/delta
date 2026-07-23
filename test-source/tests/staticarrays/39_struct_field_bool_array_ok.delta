@@ -1,0 +1,7 @@
+type struct Flags = { bits: bool[3] };
+
+function main(): int8 {
+    const f: Flags = Flags { bits: [true, false, true] };
+    if (f.bits[1]) { return int8(1); }
+    return int8(0);
+}

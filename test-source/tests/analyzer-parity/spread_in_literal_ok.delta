@@ -6,6 +6,6 @@ function copy(s: Vec): Vec {
     return { ...s };
 }
 
-function main(): int32 {
-    return 0;
+function main(): int8 {
+    return int8(0);
 }

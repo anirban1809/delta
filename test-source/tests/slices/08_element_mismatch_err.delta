@@ -1,0 +1,4 @@
+function main(): int8 {
+    const values: int32[] = [1, true];
+    return 0;
+}

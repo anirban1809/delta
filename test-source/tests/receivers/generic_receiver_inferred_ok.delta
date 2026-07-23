@@ -1,0 +1,22 @@
+type struct Stack<T> = {
+    pointer: uintsize;
+    data: T[5];
+};
+
+function stack_new<T>(init_data: T[5]): Stack<T> {
+    return Stack<T>{
+        pointer: uintsize(0),
+        data: init_data,
+    };
+}
+
+function (stack: edit &Stack<T>) push<T>(value: T) {
+    stack.data[stack.pointer] = value;
+    stack.pointer = stack.pointer + 1;
+}
+
+function main(): int8 {
+    let stack = stack_new<int32>([0, 0, 0, 0, 0]);
+    stack.push(7);
+    return int8(stack.data[0] - 7);
+}

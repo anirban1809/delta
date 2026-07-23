@@ -1,0 +1,10 @@
+function dup<T>(x: T): T {
+    let y: T = x;
+    return y;
+}
+
+function main(): int8 {
+    let r: int32 = dup(5);
+    if (r != 5) { return int8(1); }
+    return int8(0);
+}

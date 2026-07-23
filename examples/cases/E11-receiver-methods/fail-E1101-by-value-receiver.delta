@@ -5,7 +5,7 @@ function (c: Counter) get(): int64 {   // ERROR[E1101]: receiver must be a refer
     return c.value;
 }
 
-function main(): int32 {
+function main(): int8 {
     const c: Counter = { value: 5 };
     return int32(c.get());
 }

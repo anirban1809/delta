@@ -1,0 +1,9 @@
+type struct Box = { items: int32[3] };
+
+function main(): int8 {
+    let a: Box = Box { items: [1, 2, 3] };
+    let b: Box = a;
+    b.items[0] = 9;
+    if (a.items[0] != 1) { return int8(1); }
+    return int8(0);
+}

@@ -1,0 +1,10 @@
+function identity<T>(value: T): T {
+    return value;
+}
+
+function main(): int8 {
+    let x: int32 = identity<int32>(42);
+    let y: char = identity<char>('2');
+    if (x != 42) { return int8(1); }
+    return int8(0);
+}

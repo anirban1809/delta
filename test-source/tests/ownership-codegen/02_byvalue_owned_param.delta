@@ -9,8 +9,8 @@ function (handle: edit &Handle) dispose() {
 
 function consume(value: Handle) { }
 
-function main(): int32 {
+function main(): int8 {
     let value: Handle = { id: 7 };
     consume(move value);
-    return 0;
+    return int8(0);
 }

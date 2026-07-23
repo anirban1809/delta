@@ -1,0 +1,7 @@
+function acceptsOwned(value: owned<int32>): int32 {
+    return 0;
+}
+
+function main(): int8 {
+    return int8(0);
+}

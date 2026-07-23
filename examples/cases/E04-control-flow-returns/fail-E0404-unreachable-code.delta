@@ -1,5 +1,5 @@
 // E0404 — unreachable code after `return`
-function main(): int32 {
+function main(): int8 {
     return 0;
     let dead: int32 = 1;   // ERROR[E0404]: unreachable code after `return`
 }

@@ -1,0 +1,10 @@
+const product: string = "Delta";
+
+function productName(): string {
+    return product;
+}
+
+function main(): int8 {
+    const name: string = productName();
+    return int8(0);
+}

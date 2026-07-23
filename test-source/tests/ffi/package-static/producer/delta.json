@@ -1,0 +1,10 @@
+{
+  "name": "arithmetic",
+  "version": "1.2.3",
+  "kind": "static",
+  "entry": "library.delta",
+  "dependencies": {},
+  "external": {
+    "shared-core": "1.2.0:../shared-core-1.2.0.tar"
+  }
+}

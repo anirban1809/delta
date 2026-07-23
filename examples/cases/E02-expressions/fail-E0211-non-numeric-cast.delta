@@ -1,5 +1,5 @@
 // E0211 — `bool(x)` is not a valid conversion: `bool` is not a numeric type
-function main(): int32 {
+function main(): int8 {
     const n: int32 = 1;
     const flag: bool = bool(n);   // ERROR[E0211]: `bool(x)` is not a valid conversion: `bool` is not a numeric type
     return 0;

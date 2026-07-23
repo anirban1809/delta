@@ -13,7 +13,7 @@ error types) are intentionally absent.
   Arithmetic and casts lower to **plain C operators/casts** (the emitter does not
   wrap them in trap helpers — there is no `delta_add_i32`); `&T`→`const T*`,
   `edit &T`→`T*`, records→`struct delta__<Name>`, fallible `T | E`→a tagged
-  `{ uint8_t tag; … }` result, `heap<T>`→`T*` with `delta_rt_*` runtime calls,
+  `{ uint8_t tag; … }` result, `owned<T>`→`T*` with `delta_rt_*` runtime calls,
   exports→`delta__<module>__<name>`. Shows the *intent*, not a byte-exact target,
   and omits `#line`. (Module scenarios are subfolders holding several `.delta`/`.c`
   files, since a module graph spans files.)
@@ -75,7 +75,7 @@ Each `E12-modules/*` case is its own mini-project directory:
 ## Notes
 - Each `fail-*` file is otherwise valid so only the marked diagnostic fires.
 - Syntax follows plan-v0.5: verbose `int32`/`float64` naming, `type` records (no
-  `class`), `heap<T>`, and call-site auto-borrowing (explicit `&`/`edit &` optional).
+  `class`), `owned<T>`, and call-site auto-borrowing (explicit `&`/`edit &` optional).
 - The authored `docs/diagnostics-catalog.md` still lists some of the removed codes
   (E0708, E0904, E10xx) and the pre-auto-borrow E0801 wording — it has not been
   edited here; reconcile it separately if desired.

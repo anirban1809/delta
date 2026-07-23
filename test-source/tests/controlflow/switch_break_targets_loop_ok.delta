@@ -1,4 +1,4 @@
-function main(): int32 {
+function main(): int8 {
     let found: int32 = -1;
     for (let i: int32 = 0; i < 100; i++) {
         switch (i) {
@@ -9,6 +9,6 @@ function main(): int32 {
                 found = 10;
         }
     }
-    if (found != 7) { return 1; }
-    return 0;
+    if (found != 7) { return int8(1); }
+    return int8(0);
 }

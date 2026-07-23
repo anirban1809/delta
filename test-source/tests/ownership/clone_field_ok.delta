@@ -1,11 +1,11 @@
 // `clone` accepts a readable owned field path (holder.box). The cloned path is a record type, not a bare
-// heap<T> (heap-typed locals are out of scope), so the result binds cleanly. Expects pass.
+// owned<T> (heap-typed locals are out of scope), so the result binds cleanly. Expects pass.
 type Box = { value: heap<int32>; };
 type Holder = { box: Box; tag: int32; };
 
-function main(): int32 {
+function main(): int8 {
     const holder: Holder = { box: { value: new 1 }, tag: 2 };
     const cloned = clone holder.box as result;
-    check result { return 1; }
-    return 0;
+    check result { return int8(1); }
+    return int8(0);
 }

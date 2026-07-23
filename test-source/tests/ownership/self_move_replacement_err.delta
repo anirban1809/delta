@@ -1,7 +1,7 @@
 // `x = move x` is not a transfer between distinct owners. Expects fail ("itself").
 unique type Handle = { id: int32; };
 
-function main(): int32 {
+function main(): int8 {
     let value: Handle = { id: 1 };
     value = move value;
     return 0;

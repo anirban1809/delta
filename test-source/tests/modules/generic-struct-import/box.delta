@@ -1,0 +1,1 @@
+export type struct Box<T> = { value: T };

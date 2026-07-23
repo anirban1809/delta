@@ -1,5 +1,5 @@
 // runtime-traps success — a narrowing cast whose value fits (no range panic).
-function main(): int32 {
+function main(): int8 {
     const narrowed: uint8 = uint8(200);   // 200 fits uint8
     return int32(narrowed);
 }

@@ -1,0 +1,5 @@
+export const BASE: int32 = 40;
+
+export function add(left: int32, right: int32): int32 {
+    return left + right;
+}

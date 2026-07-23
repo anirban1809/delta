@@ -1,8 +1,8 @@
-function main(): int32 {
+function main(): int8 {
     let n: int64 = 1_000_000_000_000;
     switch (n) {
-        case 1_000_000_000_000:  return 0;
-        case 0:                   return 1;
-        default:                  return 2;
+        case 1_000_000_000_000:  return int8(0);
+        case 0:                   return int8(1);
+        default:                  return int8(2);
     }
 }

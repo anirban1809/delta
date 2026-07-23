@@ -1,0 +1,42 @@
+type struct Coordinates = {
+    x: int32,
+    y: int32
+};
+
+type struct Address = {
+    houseNumber: int32,
+    coordinates: owned<Coordinates>,
+};
+
+type struct Person = {
+    age: int32,
+    address: owned<Address>
+};
+
+type struct Household = {
+    memberCount: int32,
+    owner: owned<Person>
+};
+
+function nestedOwnershipTest(): int32 {
+    const household = new Household {
+        memberCount: 1,
+        owner: new Person {
+            age: 32,
+            address: new Address {
+                houseNumber: 47,
+                coordinates: new Coordinates {
+                    x: 120,
+                    y: 350
+                }
+            }
+        }
+    };
+
+    const result = household.owner.age;
+    return result;
+}
+
+function main(): int8 {
+    return nestedOwnershipTest();
+}

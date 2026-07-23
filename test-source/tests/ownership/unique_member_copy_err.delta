@@ -2,7 +2,7 @@
 unique type Handle = { id: int32; };
 type Session = { handle: Handle; generation: int32; };
 
-function main(): int32 {
+function main(): int8 {
     const a: Session = { handle: { id: 7 }, generation: 1 };
     const b = a;
     return 0;

@@ -10,6 +10,12 @@
     "note": "phase K — `type Position = Vec3;` is a transparent alias; values interchange freely"
   },
   {
+    "file": "struct_alias_literal_ok.delta",
+    "expect": "run",
+    "expected_exit": 0,
+    "note": "a struct alias is a drop-in construction name, including beneath `new`"
+  },
+  {
     "file": "struct_composition_spread_ok.delta",
     "expect": "pass",
     "note": "phase K — `type struct Dog = { ...Animal, goodBoy: bool };` merges Animal's fields with the new field (through an alias operand)"
@@ -128,8 +134,8 @@
   {
     "file": "struct_self_field_err.delta",
     "expect": "fail",
-    "contains": "heap",
-    "note": "phase K — direct self-reference (`Tree.left: Tree`) cannot be broken without `heap T`"
+    "contains": "cycle",
+    "note": "phase K — direct self-reference (`Tree.left: Tree`) requires owned<T> indirection"
   },
   {
     "file": "struct_mutual_cycle_err.delta",

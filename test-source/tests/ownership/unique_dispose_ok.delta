@@ -5,7 +5,7 @@ function (value: edit &Handle) dispose() {
     value.id = -1;
 }
 
-function main(): int32 {
+function main(): int8 {
     const value: Handle = { id: 7 };
-    return 0;
+    return int8(0);
 }

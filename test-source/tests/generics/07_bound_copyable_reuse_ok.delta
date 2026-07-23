@@ -1,0 +1,12 @@
+function copyTwice<T>(x: T): T {
+    let a: T = x;
+    let b: T = x;
+    if (false) { return b; }
+    return a;
+}
+
+function main(): int8 {
+    let r: int32 = copyTwice<int32>(5);
+    if (r != 5) { return int8(1); }
+    return int8(0);
+}

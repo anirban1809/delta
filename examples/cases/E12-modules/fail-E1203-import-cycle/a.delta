@@ -6,6 +6,6 @@ export function fromA(): int32 {
     return 1;
 }
 
-function main(): int32 {
+function main(): int8 {
     return fromB();
 }

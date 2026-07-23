@@ -5,10 +5,10 @@ function makeDog(): Dog {
     return Dog { goodBoy: true, age: 4, species: 1 };
 }
 
-function main(): int32 {
+function main(): int8 {
     const dog: Dog = makeDog();
-    if (dog.species != 1) { return 1; }
-    if (dog.age != 4)     { return 2; }
-    if (!dog.goodBoy)     { return 3; }
-    return 0;
+    if (dog.species != 1) { return int8(1); }
+    if (dog.age != 4)     { return int8(2); }
+    if (!dog.goodBoy)     { return int8(3); }
+    return int8(0);
 }

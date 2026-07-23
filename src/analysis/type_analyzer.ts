@@ -20,6 +20,38 @@ export class TypeAnalyzer {
         return t.value == TypeValue.TypeCustom;
     }
 
+    /** Replaces generic placeholders in a type, including its fields and nested arguments. */
+    substituteType(type: Type, bindings: Map<string, Type>): Type {
+        if (type.value == TypeValue.TypeGeneric) {
+            const binding = bindings.get(type.name.name);
+            if (!binding) return structuredClone(type);
+            const resolved = structuredClone(binding);
+            if (type.arrayLengths?.length) {
+                resolved.arrayLengths = [
+                    ...type.arrayLengths,
+                    ...(resolved.arrayLengths ?? []),
+                ];
+            }
+            if (type.slice) resolved.slice = true;
+            resolved.reference = type.reference || resolved.reference;
+            resolved.edit = type.edit || resolved.edit;
+            return resolved;
+        }
+
+        const resolved = structuredClone(type);
+        resolved.typeParameters = type.typeParameters?.map((parameter) =>
+            this.substituteType(parameter, bindings),
+        );
+        resolved.fields = type.fields?.map((field) => ({
+            name: field.name,
+            type: this.substituteType(field.type, bindings),
+        }));
+        resolved.unionVariants = type.unionVariants?.map((variant) =>
+            this.substituteType(variant, bindings),
+        );
+        return resolved;
+    }
+
     /** Resolves a primitive type name; unrecognized names remain custom types. */
     resolveTypeValue(t: Type): TypeValue {
         switch (t.name.name) {
@@ -28,6 +60,7 @@ export class TypeAnalyzer {
             case "int16":
                 return TypeValue.Type_Int16;
             case "int32":
+            case "c.int":
                 return TypeValue.Type_Int32;
             case "int64":
                 return TypeValue.Type_Int64;
@@ -40,8 +73,10 @@ export class TypeAnalyzer {
             case "uint64":
                 return TypeValue.Type_UInt64;
             case "intsize":
+            case "c.ssize_t":
                 return TypeValue.Type_IntSize;
             case "uintsize":
+            case "c.size_t":
                 return TypeValue.Type_UIntSize;
             case "char":
                 return TypeValue.Type_Char;
@@ -51,9 +86,45 @@ export class TypeAnalyzer {
                 return TypeValue.Type_Float64;
             case "bool":
                 return TypeValue.Type_Bool;
+            case "string":
+            case "stringview":
+                return TypeValue.Type_String;
+            case "owned":
+                return TypeValue.Type_Owned;
         }
 
         return TypeValue.TypeCustom;
+    }
+
+    /** Whether this is one of the deliberately small C FFI type constructors. */
+    isCType(t: Type): boolean {
+        return t.name.name.startsWith("c.");
+    }
+
+    /** Validates the C ABI types supported by the initial handwritten FFI surface. */
+    isValidCType(t: Type, nested = false): boolean {
+        const parameters = t.typeParameters ?? [];
+        switch (t.name.name) {
+            case "c.int":
+            case "c.size_t":
+            case "c.ssize_t":
+                return parameters.length == 0;
+            case "c.void":
+                return nested && parameters.length == 0;
+            case "c.const":
+                return parameters.length == 1 && this.isValidCType(parameters[0]!, true);
+            case "c.ptr":
+                return parameters.length == 1 && this.isValidCType(parameters[0]!, true);
+            default:
+                return false;
+        }
+    }
+
+    /** The buffer type accepted by the first POSIX interoperability milestone. */
+    isCConstVoidPointer(t: Type | undefined): boolean {
+        const pointee = t?.name.name == "c.ptr" ? t.typeParameters?.[0] : undefined;
+        const inner = pointee?.name.name == "c.const" ? pointee.typeParameters?.[0] : undefined;
+        return inner?.name.name == "c.void";
     }
 
     /** Returns whether a type resolves to one of Delta's built-in primitives. */
@@ -73,7 +144,64 @@ export class TypeAnalyzer {
             TypeValue.Type_Float32,
             TypeValue.Type_Float64,
             TypeValue.Type_Bool,
+            TypeValue.Type_String,
         ].includes(this.resolveTypeValue(t));
+    }
+
+    /** Checks both the element type and every static-array dimension. */
+    arrayTypesMatch(t1: Type, t2: Type): boolean {
+        return this.typesMatch(t1, t2) && this.arrayDimensionsMatch(t1, t2);
+    }
+
+    /** Checks only the ordered static-array extents. */
+    arrayDimensionsMatch(t1: Type, t2: Type): boolean {
+        if (!!t1.slice != !!t2.slice) return false;
+        const dimensions1 = t1.arrayLengths ?? [];
+        const dimensions2 = t2.arrayLengths ?? [];
+        return (
+            dimensions1.length == dimensions2.length &&
+            dimensions1.every((length, index) => length == dimensions2[index])
+        );
+    }
+
+    /*
+     * Check if t2 ownes a value of type t1
+     * e.g. t1 is payload and t2 is owned<payload>
+     * */
+    isOwnedType(t1: Type, t2: Type): boolean {
+        if (t2.value != TypeValue.Type_Owned) {
+            return false;
+        }
+
+        if (t1.name.name != t2.typeParameters![0]?.name.name) {
+            return false;
+        }
+        return true;
+    }
+
+    /** Derives the operational ownership tier transitively through aliases and fields. */
+    ownershipTier(t: Type, scope: Scope, seen = new Set<string>()): "copyable" | "cloneable" | "unique" {
+        if (t.reference) return "copyable";
+        if (t.value == TypeValue.Type_Owned) {
+            const inner = t.typeParameters?.[0];
+            return inner && this.ownershipTier(inner, scope, seen) == "unique" ? "unique" : "cloneable";
+        }
+        if (t.value != TypeValue.TypeCustom) return "copyable";
+        if (seen.has(t.name.name)) return "copyable";
+        seen.add(t.name.name);
+        const symbol = scope.getSymbol(t.name.name);
+        if (!symbol) return "copyable";
+        if (symbol.kind == SymbolKind.SymbolTypsAliasDecl && symbol.type) {
+            return this.ownershipTier(symbol.type, scope, seen);
+        }
+        if (symbol.declaration?.kind == "type_declaration" && symbol.declaration.unique) return "unique";
+        let tier: "copyable" | "cloneable" | "unique" = "copyable";
+        for (const field of symbol.type?.fields ?? t.fields ?? []) {
+            const fieldTier = this.ownershipTier(field.type, scope, new Set(seen));
+            if (fieldTier == "unique") return "unique";
+            if (fieldTier == "cloneable") tier = "cloneable";
+        }
+        return tier;
     }
 
     /**
@@ -81,14 +209,64 @@ export class TypeAnalyzer {
      * `float32` intentionally accepts both float types; custom types compare
      * by name, while resolved primitive types compare by their type value.
      */
-    typesMatch(t1: Type, t2: Type) {
+    typesMatch(t1: Type, t2: Type): boolean {
+        if (!!t1.reference != !!t2.reference || !!t1.edit != !!t2.edit) return false;
+        if (!!t1.slice != !!t2.slice) return false;
+        if (this.isOwnedType(t1, t2)) {
+            return true;
+        }
+
+        if (
+            t1.value == TypeValue.Type_Owned ||
+            t2.value == TypeValue.Type_Owned
+        ) {
+            return (
+                t1.value == t2.value &&
+                (t1.typeParameters?.length ?? 0) == 1 &&
+                (t2.typeParameters?.length ?? 0) == 1 &&
+                this.typesMatch(t1.typeParameters![0]!, t2.typeParameters![0]!)
+            );
+        }
+
         if (t1.name.name == "float32") {
             return ["float32", "float64"].includes(t2.name.name);
         }
 
-        return [t1.value, t2.value].includes(TypeValue.TypeCustom)
-            ? t1.name.name == t2.name.name
-            : t1.value == t2.value;
+        if (t1.value == TypeValue.TypeGeneric || t2.value == TypeValue.TypeGeneric) {
+            return t1.name.name == t2.name.name;
+        }
+
+        if ([t1.value, t2.value].includes(TypeValue.TypeCustom)) {
+            const typeParameters1 = t1.typeParameters ?? [];
+            const typeParameters2 = t2.typeParameters ?? [];
+            return (
+                t1.name.name == t2.name.name &&
+                typeParameters1.length == typeParameters2.length &&
+                typeParameters1.every((type, index) =>
+                    this.typesMatch(type, typeParameters2[index]!),
+                )
+            );
+        }
+
+        return t1.value == t2.value;
+    }
+
+    isIndirection(t: Type): boolean {
+        return t.value == TypeValue.Type_Owned;
+    }
+
+    displayName(t: Type): string {
+        const suffix = t.slice
+            ? "[]"
+            : (t.arrayLengths ?? []).map((length) => `[${length}]`).join("");
+        if (this.isIndirection(t)) {
+            const arguments_ = t.typeParameters ?? [];
+            return `${t.name.name}<${arguments_.map((argument) => this.displayName(argument)).join(", ")}>${suffix}`;
+        }
+        if (t.typeParameters?.length) {
+            return `${t.name.name}<${t.typeParameters.map((argument) => this.displayName(argument)).join(", ")}>${suffix}`;
+        }
+        return `${t.name.name}${suffix}`;
     }
 
     /** Whether `t2` is declared as one of union type `t1`'s variants. */
@@ -101,6 +279,16 @@ export class TypeAnalyzer {
      * intentionally behave as aliases of `int32` for declaration checking.
      */
     isAliasOf(t1: Type, t2: Type, scope: Scope): boolean {
+        if (this.isIndirection(t1) || this.isIndirection(t2)) {
+            return this.typesMatch(t1, t2);
+        }
+        if (!!t1.slice != !!t2.slice) return false;
+        if (
+            (t1.arrayLengths?.length || t2.arrayLengths?.length) &&
+            !this.arrayDimensionsMatch(t1, t2)
+        ) {
+            return false;
+        }
         if (
             (t1.kind == "enum" && t2.value == TypeValue.Type_Int32) ||
             (t2.kind == "enum" && t1.value == TypeValue.Type_Int32)
@@ -108,14 +296,29 @@ export class TypeAnalyzer {
             return true;
         }
 
-        const t1sym = scope.getSymbol(t1.name.name);
-        const t2sym = scope.getSymbol(t2.name.name);
-        return (
-            !!t1sym &&
-            !!t2sym &&
-            t1sym.kind == SymbolKind.SymbolTypsAliasDecl &&
-            t1sym.type?.name.name == t2.name.name
-        );
+        const canonical = (type: Type): string => {
+            let name = type.name.name;
+            const seen = new Set<string>();
+            while (!seen.has(name)) {
+                seen.add(name);
+                const symbol = scope.getSymbol(name);
+                if (symbol?.kind != SymbolKind.SymbolTypsAliasDecl || !symbol.type) break;
+                name = symbol.type.name.name;
+            }
+            return name;
+        };
+        if (canonical(t1) != canonical(t2)) return false;
+        const arguments1 = t1.typeParameters ?? [];
+        const arguments2 = t2.typeParameters ?? [];
+        if (arguments1.length || arguments2.length) {
+            return (
+                arguments1.length == arguments2.length &&
+                arguments1.every((argument, index) =>
+                    this.typesMatch(argument, arguments2[index]!),
+                )
+            );
+        }
+        return true;
     }
 
     /** Whether an expression has the syntactic shape of a negative integer literal. */

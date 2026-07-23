@@ -1,0 +1,8 @@
+type struct shared<T> = { value: owned<T> };
+
+function accept(value: shared<int32>) {
+}
+
+function main(): int8 {
+    return int8(0);
+}

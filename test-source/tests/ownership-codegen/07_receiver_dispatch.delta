@@ -11,8 +11,8 @@ function (counter: edit &Counter) bump() {
     counter.value = counter.value + 1;
 }
 
-function main(): int32 {
+function main(): int8 {
     let counter: Counter = { value: 7 };
     counter.bump();
-    return counter.get();
+    return int8(counter.get());
 }

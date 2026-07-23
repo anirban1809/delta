@@ -4,6 +4,6 @@ type Counter = { value: int32; };
 function makeCounter(): Counter { return { value: 7 }; }
 function inspect(counter: &Counter): int32 { return counter.value; }
 
-function main(): int32 {
+function main(): int8 {
     return inspect(makeCounter());
 }

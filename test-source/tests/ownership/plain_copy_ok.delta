@@ -1,8 +1,8 @@
 // Plain copy: an all-Copyable record (int32 fields) duplicates by bare assignment. Expects pass.
 type Point = { x: int32; y: int32; };
 
-function main(): int32 {
+function main(): int8 {
     const a: Point = { x: 1, y: 2 };
     const b = a;
-    return b.x;
+    return int8(b.x);
 }

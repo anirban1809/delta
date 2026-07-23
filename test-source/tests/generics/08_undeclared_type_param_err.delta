@@ -1,0 +1,7 @@
+function f(x: T): T {
+    return x;
+}
+
+function main(): int8 {
+    return 0;
+}

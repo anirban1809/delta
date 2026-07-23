@@ -1,5 +1,5 @@
 // E0306 — multiple bindings per statement are not allowed
-function main(): int32 {
+function main(): int8 {
     let a: int32 = 1, b: int32 = 2;   // ERROR[E0306]: multiple bindings per statement are not allowed
     return a + b;
 }

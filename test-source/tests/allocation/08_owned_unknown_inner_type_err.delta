@@ -1,0 +1,5 @@
+type struct Holder = { value: owned<Missing> };
+
+function main(): int8 {
+    return 0;
+}

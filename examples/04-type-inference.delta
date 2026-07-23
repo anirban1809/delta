@@ -11,7 +11,7 @@
 //                literal (`0.0`) to float64; check annotation-vs-inferred agreement.
 //   lsp        : hover must surface the INFERRED type, not just annotated ones.
 
-function main(): int32 {
+function main(): int8 {
     const count = 0;          // inferred int32
     const ratio = 1.5;        // inferred float64
     const flag = true;        // inferred bool
@@ -24,7 +24,7 @@ function main(): int32 {
     // Annotation and initializer must agree:
     // const x: int32 = 1.5;  // ERROR: type mismatch: annotation `int32` vs initializer `float64`
 
-    return count + sum + int32(ratio) - int32(ratio);
+    return int8(count + sum + int32(ratio) - int32(ratio));
 }
 
 /* === Generated C (illustrative) ===

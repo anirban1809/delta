@@ -10,7 +10,7 @@ function test(flag: bool) {
 	}
 }
 
-function main(): int32 {
+function main(): int8 {
     test(false);
     return 0;
 }

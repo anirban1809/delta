@@ -1,0 +1,8 @@
+function allocate(): owned<int32> {
+    const value = new 1;
+    return value;
+}
+
+function main(): int8 {
+    return 0;
+}

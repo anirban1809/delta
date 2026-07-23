@@ -1,0 +1,14 @@
+type struct Ok<T> = { value: T };
+type struct Error<E> = { error: E };
+
+type union Result<T, E> = Ok<T> | Error<E>;
+
+function passThrough<T, E>(result: Result<T, E>): Result<T, E> {
+    return result;
+}
+
+function main(): int8 {
+    const input: Result<int32, char> = Ok<int32> { value: 42 };
+    const output: Result<int32, char> = passThrough<int32, char>(input);
+    return int8(0);
+}

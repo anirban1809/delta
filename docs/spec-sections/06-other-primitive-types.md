@@ -509,7 +509,7 @@ function processAll(ids: Slice<u64>): void {
 }
 
 // process.exit and unreachable
-function main(): int32 {
+function main(): int8 {
   const config = loadConfig() as result;
   check result {
     process.exit(1);                                           // terminator
@@ -557,7 +557,7 @@ Beyond the type-name keywords above, the following are reserved words of the gra
 
 - **Declarations:** `function`, `class`, `enum`, `type`, `const`, `let`, `import`, `export`, `extern`, `uses` (the `Copyable` / `Disposable` marker clause, [§9](#9-classes)).
 - **Control flow:** `if`, `else`, `while`, `for`, `switch`, `case`, `default`, `return`, `break`, `continue`, `check` ([§23](#23-the-check-block)). The `switch type` variant-dispatch form ([§30](#30-variant-dispatch-switch-type)) uses the existing `switch` keyword followed by the existing `type` keyword; no new word is introduced.
-- **Ownership / value operators:** `move`, `clone`, `heap`, `&`. (`heap` and `&` are also type modifiers; `move` and `clone` are value-level operators — `move` transfers ownership, `clone` deep-copies an owned value and is fallible ([§14.4](#144-the-clone-operator)). There is no `copy` operator and no `heap <expr>` operator — see [§9.6](#96-copy-and-move-semantics), [§14.2](#142-three-operations-no-copy-operator), and [§9.1](#91-core-model).) There is **no `readonly` keyword**: a reference is read-only by default, and `edit &T` is the mutable form ([§8.8](#88-references-on-type-values)).
+- **Ownership / value operators:** `move`, `clone`, `heap`, `&`. (`heap` and `&` are also type modifiers; `move` and `clone` are value-level operators — `move` transfers ownership, `clone` deep-copies an owned value and is fallible ([§14.4](#144-the-clone-operator)). There is no `copy` operator and no `heap <expr>` operator — see [§9.6](#96-copy-and-move-semantics), [§14.2](#142-the-three-operations), and [§9.1](#91-core-model).) There is **no `readonly` keyword**: a reference is read-only by default, and `edit &T` is the mutable form ([§8.8](#88-references-on-type-values)).
 - **Class member modifiers & mutable-reference marker:** `public`, `edit`. `edit` marks a mutating method ([§9.5](#95-instance-methods-and-edit)) and also forms the mutable-reference type/expression `edit &T` / `edit &x` ([§8.8](#88-references-on-type-values)) — one keyword, one meaning ("may mutate"). (`private` is the implicit default and need not be written, but is reserved.)
 - **Error channel:** `error` (in `return error as ...`), `ignore` ([§26](#26-explicit-error-ignoring-ignore)). `result` is **contextually** reserved only immediately after `as` (the `as result` binding form); elsewhere it is an ordinary identifier.
 

@@ -1,0 +1,5 @@
+type struct Holder = { value: owned<int32, bool> };
+
+function main(): int8 {
+    return 0;
+}

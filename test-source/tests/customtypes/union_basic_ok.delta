@@ -3,7 +3,7 @@ type struct Square = { s: float64 };
 
 type union Shape = Circle | Square;
 
-function main(): int32 {
+function main(): int8 {
     const sh: Shape = Square { s: 3.0 };
-    return 0;
+    return int8(0);
 }

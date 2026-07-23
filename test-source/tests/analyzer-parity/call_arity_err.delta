@@ -5,6 +5,6 @@ function takesOne(a: int32): int32 {
     return a;
 }
 
-function main(): int32 {
+function main(): int8 {
     return takesOne(1, 2);
 }

@@ -1,0 +1,8 @@
+type struct Sprite = { pos: int32[2], visible: bool };
+
+function main(): int8 {
+    const s: Sprite = Sprite { pos: [16, 32], visible: true };
+    if (s.pos[0] != 16) { return int8(1); }
+    if (!s.visible)     { return int8(2); }
+    return int8(0);
+}

@@ -250,7 +250,7 @@ const add = (a: i32, b: i32): i32 => { return a + b; };
 
 // no hoisting in either form
 main();                                       // ERROR — `main` used before declaration
-function main(): i32 { return 0; }
+function main(): int8 { return 0; }
 
 helper();                                     // ERROR
 const helper = (): void => { /* ... */ };

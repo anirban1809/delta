@@ -7,4 +7,4 @@ function invalid(value: &Handle) {
     consume(move value);
 }
 
-function main(): int32 { return 0; }
+function main(): int8 { return 0; }

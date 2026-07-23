@@ -1,9 +1,9 @@
-type OverflowError = { };
+type struct OverflowError = { };
 
 function f(x: int32): int32 {
     return error as { };
 }
 
-function main(): int32 {
+function main(): int8 {
     return 0;
 }

@@ -3,6 +3,6 @@ function helper(): int32 { return 1; }
 
 import { ANSWER } from "./helper";   // ERROR: imports must precede other declarations
 
-function main(): int32 {
+function main(): int8 {
     return ANSWER + helper();
 }

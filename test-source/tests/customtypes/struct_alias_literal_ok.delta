@@ -1,0 +1,37 @@
+type byte_count = uintsize;
+
+type struct dynamicstring = {
+    data: string,
+    length: uintsize,
+    capacity: uintsize
+};
+
+type ds = dynamicstring;
+type text = ds;
+
+export function new_str(s: string): dynamicstring {
+    const str = new ds {
+        data: s,
+        length: s.length,
+        capacity: s.length
+    };
+
+    return str;
+}
+
+function new_str_through_chain(s: string): dynamicstring {
+    const str = new text {
+        data: s,
+        length: s.length,
+        capacity: s.length
+    };
+    return str;
+}
+
+function main(): int8 {
+    let value = new_str("hello");
+    let chained = new_str_through_chain("alias");
+    if (value.length != uintsize(5)) { return int8(1); }
+    if (chained.length != uintsize(5)) { return int8(2); }
+    return int8(0);
+}

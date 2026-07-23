@@ -1,5 +1,5 @@
 // E0604 — no matching `as result` for `check result`
-function main(): int32 {
+function main(): int8 {
     check result {   // ERROR[E0604]: no matching `as result` for `check result`
         return 1;
     }

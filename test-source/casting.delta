@@ -29,12 +29,12 @@ function add_f64(a: float64, b: float64): float64 {
 
 function is_vowel(c: char): int32 {
     switch (c) {
-        case 'a', 'e', 'i', 'o', 'u': { return 1; }
-        default:                       { return 0; }
+        case 'a', 'e', 'i', 'o', 'u':  return 1; 
+        default:                        return 0; 
     }
 }
 
-function main(): int32 {
+function main(): int8 {
     // --- free widening: same signedness, wider destination ---
     let s8:  int8  = 100;
     let s16: int16 = int16(s8);

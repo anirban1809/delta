@@ -2,6 +2,6 @@ function a(p1: char): int32{
     return 0;
 }
 
-function main(): int32{
+function main(): int8{
     return a(23);
 }

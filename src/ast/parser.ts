@@ -1,4 +1,3 @@
-import { resolve } from "dns";
 import type { Diagnostics } from "../diagnostics/diagnostics.js";
 import { Error } from "../diagnostics/diagnostics.js";
 import type { Tokenizer } from "./tokenizer.js";
@@ -31,11 +30,16 @@ import {
     type TypeAlias,
     type TypeDeclaration,
     type ObjectLiteralExpression,
-    type ObjectLiteralElement,
     type FieldInit,
     type EnumDecl,
     type MemberAccessExpression,
     type UnionDecl,
+    type ImportDeclaration,
+    type ModuleDeclaration,
+    type AsResultBinding,
+    type CheckBlockStatement,
+    type ForwardStatement,
+    type ReturnErrorStatement,
 } from "./types.js";
 
 /**
@@ -55,6 +59,10 @@ export class Parser {
     typeDecls: Map<string, TypeDeclaration>;
     objectValueDecls: Map<string, ObjectLiteralExpression>;
     objectNonValueDecls: Map<string, string>;
+    exportModule?: ModuleDeclaration;
+    ffiHeaders: string[];
+    ffiModuleName?: string;
+    ffiLibraries: NonNullable<Module["ffiLibraries"]>;
 
     constructor(filepath: string, d: Diagnostics) {
         this.diagnostics = d;
@@ -63,6 +71,8 @@ export class Parser {
         this.typeDecls = new Map();
         this.objectValueDecls = new Map();
         this.objectNonValueDecls = new Map();
+        this.ffiHeaders = [];
+        this.ffiLibraries = [];
     }
 
     /** Advances the cursor by one and returns the now-current token. */
@@ -80,7 +90,8 @@ export class Parser {
     expect(kind: TokenKind, message: string): U<Token> {
         const currentToken = this.tokens[this.pos];
         if (currentToken?.kind != kind) {
-            const { line, column, start, end } = this.tokens[this.pos - 1]!;
+            const token = currentToken ?? this.tokens[this.pos - 1]!;
+            const { line, column, start, end } = token;
             this.diagnostics.addError(
                 Error(this.filepath, "parser", Position(line, column, start, end), message),
             );
@@ -125,13 +136,141 @@ export class Parser {
         }
     }
 
+    /** Parses fixed-array extents or the terminal slice suffix following a type name. */
+    parseArraySuffixes(): U<{ arrayLengths: number[]; slice: boolean }> {
+        const arrayLengths: number[] = [];
+        let slice = false;
+
+        while (this.current().kind == TokenKind.Symbol_LeftBracket) {
+            this.advance(); // consume left bracket
+            if (this.current().kind == TokenKind.Symbol_RightBracket) {
+                if (slice || arrayLengths.length) {
+                    this.diagnostics.addError(
+                        Error(
+                            this.filepath,
+                            "parser",
+                            this.getCurrentPosition(),
+                            "a slice type `T[]` cannot be combined with fixed-array extents",
+                        ),
+                    );
+                    return;
+                }
+                slice = true;
+                this.advance();
+                continue;
+            }
+            if (slice) {
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        this.getCurrentPosition(),
+                        "a slice type `T[]` cannot be combined with fixed-array extents",
+                    ),
+                );
+                return;
+            }
+            const length = this.expect(
+                TokenKind.Kind_IntegerLiteral,
+                "array length expected, must be an integer literal",
+            );
+            if (!length) {
+                return;
+            }
+            if (!this.expect(TokenKind.Symbol_RightBracket, "] symbol expected")) {
+                return;
+            }
+            arrayLengths.push(parseInt(length.value));
+        }
+
+        return { arrayLengths, slice };
+    }
+
+    /** Parses a source type, including references, indirection, generics, and arrays. */
+    parseTypeReference(typeParameters?: Type[]): U<Type> {
+        let edit = false;
+        let reference = false;
+        if (this.current().kind == TokenKind.Keyword_Edit) {
+            edit = true;
+            this.advance();
+        }
+        if (this.current().kind == TokenKind.Symbol_Ampersand) {
+            reference = true;
+            this.advance();
+        }
+        if (edit && !reference) {
+            this.diagnostics.addError(
+                Error(this.filepath, "parser", this.getCurrentPosition(), "`edit` may only qualify a reference (`edit &T`)"),
+            );
+            return;
+        }
+
+        const token = this.current();
+        if (token.kind != TokenKind.Kind_Identifier && token.kind != TokenKind.Keyword_Heap) {
+            this.diagnostics.addError(
+                Error(this.filepath, "parser", this.getCurrentPosition(), "type identifier expected"),
+            );
+            return;
+        }
+        this.advance();
+
+        const nameParts = [token.kind == TokenKind.Keyword_Heap ? "owned" : token.value];
+        while (this.current().kind == TokenKind.Symbol_Dot) {
+            this.advance();
+            const member = this.current();
+            if (
+                member.kind != TokenKind.Kind_Identifier &&
+                member.kind != TokenKind.Keyword_Const
+            ) {
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        this.getCurrentPosition(),
+                        "type identifier expected after .",
+                    ),
+                );
+                return;
+            }
+            this.advance();
+            nameParts.push(member.value);
+        }
+        const sourceName = nameParts.join(".");
+        let type = CreateType(sourceName, this.resolveTypeValue(sourceName), getTokenPosition(token));
+        const parameter = typeParameters?.find((candidate) => candidate.name.name == sourceName);
+        if (parameter) type = { ...parameter, position: getTokenPosition(token) };
+
+        if (this.current().kind == TokenKind.Symbol_Less) {
+            const arguments_ = this.parseTypeParams(false);
+            if (!arguments_) return;
+            type.typeParameters = arguments_.map((argument) =>
+                this.resolveFunctionTypeParameters(argument, typeParameters),
+            );
+        } else if (token.kind == TokenKind.Keyword_Heap) {
+            this.diagnostics.addError(
+                Error(this.filepath, "parser", getTokenPosition(token), "owned type requires one type argument"),
+            );
+            return;
+        }
+
+        const arraySuffixes = this.parseArraySuffixes();
+        if (!arraySuffixes) return;
+        type.arrayLengths = arraySuffixes.arrayLengths.length
+            ? arraySuffixes.arrayLengths
+            : undefined;
+        type.slice = arraySuffixes.slice || undefined;
+        type.reference = reference;
+        type.edit = edit;
+        return type;
+    }
+
     /**
      * Parses a parenthesized, comma-separated parameter list of the form
      * `(name: Type, …)`. Returns an empty list for `()`, or `undefined` if any
      * expected token is missing. Leaves the cursor just past the closing `)`.
      */
-    parseFuncParams(): U<FunctionParameter[]> {
-        let params: FunctionParameter[] = [];
+    parseFuncParams(typeParams?: Type[]): U<FunctionParameter[]> {
+        const params: FunctionParameter[] = [];
 
         if (!this.expect(TokenKind.Symbol_LeftParen, "( symbol expected")) {
             return;
@@ -142,64 +281,26 @@ export class Parser {
             return params;
         }
 
-        const p1 = this.expect(TokenKind.Kind_Identifier, "identifier expected");
-        if (!p1) {
-            return;
-        }
-
-        if (!this.expect(TokenKind.Symbol_Colon, ": symbol expected")) {
-            return;
-        }
-
-        const t1 = this.expect(TokenKind.Kind_Identifier, "identifier expected");
-        if (!t1) {
-            return;
-        }
-
-        this.objectNonValueDecls.set(p1.value, t1.value);
-
-        params.push({
-            position: this.getCurrentPosition(),
-            name: { kind: "identifier", name: p1.value },
-            type: {
-                position: getTokenPosition(t1),
-                kind: "type",
-                name: { kind: "identifier", name: t1.value },
-                value: this.resolveTypeValue(t1.value),
-            },
-        });
-
         while (this.current().kind != TokenKind.Symbol_RightParen) {
-            if (!this.expect(TokenKind.Symbol_Comma, ", symbol expected")) {
-                return;
-            }
-
             const p = this.expect(TokenKind.Kind_Identifier, "identifier expected");
-            if (!p) {
-                return;
-            }
-
-            if (!this.expect(TokenKind.Symbol_Colon, ": symbol expected")) {
-                return;
-            }
-
-            const t = this.expect(TokenKind.Kind_Identifier, "identifier expected");
-            if (!t) {
-                return;
-            }
-
-            this.objectNonValueDecls.set(p.value, t.value);
+            if (!p || !this.expect(TokenKind.Symbol_Colon, ": symbol expected")) return;
+            const t = this.parseTypeReference(typeParams);
+            if (!t) return;
+            this.objectNonValueDecls.set(p.value, t.name.name);
 
             params.push({
-                position: this.getCurrentPosition(),
-                name: { kind: "identifier", name: p.value },
-                type: {
-                    position: getTokenPosition(t),
-                    kind: "type",
-                    name: { kind: "identifier", name: t.value },
-                    value: this.resolveTypeValue(t.value),
-                },
+                position: getTokenPosition(p),
+                name: CreateIdentifier(p.value, getTokenPosition(p)),
+                type: t,
             });
+            if (this.current().kind == TokenKind.Symbol_Comma) {
+                this.advance();
+                continue;
+            }
+            if (this.current().kind != TokenKind.Symbol_RightParen) {
+                this.diagnostics.addError(Error(this.filepath, "parser", this.getCurrentPosition(), ", or ) expected"));
+                return;
+            }
         }
 
         this.advance(); //consume right paren symbol
@@ -210,24 +311,22 @@ export class Parser {
      * Parses a function's return type. `void` yields an empty list, signalling
      * no return value. Currently only a single type is supported.
      */
-    parseFuncReturnTypes(): U<Type[]> {
+    parseFuncReturnTypes(typeParams?: Type[]): U<Type[]> {
         const returns: Type[] = [];
-        const tName = this.expect(TokenKind.Kind_Identifier, "identifier expected");
-        if (!tName) {
-            return;
+        while (true) {
+            const returnType = this.parseTypeReference(typeParams);
+            if (!returnType) return;
+            if (returnType.name.name == "void") {
+                if (returns.length) {
+                    this.diagnostics.addError(Error(this.filepath, "parser", returnType.position!, "void cannot be combined with another return type"));
+                    return;
+                }
+                return [];
+            }
+            returns.push(returnType);
+            if (this.current().kind != TokenKind.Symbol_Comma) break;
+            this.advance();
         }
-        if (tName.value == "void") {
-            return [];
-        }
-
-        const returnType = this.resolveTypeValue(tName.value);
-
-        returns.push({
-            position: getTokenPosition(tName),
-            kind: "type",
-            name: { kind: "identifier", name: tName.value },
-            value: returnType,
-        });
         return returns;
     }
 
@@ -236,22 +335,131 @@ export class Parser {
      * yields an empty list, signalling the function cannot fail. Currently only
      * a single type is supported.
      */
-    // TODO: Add support for multiple errors
     parseFuncErrorTypes(): U<Type[]> {
         const errors: Type[] = [];
-        const tName = this.expect(TokenKind.Kind_Identifier, "identifier expected");
-        if (!tName) {
-            return;
+        while (true) {
+            const errorType = this.parseTypeReference();
+            if (!errorType) return;
+            errors.push(errorType);
+            if (this.current().kind != TokenKind.Symbol_Comma) break;
+            this.advance();
         }
-        if (tName.value == "void") {
-            return [];
+        return errors;
+    }
+
+    parseTypeParams(decl: boolean): U<Type[]> {
+        this.advance(); // consume < symbol
+        let types: Type[] = [];
+
+        while (
+            this.current().kind != TokenKind.Symbol_Greater &&
+            this.current().kind != TokenKind.Symbol_ShiftRight
+        ) {
+            const tName = this.expect(TokenKind.Kind_Identifier, "type identifier expected");
+            if (!tName) {
+                return;
+            }
+
+            const nameParts = [tName.value];
+            while (this.current().kind == TokenKind.Symbol_Dot) {
+                this.advance();
+                const member = this.current();
+                if (
+                    member.kind != TokenKind.Kind_Identifier &&
+                    member.kind != TokenKind.Keyword_Const
+                ) {
+                    this.diagnostics.addError(
+                        Error(
+                            this.filepath,
+                            "parser",
+                            this.getCurrentPosition(),
+                            "type identifier expected after .",
+                        ),
+                    );
+                    return;
+                }
+                this.advance();
+                nameParts.push(member.value);
+            }
+            const sourceName = nameParts.join(".");
+
+            const type = CreateType(
+                sourceName,
+                decl ? TypeValue.TypeGeneric : this.resolveTypeValue(sourceName),
+                getTokenPosition(tName),
+            );
+            if (!decl && this.current().kind == TokenKind.Symbol_Less) {
+                type.typeParameters = this.parseTypeParams(false);
+                if (!type.typeParameters) {
+                    return;
+                }
+            }
+            if (!decl) {
+                const arraySuffixes = this.parseArraySuffixes();
+                if (!arraySuffixes) {
+                    return;
+                }
+                type.arrayLengths = arraySuffixes.arrayLengths.length
+                    ? arraySuffixes.arrayLengths
+                    : undefined;
+                type.slice = arraySuffixes.slice || undefined;
+            }
+            types.push(type);
+
+            if (this.current().kind == TokenKind.Symbol_Comma) {
+                this.advance(); //consume comma
+                continue;
+            }
         }
-        errors.push({
-            position: getTokenPosition(tName),
-            kind: "type",
-            name: { kind: "identifier", name: tName.value },
-            value: TypeValue.Type_Int32,
-        });
+
+        if (this.current().kind == TokenKind.Symbol_ShiftRight) {
+            // `>>` is tokenized as a shift operator. In nested generic type
+            // arguments it instead closes two consecutive `<...>` lists.
+            const secondClose = { ...this.current(), kind: TokenKind.Symbol_Greater, value: ">" };
+            this.current().kind = TokenKind.Symbol_Greater;
+            this.current().value = ">";
+            this.tokens.splice(this.pos + 1, 0, secondClose);
+        }
+        this.advance(); //consume > symbol
+
+        if (decl) {
+            const seenTypeParameters = new Set<string>();
+            const duplicateTypeParameter = types.find((type) => {
+                if (seenTypeParameters.has(type.name.name)) {
+                    return true;
+                }
+                seenTypeParameters.add(type.name.name);
+                return false;
+            });
+            if (duplicateTypeParameter) {
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        duplicateTypeParameter.position!,
+                        "duplicate type parameter: " + duplicateTypeParameter.name.name,
+                    ),
+                );
+                return;
+            }
+        }
+
+        return types;
+    }
+
+    /** Reclassifies nested type arguments that refer to a function's `<T>` list. */
+    resolveFunctionTypeParameters(type: Type, typeParameters?: Type[]): Type {
+        const typeParameter = typeParameters?.find(
+            (parameter) => parameter.name.name == type.name.name,
+        );
+        if (typeParameter) {
+            return { ...typeParameter, position: type.position };
+        }
+
+        type.typeParameters = type.typeParameters?.map((argument) =>
+            this.resolveFunctionTypeParameters(argument, typeParameters),
+        );
+        return type;
     }
 
     /**
@@ -263,13 +471,38 @@ export class Parser {
         const fnPos: Position = this.getCurrentPosition();
 
         this.advance(); // consume function keyword
+        let receiver: FunctionParameter | undefined;
+        if (this.current().kind == TokenKind.Symbol_LeftParen) {
+            const parsed = this.parseFuncParams();
+            if (!parsed) return;
+            if (parsed.length != 1) {
+                this.diagnostics.addError(Error(this.filepath, "parser", fnPos, "a receiver clause must contain exactly one binding"));
+                return;
+            }
+            receiver = parsed[0];
+        }
         const fnName = this.expect(TokenKind.Kind_Identifier, "identifier expected");
 
         if (!fnName) {
             return;
         }
 
-        const params = this.parseFuncParams();
+        let typeparams: U<Type[]> = [];
+
+        if (this.current().kind == TokenKind.Symbol_Less) {
+            typeparams = this.parseTypeParams(true);
+            if (!typeparams) {
+                return;
+            }
+        }
+
+        // The receiver is parsed before the method's `<T, ...>` declaration.
+        // Reclassify matching receiver arguments now that those parameters are known.
+        if (receiver) {
+            receiver.type = this.resolveFunctionTypeParameters(receiver.type, typeparams);
+        }
+
+        const params = this.parseFuncParams(typeparams);
         if (!params) {
             return;
         }
@@ -279,7 +512,7 @@ export class Parser {
 
         if (this.current().kind == TokenKind.Symbol_Colon) {
             this.advance(); //consume colon symbol
-            let rt = this.parseFuncReturnTypes();
+            let rt = this.parseFuncReturnTypes(typeparams);
             if (!rt) {
                 return;
             }
@@ -296,7 +529,45 @@ export class Parser {
             return;
         }
 
-        const block = this.parseBlockStmt();
+        if (this.current().kind == TokenKind.Symbol_Pipe) {
+            this.advance();
+            const parsedErrors = this.parseFuncErrorTypes();
+            if (!parsedErrors) return;
+            errorTypes = parsedErrors;
+        }
+
+        if (this.current().kind == TokenKind.Symbol_Semicolon) {
+            const semicolon = this.advance();
+            if (!this.filepath.endsWith(".ffi.delta")) {
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        getTokenPosition(semicolon),
+                        "declaration-only Delta functions are only allowed in `.ffi.delta` files",
+                    ),
+                );
+            }
+            return {
+                position: fnPos,
+                kind: "function_declaration",
+                name: CreateIdentifier(fnName.value, getTokenPosition(fnName)),
+                parameters: params,
+                typeParameters: typeparams,
+                returnTypes,
+                errorTypes,
+                body: { kind: "block_statement", position: fnPos, statements: [] },
+                receiver,
+                external: { abi: "delta", moduleName: this.ffiModuleName },
+            };
+        }
+
+        const blockContext: any = {
+            fnContext: {
+                typeParams: typeparams,
+            },
+        };
+        const block = this.parseBlockStmt(blockContext);
         if (!block) {
             return;
         }
@@ -304,11 +575,13 @@ export class Parser {
         return {
             position: fnPos,
             kind: "function_declaration",
-            name: { kind: "identifier", name: fnName.value },
+            name: CreateIdentifier(fnName.value, getTokenPosition(fnName)),
             parameters: params,
+            typeParameters: typeparams,
             returnTypes: returnTypes,
             errorTypes: errorTypes,
             body: block,
+            receiver,
         };
     }
 
@@ -316,12 +589,50 @@ export class Parser {
      * Parses a `return <expr>;` statement. The expression is currently a
      * placeholder integer literal until expression parsing is implemented.
      */
-    parseReturnStmt(): U<ReturnStatement> {
+    parseReturnStmt(_blockContext?: any): U<ReturnStatement | ReturnErrorStatement> {
         const keyword = this.advance(); // consume return keyword
-        const expr = this.parseExpression(); //parsing the expr
 
-        if (!expr) {
-            return;
+        if (this.current().kind == TokenKind.Keyword_Error) {
+            this.advance();
+            if (!this.expect(TokenKind.Keyword_As, "keyword as expected")) return;
+
+            const values: Expression[] = [];
+            while (true) {
+                let value: U<Expression>;
+                if (this.current().kind == TokenKind.Symbol_LeftBrace) {
+                    value = this.parseObjectLiteralExpression(CreateIdentifier(""));
+                } else {
+                    value = this.parseExpression();
+                }
+                if (!value) return;
+                values.push(value);
+                if (this.current().kind != TokenKind.Symbol_Comma) break;
+                this.advance();
+            }
+            if (!this.expect(TokenKind.Symbol_Semicolon, "; expected")) return;
+            return {
+                kind: "return_error_statement",
+                position: getTokenPosition(keyword),
+                value: values[0]!,
+                values,
+            };
+        }
+
+        if (this.current().kind == TokenKind.Symbol_Semicolon) {
+            this.advance();
+            return {
+                kind: "return_statement",
+                position: getTokenPosition(keyword),
+            };
+        }
+
+        const expressions: Expression[] = [];
+        while (true) {
+            const expr = this.parseExpression();
+            if (!expr) return;
+            expressions.push(expr);
+            if (this.current().kind != TokenKind.Symbol_Comma) break;
+            this.advance();
         }
 
         if (!this.expect(TokenKind.Symbol_Semicolon, "; expected")) {
@@ -331,7 +642,69 @@ export class Parser {
         return {
             kind: "return_statement",
             position: Position(keyword.line, keyword.column, keyword.start, keyword.end),
-            expression: expr,
+            expression: expressions[0],
+            expressions,
+        };
+    }
+
+    /** Parses the optional `as resultName` suffix shared by fallible statement forms. */
+    parseAsResultBinding(): U<AsResultBinding> {
+        if (this.current().kind != TokenKind.Keyword_As) return;
+        const keyword = this.advance();
+        const name = this.expect(TokenKind.Kind_Identifier, "result identifier expected after as");
+        if (!name) return;
+        return {
+            kind: "as_result_binding",
+            position: getTokenPosition(keyword),
+            resultName: CreateIdentifier(name.value),
+        };
+    }
+
+    parseCheckBlockStatement(blockContext?: any): U<CheckBlockStatement> {
+        const keyword = this.advance();
+        const name = this.expect(
+            TokenKind.Kind_Identifier,
+            "result identifier expected after check",
+        );
+        if (!name) return;
+        let errorType: Type | undefined;
+        if (this.current().kind == TokenKind.Keyword_As) {
+            this.advance();
+            const typeName = this.expect(
+                TokenKind.Kind_Identifier,
+                "error type identifier expected after as",
+            );
+            if (!typeName) return;
+            errorType = {
+                position: getTokenPosition(typeName),
+                kind: "type",
+                name: CreateIdentifier(typeName.value),
+                value: this.resolveTypeValue(typeName.value),
+            };
+        }
+        const body = this.parseBlockStmt(blockContext);
+        if (!body) return;
+        return {
+            kind: "check_block_statement",
+            position: getTokenPosition(keyword),
+            resultName: CreateIdentifier(name.value),
+            errorType,
+            body,
+        };
+    }
+
+    parseForwardStatement(): U<ForwardStatement> {
+        const keyword = this.advance();
+        const name = this.expect(
+            TokenKind.Kind_Identifier,
+            "result identifier expected after forward",
+        );
+        if (!name) return;
+        if (!this.expect(TokenKind.Symbol_Semicolon, "; expected")) return;
+        return {
+            kind: "forward_statement",
+            position: getTokenPosition(keyword),
+            resultName: CreateIdentifier(name.value),
         };
     }
 
@@ -379,110 +752,76 @@ export class Parser {
         });
     }
 
-    parseObjectLiteralExpression(expr: Identifier): U<Expression> {
+    parseObjectLiteralExpression(expr: Identifier, typeArgs?: Type[]): U<Expression> {
         const objectType: Type = {
             name: expr,
             kind: "type",
             value: TypeValue.TypeCustom,
+            typeParameters: typeArgs,
         };
-        let fields: { name: Identifier; value: Expression }[] = [];
-        this.advance(); //consume left brace
+        const elements: ObjectLiteralExpression["elements"] = [];
+        const leftBrace = this.advance(); //consume left brace
         while (this.current().kind != TokenKind.Symbol_RightBrace) {
-            //parse spread literal if any
-
             if (this.current().kind == TokenKind.Symbol_Ellipsis) {
-                this.advance(); //consume ellipsis symbol
-                const spreadLiteralFields = this.resolveSpreadLiteralFields();
-                if (!spreadLiteralFields) {
-                    return;
-                }
-
-                fields.push(...spreadLiteralFields);
-
-                if (this.current().kind == TokenKind.Symbol_RightBrace) {
-                    break;
-                }
-
-                if (this.current().kind == TokenKind.Symbol_Comma) {
-                    this.advance();
-                }
+                const spread = this.advance();
+                const source = this.parseExpression();
+                if (!source) return;
+                elements.push({ position: getTokenPosition(spread), kind: "spread_element", source });
+            } else {
+                const field =
+                    this.current().kind == TokenKind.Keyword_Error
+                        ? this.advance()
+                        : this.expect(TokenKind.Kind_Identifier, "identifier expected");
+                if (!field || !this.expect(TokenKind.Symbol_Colon, ": expected")) return;
+                const value = this.parseExpression();
+                if (!value) return;
+                elements.push({
+                    position: getTokenPosition(field),
+                    kind: "field_init",
+                    field: { name: CreateIdentifier(field.value, getTokenPosition(field)), value },
+                });
             }
-
-            const field1 = this.expect(TokenKind.Kind_Identifier, "identifier expected");
-            if (!field1) {
-                return;
-            }
-            if (!this.expect(TokenKind.Symbol_Colon, ": expected")) {
-                return;
-            }
-            const value1 = this.parseExpression();
-            if (!value1) {
-                return;
-            }
-
-            fields.push({ name: CreateIdentifier(field1.value), value: value1 });
-
             if (this.current().kind == TokenKind.Symbol_RightBrace) {
                 break;
             }
-
-            if (!this.expect(TokenKind.Symbol_Comma, ", expected")) {
-                return;
+            if (this.current().kind == TokenKind.Symbol_Comma) {
+                this.advance();
+                continue;
             }
-
-            while (this.current().kind != TokenKind.Symbol_Comma) {
-                //parse spread literal if any
-
-                if (this.current().kind == TokenKind.Symbol_Ellipsis) {
-                    this.advance(); //consume ellipsis symbol
-                    const spreadLiteralFields = this.resolveSpreadLiteralFields();
-                    if (!spreadLiteralFields) {
-                        return;
-                    }
-
-                    fields.push(...spreadLiteralFields);
-
-                    if (this.current().kind == TokenKind.Symbol_RightBrace) {
-                        break;
-                    }
-
-                    if (this.current().kind == TokenKind.Symbol_Comma) {
-                        this.advance();
-                    }
-                }
-
-                const field = this.expect(TokenKind.Kind_Identifier, "identifier expected");
-                if (!field) {
-                    return;
-                }
-                if (!this.expect(TokenKind.Symbol_Colon, ": expected")) {
-                    return;
-                }
-                const value = this.parseExpression();
-                if (!value) {
-                    return;
-                }
-
-                fields.push({ name: CreateIdentifier(field.value), value: value });
-                if (this.current().kind == TokenKind.Symbol_RightBrace) {
-                    break;
-                }
-
-                if (!this.expect(TokenKind.Symbol_Comma, ", symbol expected")) {
-                    return;
-                }
-            }
+            this.diagnostics.addError(Error(this.filepath, "parser", this.getCurrentPosition(), ", or } expected"));
+            return;
         }
         this.advance(); //parse ending right brace symbol
         return {
             type: objectType,
-            position: this.getCurrentPosition(),
+            position: getTokenPosition(leftBrace),
             kind: "object_literal",
-            elements: fields.map((x) => ({
-                position: x.value.position,
-                kind: "field_init",
-                field: x,
-            })),
+            genericTypes: typeArgs,
+            concreteTypeMap: new Map<string, Type[]>(),
+            elements,
+        };
+    }
+
+    parseArrayLiteralExpression(position: Position): U<Expression> {
+        let elements: Expression[] = [];
+
+        while (this.current().kind != TokenKind.Symbol_RightBracket) {
+            const element = this.parseExpression();
+            if (!element) {
+                return;
+            }
+
+            elements.push(element);
+            if (this.current().kind == TokenKind.Symbol_Comma) {
+                this.advance(); // consume comma
+            }
+        }
+
+        this.advance(); //consume right bracket
+        return {
+            position,
+            kind: "array_literal_expression",
+            elements,
         };
     }
 
@@ -494,6 +833,27 @@ export class Parser {
     parsePrimaryExpression(): U<Expression> {
         const token = this.advance();
         switch (token.kind) {
+            case TokenKind.Keyword_New:
+                const inner = this.parseExpression();
+                if (!inner) {
+                    return;
+                }
+                return {
+                    position: getTokenPosition(token),
+                    kind: "new_expression",
+                    expression: inner,
+                };
+            case TokenKind.Symbol_LeftBrace:
+                this.pos--;
+                return this.parseObjectLiteralExpression(CreateIdentifier(""));
+
+            case TokenKind.Symbol_LeftBracket:
+                const arrayLiteral = this.parseArrayLiteralExpression(getTokenPosition(token));
+                if (!arrayLiteral) {
+                    return;
+                }
+                return arrayLiteral;
+
             case TokenKind.Symbol_LeftParen:
                 const expr = this.parseExpression();
                 if (!expr) {
@@ -508,43 +868,50 @@ export class Parser {
             case TokenKind.Kind_Identifier:
                 if (this.current().kind == TokenKind.Symbol_LeftBrace) {
                     return this.parseObjectLiteralExpression({
-                        position: this.getCurrentPosition(),
+                        position: getTokenPosition(token),
                         kind: "identifier",
                         name: token.value,
                     } as Identifier);
                 }
 
                 return {
-                    position: this.getCurrentPosition(),
+                    position: getTokenPosition(token),
                     kind: "identifier",
                     name: token.value,
                 };
 
             case TokenKind.Kind_IntegerLiteral:
                 return {
-                    position: this.getCurrentPosition(),
+                    position: getTokenPosition(token),
                     kind: "integer_literal",
                     value: token.value,
                 };
 
             case TokenKind.Kind_FloatLiteral:
                 return {
-                    position: this.getCurrentPosition(),
+                    position: getTokenPosition(token),
                     kind: "float_literal",
                     value: token.value,
                 };
 
             case TokenKind.Kind_BooleanLiteral:
                 return {
-                    position: this.getCurrentPosition(),
+                    position: getTokenPosition(token),
                     kind: "boolean_literal",
                     value: token.value,
                 };
 
             case TokenKind.Kind_CharacterLiteral:
                 return {
-                    position: this.getCurrentPosition(),
+                    position: getTokenPosition(token),
                     kind: "char_literal",
+                    value: token.value,
+                };
+
+            case TokenKind.Kind_StringLiteral:
+                return {
+                    position: getTokenPosition(token),
+                    kind: "string_literal",
                     value: token.value,
                 };
 
@@ -553,16 +920,23 @@ export class Parser {
         }
     }
 
+    parseFunctionCallTypeArguments(): U<Type[]> {
+        return this.parseTypeParams(false);
+    }
+
     /**
      * Parses a call's argument list `(...)` given the already-parsed `callee`,
      * and wraps them into a {@link FunctionCallExpression}. Assumes the cursor
      * is on the opening `(`.
      */
-    parseFunctionCallExpression(callee: Expression): U<Expression> {
+    parseFunctionCallExpression(callee: Expression, typeArguments?: Type[]): U<Expression> {
+        let typeArgs: U<Type[]> = typeArguments;
+
         if (!this.expect(TokenKind.Symbol_LeftParen, "( symbol expected")) {
             return;
         }
         const args: Expression[] = [];
+
         if (this.current().kind != TokenKind.Symbol_RightParen) {
             const p1 = this.parseExpression();
             if (!p1) {
@@ -587,6 +961,8 @@ export class Parser {
             position: callee.position,
             callee,
             arguments: args,
+            genericTypes: typeArgs,
+            concreteTypeMap: new Map(),
         } as FunctionCallExpression;
 
         this.skipComments();
@@ -605,8 +981,61 @@ export class Parser {
             position: getTokenPosition(member),
             kind: "member_access_expression",
             receiver: expr,
+            receiverType: CreateType("invalid", TypeValue.TypeInvalid),
             member: CreateIdentifier(member.value),
         };
+    }
+
+    /** Returns the dotted spelling of an identifier/member chain. */
+    qualifiedExpressionName(expr: Expression): U<string> {
+        if (expr.kind == "identifier") return expr.name;
+        if (expr.kind != "member_access_expression") return;
+        const receiver = this.qualifiedExpressionName(expr.receiver);
+        return receiver ? `${receiver}.${expr.member.name}` : undefined;
+    }
+
+    /** Distinguishes `f<T>(...)` / `T<U> { ... }` from an ordinary comparison. */
+    genericSuffixAhead(): TokenKind | undefined {
+        if (this.current().kind != TokenKind.Symbol_Less) return undefined;
+        let depth = 0;
+        for (let index = this.pos; index < this.tokens.length; index++) {
+            const kind = this.tokens[index]!.kind;
+            if (kind == TokenKind.Symbol_Less) {
+                depth++;
+                continue;
+            }
+            if (kind == TokenKind.Symbol_Greater) {
+                depth--;
+                if (depth == 0) {
+                    const suffix = this.tokens[index + 1]?.kind;
+                    return suffix == TokenKind.Symbol_LeftParen ||
+                        suffix == TokenKind.Symbol_LeftBrace
+                        ? suffix
+                        : undefined;
+                }
+                continue;
+            }
+            if (kind == TokenKind.Symbol_ShiftRight) {
+                depth -= 2;
+                if (depth <= 0) {
+                    const suffix = this.tokens[index + 1]?.kind;
+                    return suffix == TokenKind.Symbol_LeftParen ||
+                        suffix == TokenKind.Symbol_LeftBrace
+                        ? suffix
+                        : undefined;
+                }
+                continue;
+            }
+            if (
+                kind != TokenKind.Kind_Identifier &&
+                kind != TokenKind.Kind_IntegerLiteral &&
+                kind != TokenKind.Symbol_Comma &&
+                kind != TokenKind.Symbol_LeftBracket &&
+                kind != TokenKind.Symbol_RightBracket
+            )
+                return undefined;
+        }
+        return undefined;
     }
 
     /**
@@ -621,22 +1050,93 @@ export class Parser {
 
         let final = expr;
 
-        while (this.current().kind == TokenKind.Symbol_Dot) {
-            const member = this.parseMemberAccessExpression(final);
-            if (!member) {
+        // Parse every postfix operator in source order so a chain such as
+        // `grid[1][0]` keeps the previous access as the next receiver.
+        while (true) {
+            if (this.current().kind == TokenKind.Symbol_Dot) {
+                const member = this.parseMemberAccessExpression(final);
+                if (!member) {
+                    return;
+                }
+                final = member;
+                continue;
+            }
+
+            if (
+                final.kind == "member_access_expression" &&
+                this.current().kind == TokenKind.Symbol_LeftBrace
+            ) {
+                const qualifiedName = this.qualifiedExpressionName(final);
+                if (!qualifiedName) return;
+                const literal = this.parseObjectLiteralExpression(
+                    CreateIdentifier(qualifiedName, final.position),
+                );
+                if (!literal) return;
+                final = literal;
+                continue;
+            }
+
+            const genericSuffix =
+                final.kind == "identifier" || final.kind == "member_access_expression"
+                    ? this.genericSuffixAhead()
+                    : undefined;
+            if (
+                (final.kind == "identifier" || final.kind == "member_access_expression") &&
+                genericSuffix
+            ) {
+                const typeArguments = this.parseFunctionCallTypeArguments();
+                if (!typeArguments) return;
+                if (genericSuffix == TokenKind.Symbol_LeftBrace) {
+                    const qualifiedName = this.qualifiedExpressionName(final);
+                    if (!qualifiedName) return;
+                    const literal = this.parseObjectLiteralExpression(
+                        CreateIdentifier(qualifiedName, final.position),
+                        typeArguments,
+                    );
+                    if (!literal) return;
+                    final = literal;
+                } else {
+                    const func = this.parseFunctionCallExpression(final, typeArguments);
+                    if (!func) return;
+                    final = func;
+                }
+                continue;
+            }
+
+            if (
+                (final.kind == "identifier" || final.kind == "member_access_expression") &&
+                this.current().kind == TokenKind.Symbol_LeftParen
+            ) {
+                const func = this.parseFunctionCallExpression(
+                    final,
+                    final.kind == "identifier" ? final.typeArguments : undefined,
+                );
+                if (!func) {
+                    return;
+                }
+                final = func;
+                continue;
+            }
+
+            if (this.current().kind != TokenKind.Symbol_LeftBracket) {
+                break;
+            }
+
+            this.advance(); // consume left bracket
+            const index = this.parseExpression();
+            if (!index) {
+                return;
+            }
+            if (!this.expect(TokenKind.Symbol_RightBracket, "] symbol expected")) {
                 return;
             }
 
-            final = member;
-        }
-
-        while (expr.kind == "identifier" && this.current().kind == TokenKind.Symbol_LeftParen) {
-            const func = this.parseFunctionCallExpression(final);
-            if (!func) {
-                return;
-            }
-
-            final = func;
+            final = {
+                position: final.position,
+                kind: "index_expression",
+                receiver: final,
+                index,
+            };
         }
 
         if (
@@ -660,6 +1160,17 @@ export class Parser {
      */
     parseUnaryExpression(): U<Expression> {
         if (
+            this.current().kind == TokenKind.Keyword_Move ||
+            this.current().kind == TokenKind.Keyword_Clone
+        ) {
+            const operator = this.advance();
+            const source = this.parseUnaryExpression();
+            if (!source) return;
+            return operator.kind == TokenKind.Keyword_Move
+                ? { position: getTokenPosition(operator), kind: "move_expression", source }
+                : { position: getTokenPosition(operator), kind: "clone_expression", source };
+        }
+        if (
             [TokenKind.Symbol_Not, TokenKind.Symbol_Minus, TokenKind.Symbol_Tilde].includes(
                 this.current().kind,
             )
@@ -671,7 +1182,7 @@ export class Parser {
             }
 
             return {
-                position: operand.position,
+                position: getTokenPosition(operator),
                 kind: "unary_expression",
                 operator: operator.value,
                 operand,
@@ -704,7 +1215,7 @@ export class Parser {
             }
 
             left = {
-                position: left.position,
+                position: getTokenPosition(operator),
                 kind: "binary_expression",
                 left,
                 right,
@@ -734,116 +1245,7 @@ export class Parser {
             }
 
             left = {
-                position: left.position,
-                kind: "binary_expression",
-                left,
-                right,
-                operator: operator.value,
-            };
-            this.skipComments();
-        }
-
-        return left;
-    }
-
-    /**
-     * Parses a logical expression: an additive expression optionally followed
-     * by a `&&`/`||` operator and a right-hand additive expression.
-     */
-    parseLogicalExpression(): U<Expression> {
-        const left = this.parseAdditiveExpression();
-        if (!left) {
-            return;
-        }
-        this.skipComments();
-        while (
-            [TokenKind.Symbol_LogicalAnd, TokenKind.Symbol_LogicalOr].includes(this.current().kind)
-        ) {
-            const operator = this.advance();
-            const right = this.parseAdditiveExpression();
-            if (!right) {
-                return;
-            }
-
-            return {
-                position: left.position,
-                kind: "binary_expression",
-                left,
-                right,
-                operator: operator.value,
-            };
-        }
-
-        return left;
-    }
-
-    parseBitwiseXorExpression(): U<Expression> {
-        let left = this.parseBitwiseOrExpression();
-        if (!left) {
-            return;
-        }
-        this.skipComments();
-        while ([TokenKind.Symbol_Caret].includes(this.current().kind)) {
-            const operator = this.advance();
-            const right = this.parseBitwiseOrExpression();
-            if (!right) {
-                return;
-            }
-
-            left = {
-                position: left.position,
-                kind: "binary_expression",
-                left,
-                right,
-                operator: operator.value,
-            };
-            this.skipComments();
-        }
-
-        return left;
-    }
-
-    parseBitwiseOrExpression(): U<Expression> {
-        let left = this.parseBitwiseAndExpression();
-        if (!left) {
-            return;
-        }
-        this.skipComments();
-        while ([TokenKind.Symbol_Pipe].includes(this.current().kind)) {
-            const operator = this.advance();
-            const right = this.parseBitwiseAndExpression();
-            if (!right) {
-                return;
-            }
-
-            left = {
-                position: left.position,
-                kind: "binary_expression",
-                left,
-                right,
-                operator: operator.value,
-            };
-            this.skipComments();
-        }
-
-        return left;
-    }
-
-    parseBitwiseAndExpression(): U<Expression> {
-        let left = this.parseComparisionExpression();
-        if (!left) {
-            return;
-        }
-        this.skipComments();
-        while ([TokenKind.Symbol_Ampersand].includes(this.current().kind)) {
-            const operator = this.advance();
-            const right = this.parseComparisionExpression();
-            if (!right) {
-                return;
-            }
-
-            left = {
-                position: left.position,
+                position: getTokenPosition(operator),
                 kind: "binary_expression",
                 left,
                 right,
@@ -856,52 +1258,45 @@ export class Parser {
     }
 
     parseShiftExpression(): U<Expression> {
-        const left = this.parseLogicalExpression();
+        let left = this.parseAdditiveExpression();
         if (!left) {
             return;
         }
         this.skipComments();
-        if (
+        while (
             [TokenKind.Symbol_ShiftLeft, TokenKind.Symbol_ShiftRight].includes(this.current().kind)
         ) {
             const operator = this.advance();
-            const right = this.parseLogicalExpression();
+            const right = this.parseAdditiveExpression();
             if (!right) {
                 return;
             }
 
-            return {
-                position: left.position,
+            left = {
+                position: getTokenPosition(operator),
                 kind: "binary_expression",
                 left,
                 right,
                 operator: operator.value,
             };
+            this.skipComments();
         }
 
         return left;
     }
 
-    /**
-     * Parses a comparison expression: a logical expression optionally followed
-     * by a relational/equality operator (`<`, `<=`, `>`, `>=`, `==`, `!=`) and
-     * a right-hand logical expression. This is the top of the expression
-     * precedence chain entered through {@link parseExpression}.
-     */
-    parseComparisionExpression(): U<Expression> {
-        const left = this.parseShiftExpression();
+    parseRelationalExpression(): U<Expression> {
+        let left = this.parseShiftExpression();
         if (!left) {
             return;
         }
         this.skipComments();
-        if (
+        while (
             [
                 TokenKind.Symbol_Less,
                 TokenKind.Symbol_LessEq,
                 TokenKind.Symbol_Greater,
                 TokenKind.Symbol_GreaterEq,
-                TokenKind.Symbol_Equality,
-                TokenKind.Symbol_NotEquals,
             ].includes(this.current().kind)
         ) {
             const operator = this.advance();
@@ -910,15 +1305,134 @@ export class Parser {
                 return;
             }
 
-            return {
-                position: left.position,
+            left = {
+                position: getTokenPosition(operator),
                 kind: "binary_expression",
                 left,
                 right,
                 operator: operator.value,
             };
+            this.skipComments();
         }
 
+        return left;
+    }
+
+    parseEqualityExpression(): U<Expression> {
+        let left = this.parseRelationalExpression();
+        if (!left) {
+            return;
+        }
+        this.skipComments();
+        while (
+            [TokenKind.Symbol_Equality, TokenKind.Symbol_NotEquals].includes(this.current().kind)
+        ) {
+            const operator = this.advance();
+            const right = this.parseRelationalExpression();
+            if (!right) {
+                return;
+            }
+
+            left = {
+                position: getTokenPosition(operator),
+                kind: "binary_expression",
+                left,
+                right,
+                operator: operator.value,
+            };
+            this.skipComments();
+        }
+
+        return left;
+    }
+
+    parseBitwiseAndExpression(): U<Expression> {
+        let left = this.parseEqualityExpression();
+        if (!left) {
+            return;
+        }
+        this.skipComments();
+        while (this.current().kind == TokenKind.Symbol_Ampersand) {
+            const operator = this.advance();
+            const right = this.parseEqualityExpression();
+            if (!right) {
+                return;
+            }
+            left = {
+                position: getTokenPosition(operator),
+                kind: "binary_expression",
+                left,
+                right,
+                operator: operator.value,
+            };
+            this.skipComments();
+        }
+        return left;
+    }
+
+    parseBitwiseXorExpression(): U<Expression> {
+        let left = this.parseBitwiseAndExpression();
+        if (!left) {
+            return;
+        }
+        this.skipComments();
+        while (this.current().kind == TokenKind.Symbol_Caret) {
+            const operator = this.advance();
+            const right = this.parseBitwiseAndExpression();
+            if (!right) {
+                return;
+            }
+            left = {
+                position: getTokenPosition(operator),
+                kind: "binary_expression",
+                left,
+                right,
+                operator: operator.value,
+            };
+            this.skipComments();
+        }
+        return left;
+    }
+
+    parseBitwiseOrExpression(): U<Expression> {
+        let left = this.parseBitwiseXorExpression();
+        if (!left) return;
+        this.skipComments();
+        while (this.current().kind == TokenKind.Symbol_Pipe) {
+            const operator = this.advance();
+            const right = this.parseBitwiseXorExpression();
+            if (!right) return;
+            left = { position: getTokenPosition(operator), kind: "binary_expression", left, right, operator: operator.value };
+            this.skipComments();
+        }
+        return left;
+    }
+
+    parseLogicalAndExpression(): U<Expression> {
+        let left = this.parseBitwiseOrExpression();
+        if (!left) return;
+        this.skipComments();
+        while (this.current().kind == TokenKind.Symbol_LogicalAnd) {
+            const operator = this.advance();
+            const right = this.parseBitwiseOrExpression();
+            if (!right) return;
+            left = { position: getTokenPosition(operator), kind: "binary_expression", left, right, operator: operator.value };
+            this.skipComments();
+        }
+        return left;
+    }
+
+    parseLogicalOrExpression(): U<Expression> {
+        let left = this.parseLogicalAndExpression();
+        if (!left) return;
+        this.skipComments();
+        while (this.current().kind == TokenKind.Symbol_LogicalOr) {
+            const operator = this.advance();
+            const right = this.parseLogicalAndExpression();
+            if (!right) return;
+            left = { position: getTokenPosition(operator), kind: "binary_expression", left, right, operator: operator.value };
+            this.skipComments();
+        }
         return left;
     }
 
@@ -929,7 +1443,7 @@ export class Parser {
      */
     // IN_PROGRESS: add expression parsing
     parseExpression(): U<Expression> {
-        return this.parseBitwiseXorExpression();
+        return this.parseLogicalOrExpression();
     }
 
     /**
@@ -943,6 +1457,7 @@ export class Parser {
             case "int16":
                 return TypeValue.Type_Int16;
             case "int32":
+            case "c.int":
                 return TypeValue.Type_Int32;
             case "int64":
                 return TypeValue.Type_Int64;
@@ -955,8 +1470,10 @@ export class Parser {
             case "uint64":
                 return TypeValue.Type_UInt64;
             case "intsize":
+            case "c.ssize_t":
                 return TypeValue.Type_IntSize;
             case "uintsize":
+            case "c.size_t":
                 return TypeValue.Type_UIntSize;
             case "char":
                 return TypeValue.Type_Char;
@@ -966,6 +1483,10 @@ export class Parser {
                 return TypeValue.Type_Float64;
             case "bool":
                 return TypeValue.Type_Bool;
+            case "string":
+                return TypeValue.Type_String;
+            case "owned":
+                return TypeValue.Type_Owned;
         }
 
         return TypeValue.TypeCustom;
@@ -977,7 +1498,10 @@ export class Parser {
      * an initializer; a `let` may omit it. `file` marks whether the declaration
      * is at file (module) scope rather than inside a function body.
      */
-    parseVariableDeclarationStmt(file: boolean): U<VariableDeclarationStatement> {
+    parseVariableDeclarationStmt(
+        file: boolean,
+        blockContext?: any,
+    ): U<VariableDeclarationStatement> {
         const modifier = this.advance(); // consume let or const
 
         if (this.current().kind != TokenKind.Kind_Identifier) {
@@ -1002,6 +1526,26 @@ export class Parser {
             if (!value) {
                 return;
             }
+            if (
+                value.kind == "new_expression" &&
+                this.current().kind == TokenKind.Kind_Identifier &&
+                this.current().value == "in"
+            ) {
+                const unsupported = this.advance();
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        getTokenPosition(unsupported),
+                        "custom allocators are not supported",
+                    ),
+                );
+                if (this.current().kind == TokenKind.Kind_Identifier) this.advance();
+            }
+
+            const hasAsResult = this.current().kind == TokenKind.Keyword_As;
+            const asResult = this.parseAsResultBinding();
+            if (hasAsResult && !asResult) return;
 
             if (!this.expect(TokenKind.Symbol_Semicolon, "; expected")) {
                 return;
@@ -1016,9 +1560,10 @@ export class Parser {
                 kind: "variable_declaration_statement",
                 mutable: modifier.kind == TokenKind.Keyword_Let,
                 type: CreateType("invalid", TypeValue.TypeInvalid, this.getCurrentPosition()),
-                name: { name: varNameIdent.value, kind: "identifier" },
+                name: CreateIdentifier(varNameIdent.value, getTokenPosition(varNameIdent)),
                 position: getTokenPosition(varNameIdent),
                 value,
+                asResult,
             };
         }
 
@@ -1026,14 +1571,27 @@ export class Parser {
             return;
         }
 
-        if (this.current().kind != TokenKind.Kind_Identifier) {
-            this.diagnostics.addError(
-                Error(this.filepath, "parser", this.getCurrentPosition(), "identifier expected"),
-            );
-            return;
-        }
+        let typeParams: U<Type[]> = blockContext?.fnContext?.typeParams;
+        const varType = this.parseTypeReference(typeParams);
+        if (!varType) return;
 
-        const varType = this.advance(); //consume variable type
+        if (
+            this.current().kind == TokenKind.Symbol_Semicolon &&
+            modifier.value != "let" &&
+            file &&
+            this.filepath.endsWith(".ffi.delta")
+        ) {
+            this.advance();
+            return {
+                file: true,
+                kind: "variable_declaration_statement",
+                mutable: false,
+                name: CreateIdentifier(varNameIdent.value, getTokenPosition(varNameIdent)),
+                type: varType,
+                position: getTokenPosition(varNameIdent),
+                external: { abi: "delta", moduleName: this.ffiModuleName },
+            };
+        }
 
         if (this.current().kind == TokenKind.Symbol_Semicolon && modifier.value != "let") {
             this.diagnostics.addError(
@@ -1053,13 +1611,8 @@ export class Parser {
                 file,
                 kind: "variable_declaration_statement",
                 mutable: true,
-                name: { name: varNameIdent.value, kind: "identifier" },
-                type: {
-                    position: getTokenPosition(varType),
-                    kind: "type",
-                    name: { name: varType.value, kind: "identifier" },
-                    value: this.resolveTypeValue(varType.value),
-                },
+                name: CreateIdentifier(varNameIdent.value, getTokenPosition(varNameIdent)),
+                type: varType,
                 position: getTokenPosition(varNameIdent),
             };
         }
@@ -1072,6 +1625,26 @@ export class Parser {
         if (!value) {
             return;
         }
+        if (
+            value.kind == "new_expression" &&
+            this.current().kind == TokenKind.Kind_Identifier &&
+            this.current().value == "in"
+        ) {
+            const unsupported = this.advance();
+            this.diagnostics.addError(
+                Error(
+                    this.filepath,
+                    "parser",
+                    getTokenPosition(unsupported),
+                    "custom allocators are not supported",
+                ),
+            );
+            if (this.current().kind == TokenKind.Kind_Identifier) this.advance();
+        }
+
+        const hasAsResult = this.current().kind == TokenKind.Keyword_As;
+        const asResult = this.parseAsResultBinding();
+        if (hasAsResult && !asResult) return;
 
         if (!this.expect(TokenKind.Symbol_Semicolon, "; expected")) {
             return;
@@ -1085,19 +1658,15 @@ export class Parser {
             file,
             kind: "variable_declaration_statement",
             mutable: modifier.kind == TokenKind.Keyword_Let,
-            name: { name: varNameIdent.value, kind: "identifier" },
-            type: {
-                position: getTokenPosition(varType),
-                kind: "type",
-                name: { name: varType.value, kind: "identifier" },
-                value: this.resolveTypeValue(varType.value),
-            },
+            name: CreateIdentifier(varNameIdent.value, getTokenPosition(varNameIdent)),
+            type: varType,
             position: getTokenPosition(varNameIdent),
             value,
+            asResult,
         };
     }
 
-    parseIfStatement(): U<Statement> {
+    parseIfStatement(blockContext?: any): U<Statement> {
         const keyword = this.advance(); //consume if keyword
         if (!this.expect(TokenKind.Symbol_LeftParen, "( expected")) {
             return;
@@ -1112,7 +1681,7 @@ export class Parser {
             return;
         }
 
-        const thenBlock = this.parseBlockStmt();
+        const thenBlock = this.parseBlockStmt(blockContext);
         if (!thenBlock) {
             return;
         }
@@ -1121,7 +1690,7 @@ export class Parser {
 
         if (this.current().kind == TokenKind.Keyword_Else) {
             this.advance();
-            elseBlock = this.parseBlockStmt();
+            elseBlock = this.parseBlockStmt(blockContext);
         }
 
         return {
@@ -1133,7 +1702,7 @@ export class Parser {
         };
     }
 
-    parseWhileStatement(): U<Statement> {
+    parseWhileStatement(blockContext?: any): U<Statement> {
         const keyword = this.advance(); //consume while keyword
         if (!this.expect(TokenKind.Symbol_LeftParen, "( expected")) {
             return;
@@ -1148,7 +1717,7 @@ export class Parser {
             return;
         }
 
-        const body = this.parseBlockStmt();
+        const body = this.parseBlockStmt(blockContext);
         if (!body) {
             return;
         }
@@ -1161,7 +1730,7 @@ export class Parser {
         };
     }
 
-    parseForStatement(): U<Statement> {
+    parseForStatement(blockContext?: any): U<Statement> {
         const keyword = this.advance(); //consume while keyword
         if (!this.expect(TokenKind.Symbol_LeftParen, "( expected")) {
             return;
@@ -1171,7 +1740,7 @@ export class Parser {
         if (this.current().kind == TokenKind.Symbol_Semicolon) {
             this.advance(); // consume ; symbol
         } else {
-            decl = this.parseVariableDeclarationStmt(false);
+            decl = this.parseVariableDeclarationStmt(false, blockContext);
         }
 
         let condition: Expression;
@@ -1199,7 +1768,7 @@ export class Parser {
             }
         }
 
-        const body = this.parseBlockStmt();
+        const body = this.parseBlockStmt(blockContext);
         if (!body) {
             return;
         }
@@ -1214,7 +1783,7 @@ export class Parser {
         };
     }
 
-    parseSwitchStatement(): U<Statement> {
+    parseSwitchStatement(blockContext?: any): U<Statement> {
         const keyword = this.advance(); // consume switch keyword
         if (!this.expect(TokenKind.Symbol_LeftParen, "symbol ( expected")) {
             return;
@@ -1298,7 +1867,7 @@ export class Parser {
                         label.operand.kind == "integer_literal"
                     ) {
                         caseValue.labels.push({
-                            position: this.getCurrentPosition(),
+                            position: label.position,
                             kind: "integer_literal",
                             value: "-" + label.operand.value,
                         } as IntegerLiteral);
@@ -1425,7 +1994,7 @@ export class Parser {
                 return;
             }
 
-            const caseBlock = this.parseCaseBlockStatement();
+            const caseBlock = this.parseCaseBlockStatement(blockContext);
             if (!caseBlock) {
                 return;
             }
@@ -1444,7 +2013,7 @@ export class Parser {
                 return;
             }
 
-            const defaultBlock = this.parseCaseBlockStatement();
+            const defaultBlock = this.parseCaseBlockStatement(blockContext);
             if (!defaultBlock) {
                 return;
             }
@@ -1462,7 +2031,7 @@ export class Parser {
         };
     }
 
-    parseCaseBlockStatement(): U<Statement> {
+    parseCaseBlockStatement(blockContext?: any): U<Statement> {
         const statements: Statement[] = [];
         while (
             this.current().kind != TokenKind.Keyword_Case &&
@@ -1483,7 +2052,7 @@ export class Parser {
             }
 
             this.skipComments();
-            const stmt = this.parseStmt();
+            const stmt = this.parseStmt(blockContext);
             if (!stmt) {
                 return;
             }
@@ -1499,7 +2068,7 @@ export class Parser {
     }
 
     /** Dispatches on the current token to parse a single statement. */
-    parseStmt(): U<Statement> {
+    parseStmt(blockContext?: any): U<Statement> {
         let statement;
         this.skipComments();
 
@@ -1529,11 +2098,19 @@ export class Parser {
             };
         }
 
+        if (this.current().kind == TokenKind.Keyword_Check) {
+            return this.parseCheckBlockStatement(blockContext);
+        }
+
+        if (this.current().kind == TokenKind.Keyword_Forward) {
+            return this.parseForwardStatement();
+        }
+
         if (
             this.current().kind == TokenKind.Keyword_Const ||
             this.current().kind == TokenKind.Keyword_Let
         ) {
-            statement = this.parseVariableDeclarationStmt(false);
+            statement = this.parseVariableDeclarationStmt(false, blockContext);
             if (statement == undefined) {
                 return;
             }
@@ -1541,7 +2118,7 @@ export class Parser {
         }
 
         if (this.current().kind == TokenKind.Keyword_Return) {
-            statement = this.parseReturnStmt();
+            statement = this.parseReturnStmt(blockContext);
             this.skipComments();
             if (!statement) {
                 return;
@@ -1550,7 +2127,7 @@ export class Parser {
         }
 
         if (this.current().kind == TokenKind.Keyword_If) {
-            statement = this.parseIfStatement();
+            statement = this.parseIfStatement(blockContext);
             this.skipComments();
             if (!statement) {
                 return;
@@ -1559,7 +2136,7 @@ export class Parser {
         }
 
         if (this.current().kind == TokenKind.Keyword_While) {
-            statement = this.parseWhileStatement();
+            statement = this.parseWhileStatement(blockContext);
             this.skipComments();
             if (!statement) {
                 return;
@@ -1568,7 +2145,7 @@ export class Parser {
         }
 
         if (this.current().kind == TokenKind.Keyword_Switch) {
-            statement = this.parseSwitchStatement();
+            statement = this.parseSwitchStatement(blockContext);
             this.skipComments();
             if (!statement) {
                 return;
@@ -1577,7 +2154,7 @@ export class Parser {
         }
 
         if (this.current().kind == TokenKind.Keyword_For) {
-            statement = this.parseForStatement();
+            statement = this.parseForStatement(blockContext);
             this.skipComments();
             if (!statement) {
                 return;
@@ -1590,12 +2167,28 @@ export class Parser {
             return;
         }
 
-        if (this.current().kind == TokenKind.Symbol_Equals) {
-            this.advance(); //consume = operator
+        const assignmentOperators = [
+            TokenKind.Symbol_Equals,
+            TokenKind.Symbol_PlusEquals,
+            TokenKind.Symbol_MinusEquals,
+            TokenKind.Symbol_AsteriskEquals,
+            TokenKind.Symbol_FSlashEquals,
+            TokenKind.Symbol_PercentEquals,
+            TokenKind.Symbol_AmpersandEquals,
+            TokenKind.Symbol_PipeEquals,
+            TokenKind.Symbol_CaretEquals,
+            TokenKind.Symbol_ShiftLeftEquals,
+            TokenKind.Symbol_ShiftRightEquals,
+        ];
+        if (assignmentOperators.includes(this.current().kind)) {
+            const operator = this.advance();
             const rhs = this.parseExpression();
             if (!rhs) {
                 return;
             }
+            const hasAsResult = this.current().kind == TokenKind.Keyword_As;
+            const asResult = this.parseAsResultBinding();
+            if (hasAsResult && !asResult) return;
             if (!this.expect(TokenKind.Symbol_Semicolon, "; symbol expected")) {
                 return;
             }
@@ -1605,8 +2198,15 @@ export class Parser {
                 kind: "assignment_statement",
                 root: expr,
                 target: rhs,
+                operator: operator.value == "=" ? undefined : operator.value,
+                operatorPosition: getTokenPosition(operator),
+                asResult,
             };
         }
+
+        const hasAsResult = this.current().kind == TokenKind.Keyword_As;
+        const asResult = this.parseAsResultBinding();
+        if (hasAsResult && !asResult) return;
 
         if (!this.expect(TokenKind.Symbol_Semicolon, "; symbol expected")) {
             return;
@@ -1616,6 +2216,7 @@ export class Parser {
             kind: "expression_statement",
             expression: expr,
             position: expr.position,
+            asResult,
         };
     }
 
@@ -1623,10 +2224,11 @@ export class Parser {
      * Parses a `{ … }` block: statements until the closing brace. Reports an
      * error and bails if end-of-file is reached before the block is closed.
      */
-    parseBlockStmt(): U<BlockStatement> {
+    parseBlockStmt(blockContext?: any): U<BlockStatement> {
         const statements: Statement[] = [];
 
-        if (!this.expect(TokenKind.Symbol_LeftBrace, "{ symbol expected")) {
+        const leftBrace = this.expect(TokenKind.Symbol_LeftBrace, "{ symbol expected");
+        if (!leftBrace) {
             return;
         }
 
@@ -1644,7 +2246,7 @@ export class Parser {
             }
 
             this.skipComments();
-            const stmt = this.parseStmt();
+            const stmt = this.parseStmt(blockContext);
             if (!stmt) {
                 return;
             }
@@ -1656,7 +2258,7 @@ export class Parser {
         return {
             kind: "block_statement",
             statements,
-            position: this.getCurrentPosition(),
+            position: getTokenPosition(leftBrace),
         };
     }
 
@@ -1707,6 +2309,7 @@ export class Parser {
         let declaration: StructDecl = {
             name: { kind: "identifier", name: "" },
             fields: [],
+            compositions: [],
         };
 
         const name = this.expect(TokenKind.Kind_Identifier, "identifier expected here");
@@ -1714,18 +2317,24 @@ export class Parser {
             return;
         }
 
-        declaration.name.name = name.value;
+        declaration.name = CreateIdentifier(name.value, getTokenPosition(name));
+
+        let typeParams: U<Type[]>;
+
+        if (this.current().kind == TokenKind.Symbol_Less) {
+            typeParams = this.parseTypeParams(true);
+            if (!typeParams) {
+                return;
+            }
+        }
 
         if (!this.expect(TokenKind.Symbol_Equals, "= symbol expected")) {
             return;
         }
 
         if (this.current().kind == TokenKind.Kind_Identifier) {
-            const intersectionFields = this.resolveIntersectionFields();
-            if (!intersectionFields) {
-                return;
-            }
-            declaration.fields.push(...intersectionFields);
+            const operand = this.advance();
+            declaration.compositions!.push(CreateType(operand.value, TypeValue.TypeCustom, getTokenPosition(operand)));
             if (!this.expect(TokenKind.Symbol_Ampersand, "& symbol expected")) {
                 return;
             }
@@ -1736,80 +2345,46 @@ export class Parser {
         }
 
         if (this.current().kind == TokenKind.Symbol_Ellipsis) {
-            const spreadFields = this.resolveSpreadFields();
-            if (!spreadFields) {
-                return;
-            }
-            declaration.fields.push(...spreadFields);
+            this.advance();
+            const spreadName = this.expect(TokenKind.Kind_Identifier, "record type expected after ...");
+            if (!spreadName) return;
+            declaration.compositions!.push(CreateType(spreadName.value, TypeValue.TypeCustom, getTokenPosition(spreadName)));
+            if (this.current().kind == TokenKind.Symbol_Comma || this.current().kind == TokenKind.Symbol_Semicolon) this.advance();
         }
 
         while (this.current().kind != TokenKind.Symbol_RightBrace) {
-            let fieldName1: Identifier = { name: "", kind: "identifier" };
-            let fieldType1: Type = CreateType("", TypeValue.TypeInvalid, this.getCurrentPosition());
+            let fieldName: Identifier = { name: "", kind: "identifier" };
+            let fieldType: Type = CreateType("", TypeValue.TypeInvalid, this.getCurrentPosition());
 
-            const name = this.expect(TokenKind.Kind_Identifier, "identifier expected here");
+            const name =
+                this.current().kind == TokenKind.Keyword_Error
+                    ? this.advance()
+                    : this.expect(TokenKind.Kind_Identifier, "identifier expected here");
             if (!name) {
                 return;
             }
 
-            fieldName1.name = name.value;
+            fieldName = CreateIdentifier(name.value, getTokenPosition(name));
 
             if (!this.expect(TokenKind.Symbol_Colon, ": symbol expected")) {
                 return;
             }
 
-            const typename = this.expect(TokenKind.Kind_Identifier, "identifier expected here");
-            if (!typename) {
-                return;
-            }
-
-            fieldType1.name = { name: typename.value, kind: "identifier" };
-            fieldType1.value = this.resolveTypeValue(fieldType1.name.name);
-            declaration.fields.push({ name: fieldName1, type: fieldType1 });
+            const parsedFieldType = this.parseTypeReference(typeParams);
+            if (!parsedFieldType) return;
+            fieldType = parsedFieldType;
+            declaration.fields.push({ name: fieldName, type: fieldType });
             if (this.current().kind == TokenKind.Symbol_RightBrace) {
                 break;
             }
 
             if (this.current().kind == TokenKind.Symbol_Comma) {
                 this.advance(); //consume comma and proceed
+                continue;
             }
-
-            while (this.current().kind != TokenKind.Symbol_Comma) {
-                let fieldName: Identifier = { name: "", kind: "identifier" }; //consume struct name
-                let fieldType: Type = CreateType(
-                    "",
-                    TypeValue.TypeInvalid,
-                    this.getCurrentPosition(),
-                );
-
-                const name = this.expect(TokenKind.Kind_Identifier, "identifier expected here");
-                if (!name) {
-                    return;
-                }
-
-                fieldName.name = name.value;
-
-                if (!this.expect(TokenKind.Symbol_Colon, ": symbol expected")) {
-                    return;
-                }
-
-                const typename = this.expect(TokenKind.Kind_Identifier, "identifier expected here");
-                if (!typename) {
-                    return;
-                }
-
-                fieldType.name = { name: typename.value, kind: "identifier" };
-                fieldType.value = this.resolveTypeValue(fieldType.name.name);
-
-                declaration.fields.push({ name: fieldName, type: fieldType });
-
-                if (this.current().kind == TokenKind.Symbol_RightBrace) {
-                    break;
-                }
-
-                if (!this.expect(TokenKind.Symbol_Comma, ", symbol expected")) {
-                    return;
-                }
+            if (this.current().kind == TokenKind.Symbol_Semicolon) {
+                this.advance();
+                continue;
             }
         }
         this.advance(); //consume ending brace
@@ -1817,6 +2392,7 @@ export class Parser {
             return;
         }
 
+        declaration.typeParameters = typeParams;
         return declaration;
     }
 
@@ -1831,7 +2407,7 @@ export class Parser {
             return;
         }
 
-        declaration.name.name = name.value;
+        declaration.name = CreateIdentifier(name.value, getTokenPosition(name));
 
         if (!this.expect(TokenKind.Symbol_Equals, "= symbol expected")) {
             return;
@@ -1869,7 +2445,7 @@ export class Parser {
                     return;
                 }
                 declaration.variants.push({
-                    name: CreateIdentifier(n.value),
+                    name: CreateIdentifier(n.value, getTokenPosition(n)),
                     value: {
                         position: getTokenPosition(v),
                         kind: "integer_literal",
@@ -1878,7 +2454,7 @@ export class Parser {
                 });
             } else {
                 declaration.variants.push({
-                    name: CreateIdentifier(n.value),
+                    name: CreateIdentifier(n.value, getTokenPosition(n)),
                     value: {
                         position: getTokenPosition(n),
                         kind: "integer_literal",
@@ -1905,7 +2481,7 @@ export class Parser {
 
         return {
             name: declaration.name,
-            position: this.getCurrentPosition(),
+            position: getTokenPosition(name),
             kind: "type_declaration",
             declaration,
             declKind: TypeDeclKind.Enum,
@@ -1923,35 +2499,42 @@ export class Parser {
             return;
         }
 
-        declaration.name.name = name.value;
+        declaration.name = CreateIdentifier(name.value, getTokenPosition(name));
+
+        if (this.current().kind == TokenKind.Symbol_Less) {
+            declaration.typeParameters = this.parseTypeParams(true);
+            if (!declaration.typeParameters) {
+                return;
+            }
+        }
 
         if (!this.expect(TokenKind.Symbol_Equals, "= symbol expected")) {
             return;
         }
 
-        const v1 = this.expect(TokenKind.Kind_Identifier, "identifier expected here");
-        if (!v1) {
-            return;
-        }
-
-        const v1Type = this.typeDecls.get(v1.value);
-        if (!v1Type) {
-            return;
-        }
-
-        declaration.variants.push(CreateType(v1.value, this.resolveTypeValue(v1.value)));
-        while (this.current().kind == TokenKind.Symbol_Pipe) {
-            this.advance(); //consume pipe symbol
-            const v = this.expect(TokenKind.Kind_Identifier, "identifier expected here");
-            if (!v) {
+        while (true) {
+            const variantName = this.expect(TokenKind.Kind_Identifier, "identifier expected here");
+            if (!variantName) {
                 return;
             }
 
-            const vType = this.typeDecls.get(v1.value);
-            if (!vType) {
-                return;
+            const variant = CreateType(
+                variantName.value,
+                this.resolveTypeValue(variantName.value),
+                getTokenPosition(variantName),
+            );
+            if (this.current().kind == TokenKind.Symbol_Less) {
+                variant.typeParameters = this.parseTypeParams(false);
+                if (!variant.typeParameters) {
+                    return;
+                }
             }
-            declaration.variants.push(CreateType(v.value, this.resolveTypeValue(v.value)));
+            declaration.variants.push(variant);
+
+            if (this.current().kind != TokenKind.Symbol_Pipe) {
+                break;
+            }
+            this.advance(); // consume pipe symbol
         }
         if (!this.expect(TokenKind.Symbol_Semicolon, "; symbol expected")) {
             return;
@@ -1960,20 +2543,55 @@ export class Parser {
         return {
             kind: "type_declaration",
             declKind: TypeDeclKind.Union,
-            position: this.getCurrentPosition(),
+            position: getTokenPosition(name),
             name: declaration.name,
             declaration,
         };
     }
 
-    parseTypeDeclaration(): U<Declaration> {
+    parseTypeDeclaration(unique = false): U<Declaration> {
         this.advance(); // consume type keyword
         const declKind = this.advance(); //consume type kind specifier: struct, union or enum
 
         if (declKind.kind == TokenKind.Kind_Identifier) {
-            //produce a type alias here
             if (!this.expect(TokenKind.Symbol_Equals, "= symbol expected")) {
                 return;
+            }
+
+            // Compatibility form used by `unique type T = { ... }` and older
+            // record declarations. The canonical spelling remains `type struct`.
+            if (this.current().kind == TokenKind.Symbol_LeftBrace) {
+                this.advance();
+                const fields: StructDecl["fields"] = [];
+                const compositions: Type[] = [];
+                while (this.current().kind != TokenKind.Symbol_RightBrace) {
+                    if (this.current().kind == TokenKind.Symbol_Ellipsis) {
+                        this.advance();
+                        const spreadName = this.expect(TokenKind.Kind_Identifier, "record type expected after ...");
+                        if (!spreadName) return;
+                        compositions.push(CreateType(spreadName.value, TypeValue.TypeCustom, getTokenPosition(spreadName)));
+                        if (this.current().kind == TokenKind.Symbol_Semicolon || this.current().kind == TokenKind.Symbol_Comma) this.advance();
+                        continue;
+                    }
+                    const fieldName = this.expect(TokenKind.Kind_Identifier, "field identifier expected");
+                    if (!fieldName || !this.expect(TokenKind.Symbol_Colon, ": symbol expected")) return;
+                    const fieldType = this.parseTypeReference();
+                    if (!fieldType) return;
+                    fields.push({ name: CreateIdentifier(fieldName.value, getTokenPosition(fieldName)), type: fieldType });
+                    if (this.current().kind == TokenKind.Symbol_Comma || this.current().kind == TokenKind.Symbol_Semicolon) this.advance();
+                }
+                this.advance();
+                if (!this.expect(TokenKind.Symbol_Semicolon, "; expected")) return;
+                const declaration: TypeDeclaration = {
+                    position: getTokenPosition(declKind),
+                    kind: "type_declaration",
+                    name: CreateIdentifier(declKind.value, getTokenPosition(declKind)),
+                    declKind: TypeDeclKind.Struct,
+                    declaration: { name: CreateIdentifier(declKind.value, getTokenPosition(declKind)), fields, compositions },
+                    unique,
+                };
+                this.typeDecls.set(declKind.value, declaration);
+                return declaration;
             }
 
             const target = this.expect(TokenKind.Kind_Identifier, "identifier expected");
@@ -1981,34 +2599,41 @@ export class Parser {
                 return;
             }
 
+            if (this.current().kind == TokenKind.Symbol_Ampersand) {
+                const fields: StructDecl["fields"] = [];
+                const compositions: Type[] = [CreateType(target.value, TypeValue.TypeCustom, getTokenPosition(target))];
+                while (this.current().kind == TokenKind.Symbol_Ampersand) {
+                    this.advance();
+                    const operand = this.expect(TokenKind.Kind_Identifier, "record type expected after &");
+                    if (!operand) return;
+                    compositions.push(CreateType(operand.value, TypeValue.TypeCustom, getTokenPosition(operand)));
+                }
+                if (!this.expect(TokenKind.Symbol_Semicolon, "; expected")) return;
+                const declaration: TypeDeclaration = {
+                    position: getTokenPosition(declKind), kind: "type_declaration",
+                    name: CreateIdentifier(declKind.value, getTokenPosition(declKind)), declKind: TypeDeclKind.Struct,
+                    declaration: { name: CreateIdentifier(declKind.value, getTokenPosition(declKind)), fields, compositions }, unique,
+                };
+                this.typeDecls.set(declKind.value, declaration);
+                return declaration;
+            }
+
             if (!this.expect(TokenKind.Symbol_Semicolon, "; expected")) {
                 return;
             }
 
-            if (!this.typeDecls.has(target.value)) {
-                this.diagnostics.addError(
-                    Error(
-                        this.filepath,
-                        "parser",
-                        this.getCurrentPosition(),
-                        "invalid target for alias " + declKind.value,
-                    ),
-                );
-                return;
-            }
-
-            const targetDecl = this.typeDecls.get(target.value)!;
-            this.typeDecls.set(declKind.value, targetDecl);
-
-            return {
+            const declaration: TypeDeclaration = {
                 position: getTokenPosition(declKind),
                 kind: "type_declaration",
-                name: CreateIdentifier(declKind.value),
+                name: CreateIdentifier(declKind.value, getTokenPosition(declKind)),
                 declKind: TypeDeclKind.Alias,
                 declaration: {
-                    target: targetDecl.declaration,
+                    target: CreateType(target.value, this.resolveTypeValue(target.value), getTokenPosition(target)),
                 } as TypeAlias,
+                unique,
             };
+            this.typeDecls.set(declKind.value, declaration);
+            return declaration;
         }
 
         if (declKind.kind == TokenKind.Keyword_Struct) {
@@ -2022,6 +2647,7 @@ export class Parser {
                 name: decl.name,
                 declKind: TypeDeclKind.Struct,
                 declaration: decl,
+                unique,
             };
 
             this.typeDecls.set(decl.name.name, typeDecl);
@@ -2059,25 +2685,404 @@ export class Parser {
         return;
     }
 
+    /** Parses a named import or `import module [as alias] from "path";`. */
+    parseImportDeclaration(): U<ImportDeclaration> {
+        const keyword = this.advance(); // consume import
+        let unsafe = false;
+        if (this.current().kind == TokenKind.Keyword_Unsafe) {
+            unsafe = true;
+            this.advance();
+        }
+        if (this.current().kind != TokenKind.Symbol_LeftBrace) {
+            const moduleName = this.expect(
+                TokenKind.Kind_Identifier,
+                "module identifier expected after import",
+            );
+            if (!moduleName) return;
+            let alias: Token | undefined;
+            if (this.current().kind == TokenKind.Keyword_As) {
+                this.advance();
+                alias = this.expect(TokenKind.Kind_Identifier, "module alias expected after as");
+                if (!alias) return;
+            }
+            if (!this.expect(TokenKind.Keyword_From, "from expected after module import")) return;
+            const modulePath = this.expect(
+                TokenKind.Kind_StringLiteral,
+                "module path string expected",
+            );
+            if (!modulePath) return;
+            if (!this.expect(TokenKind.Symbol_Semicolon, "; expected after import")) return;
+            return {
+                kind: "import_declaration",
+                position: getTokenPosition(keyword),
+                pathPosition: getTokenPosition(modulePath),
+                specifiers: [],
+                namespace: {
+                    module: CreateIdentifier(moduleName.value, getTokenPosition(moduleName)),
+                    alias: alias
+                        ? CreateIdentifier(alias.value, getTokenPosition(alias))
+                        : undefined,
+                },
+                path: modulePath.value.slice(1, -1),
+                unsafe,
+            };
+        }
+        if (!this.expect(TokenKind.Symbol_LeftBrace, "{ symbol expected after import")) {
+            return;
+        }
+
+        const specifiers: ImportDeclaration["specifiers"] = [];
+        while (this.current().kind != TokenKind.Symbol_RightBrace) {
+            const name = this.expect(TokenKind.Kind_Identifier, "imported identifier expected");
+            if (!name) {
+                return;
+            }
+            specifiers.push({
+                name: CreateIdentifier(name.value),
+                position: getTokenPosition(name),
+            });
+
+            if (this.current().kind == TokenKind.Symbol_Comma) {
+                this.advance();
+                continue;
+            }
+            if (this.current().kind != TokenKind.Symbol_RightBrace) {
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        this.getCurrentPosition(),
+                        "comma or } expected in import list",
+                    ),
+                );
+                return;
+            }
+        }
+        this.advance(); // consume }
+
+        if (!this.expect(TokenKind.Keyword_From, "from expected after import list")) {
+            return;
+        }
+        const modulePath = this.expect(TokenKind.Kind_StringLiteral, "module path string expected");
+        if (!modulePath) {
+            return;
+        }
+        if (!this.expect(TokenKind.Symbol_Semicolon, "; expected after import")) {
+            return;
+        }
+
+        return {
+            kind: "import_declaration",
+            position: getTokenPosition(keyword),
+            pathPosition: getTokenPosition(modulePath),
+            specifiers,
+            path: modulePath.value.slice(1, -1),
+            unsafe,
+        };
+    }
+
+    /** Parses header, ABI-module, and native-library metadata in an FFI interface file. */
+    parseFfiHeaderDeclaration(): void {
+        const ffiToken = this.advance();
+        if (!this.filepath.endsWith(".ffi.delta")) {
+            this.diagnostics.addError(
+                Error(
+                    this.filepath,
+                    "parser",
+                    getTokenPosition(ffiToken),
+                    "ffi header declarations are only allowed in `.ffi.delta` files",
+                ),
+            );
+        }
+        if (this.current().kind == TokenKind.Keyword_Module) {
+            this.advance();
+            const moduleName = this.expect(
+                TokenKind.Kind_StringLiteral,
+                "Delta ABI module name string expected after ffi module",
+            );
+            if (!moduleName) return;
+            if (!this.expect(TokenKind.Symbol_Semicolon, "; expected after ffi module")) return;
+            const value = moduleName.value.slice(1, -1);
+            if (!/^[A-Za-z0-9_]+(?:__[A-Za-z0-9_]+)*$/.test(value)) {
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        getTokenPosition(moduleName),
+                        "ffi module must be a valid Delta ABI module name",
+                    ),
+                );
+                return;
+            }
+            this.ffiModuleName = value;
+            return;
+        }
+        if (
+            this.current().kind == TokenKind.Keyword_Static ||
+            this.current().kind == TokenKind.Keyword_Dynamic
+        ) {
+            const kind = this.advance();
+            const libraryPath = this.expect(
+                TokenKind.Kind_StringLiteral,
+                `library path string expected after ffi ${kind.value}`,
+            );
+            if (!libraryPath) return;
+            if (!this.expect(TokenKind.Symbol_Semicolon, `; expected after ffi ${kind.value}`)) {
+                return;
+            }
+            const value = libraryPath.value.slice(1, -1);
+            if (!value.length) {
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        getTokenPosition(libraryPath),
+                        "FFI library path cannot be empty",
+                    ),
+                );
+                return;
+            }
+            this.ffiLibraries.push({
+                kind: kind.kind == TokenKind.Keyword_Static ? "static" : "dynamic",
+                path: value,
+                position: getTokenPosition(libraryPath),
+            });
+            return;
+        }
+        if (!this.expect(TokenKind.Keyword_Header, "header, module, static or dynamic expected after ffi")) return;
+        const header = this.expect(
+            TokenKind.Kind_StringLiteral,
+            "C header string expected after ffi header",
+        );
+        if (!header) return;
+        if (!this.expect(TokenKind.Symbol_Semicolon, "; expected after ffi header")) return;
+        const spelling = header.value.slice(1, -1);
+        if (!/^<[^>]+>$/.test(spelling) && !/^"[^"]+"$/.test(spelling)) {
+            this.diagnostics.addError(
+                Error(
+                    this.filepath,
+                    "parser",
+                    getTokenPosition(header),
+                    "ffi header must use C include spelling such as `<unistd.h>` or `\"library.h\"`",
+                ),
+            );
+            return;
+        }
+        if (!this.ffiHeaders.includes(spelling)) this.ffiHeaders.push(spelling);
+    }
+
+    /** Parses declaration-only functions from `extern { ... }`. */
+    parseExternBlock(exported: boolean): FunctionDeclaration[] {
+        const externToken = this.advance();
+        if (!this.filepath.endsWith(".ffi.delta")) {
+            this.diagnostics.addError(
+                Error(
+                    this.filepath,
+                    "parser",
+                    getTokenPosition(externToken),
+                    "extern declarations are only allowed in `.ffi.delta` files",
+                ),
+            );
+        }
+        if (!this.expect(TokenKind.Symbol_LeftBrace, "{ expected after extern")) return [];
+
+        const declarations: FunctionDeclaration[] = [];
+        while (
+            this.current().kind != TokenKind.Symbol_RightBrace &&
+            this.current().kind != TokenKind.Kind_EOF
+        ) {
+            this.skipComments();
+            if (this.current().kind == TokenKind.Symbol_RightBrace) break;
+            const fnToken = this.expect(
+                TokenKind.Keyword_Function,
+                "extern block may contain only function declarations",
+            );
+            if (!fnToken) {
+                this.skipLine();
+                continue;
+            }
+            const fnName = this.expect(TokenKind.Kind_Identifier, "function name expected");
+            if (!fnName) {
+                this.skipLine();
+                continue;
+            }
+            const parameters = this.parseFuncParams();
+            if (!parameters) {
+                this.skipLine();
+                continue;
+            }
+            let returnTypes: Type[] = [];
+            if (this.current().kind == TokenKind.Symbol_Colon) {
+                this.advance();
+                const parsedReturns = this.parseFuncReturnTypes();
+                if (!parsedReturns) {
+                    this.skipLine();
+                    continue;
+                }
+                returnTypes = parsedReturns;
+            }
+            if (!this.expect(
+                TokenKind.Symbol_Semicolon,
+                "extern function declaration must end with ; and cannot have a body",
+            )) {
+                this.synchronizeTopLevel(this.pos);
+                continue;
+            }
+            declarations.push({
+                position: getTokenPosition(fnToken),
+                kind: "function_declaration",
+                name: CreateIdentifier(fnName.value, getTokenPosition(fnName)),
+                parameters,
+                returnTypes,
+                errorTypes: [],
+                body: {
+                    kind: "block_statement",
+                    position: getTokenPosition(fnToken),
+                    statements: [],
+                },
+                exported,
+                external: { abi: "c", linkName: fnName.value },
+            });
+        }
+        this.expect(TokenKind.Symbol_RightBrace, "} expected after extern declarations");
+        return declarations;
+    }
+
     /**
      * Parses every top-level declaration until end-of-file. Only `function`
      * declarations are recognized today; any other leading token is an error.
      */
     parseDecls(): U<Declaration[]> {
         const decls: Declaration[] = [];
+        let sawNonImportDeclaration = false;
+        let sawModuleDeclaration = false;
         while (this.current().kind != TokenKind.Kind_EOF) {
             this.skipComments();
 
-            if (this.current().kind == TokenKind.Keyword_Type) {
-                const decl = this.parseTypeDeclaration();
-                if (!decl) {
+            if (this.current().kind == TokenKind.Kind_EOF) {
+                break;
+            }
+
+            if (sawModuleDeclaration) {
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        this.getCurrentPosition(),
+                        "export module must be the final non-comment declaration in the file",
+                    ),
+                );
+            }
+
+            if (this.current().kind == TokenKind.Keyword_Import) {
+                const declarationStart = this.pos;
+                if (sawNonImportDeclaration) {
+                    this.diagnostics.addError(
+                        Error(
+                            this.filepath,
+                            "parser",
+                            this.getCurrentPosition(),
+                            "imports must precede other declarations",
+                        ),
+                    );
+                }
+                const declaration = this.parseImportDeclaration();
+                if (declaration) {
+                    decls.push(declaration);
+                } else {
+                    this.synchronizeTopLevel(declarationStart);
+                }
+                continue;
+            }
+
+            if (this.current().kind == TokenKind.Keyword_Ffi) {
+                sawNonImportDeclaration = true;
+                this.parseFfiHeaderDeclaration();
+                continue;
+            }
+
+            let exported = false;
+            if (this.current().kind == TokenKind.Keyword_Export) {
+                exported = true;
+                const exportToken = this.advance();
+                this.skipComments();
+                if (this.current().kind == TokenKind.Keyword_Module) {
+                    const moduleToken = this.advance();
+                    const name = this.expect(
+                        TokenKind.Kind_Identifier,
+                        "module identifier expected after export module",
+                    );
+                    if (!name) {
+                        this.synchronizeTopLevel(this.pos - 2);
+                        continue;
+                    }
+                    if (!this.expect(TokenKind.Symbol_Semicolon, "; expected after module name")) {
+                        this.synchronizeTopLevel(this.pos - 3);
+                        continue;
+                    }
+                    if (this.exportModule) {
+                        this.diagnostics.addError(
+                            Error(
+                                this.filepath,
+                                "parser",
+                                getTokenPosition(moduleToken),
+                                "a file may declare export module only once",
+                            ),
+                        );
+                    } else {
+                        this.exportModule = {
+                            kind: "module_declaration",
+                            position: getTokenPosition(exportToken),
+                            name: CreateIdentifier(name.value, getTokenPosition(name)),
+                        };
+                    }
+                    sawModuleDeclaration = true;
+                    sawNonImportDeclaration = true;
                     continue;
+                }
+            }
+            sawNonImportDeclaration = true;
+
+            if (this.current().kind == TokenKind.Keyword_Extern) {
+                decls.push(...this.parseExternBlock(exported));
+                continue;
+            }
+
+            if (
+                this.current().kind == TokenKind.Keyword_Type ||
+                this.current().kind == TokenKind.Keyword_Unique
+            ) {
+                const declarationStart = this.pos;
+                const unique = this.current().kind == TokenKind.Keyword_Unique;
+                if (unique) {
+                    this.advance();
+                    if (!this.expect(TokenKind.Keyword_Type, "type expected after unique")) continue;
+                    // parseTypeDeclaration consumes the `type` token itself.
+                    this.pos--;
+                }
+                const decl = this.parseTypeDeclaration(unique);
+                if (!decl) {
+                    this.synchronizeTopLevel(declarationStart);
+                    continue;
+                }
+                if (decl.kind != "import_declaration") {
+                    decl.exported = exported;
+                }
+                if (
+                    decl.kind == "type_declaration" &&
+                    this.filepath.endsWith(".ffi.delta")
+                ) {
+                    decl.external = {
+                        abi: "delta",
+                        moduleName: this.ffiModuleName,
+                    };
                 }
                 decls.push(decl);
                 continue;
             }
 
             if (this.current().kind == TokenKind.Keyword_Let) {
+                const declarationStart = this.pos;
                 this.diagnostics.addError(
                     Error(
                         this.filepath,
@@ -2086,23 +3091,30 @@ export class Parser {
                         "`let` is not allowed at file scope; use `const`",
                     ),
                 );
+                this.synchronizeTopLevel(declarationStart);
                 continue;
             }
 
             if (this.current().kind == TokenKind.Keyword_Const) {
+                const declarationStart = this.pos;
                 const decl = this.parseVariableDeclarationStmt(true);
                 if (!decl) {
+                    this.synchronizeTopLevel(declarationStart);
                     continue;
                 }
+                decl.exported = exported;
                 decls.push(decl);
                 continue;
             }
 
             if (this.current().kind == TokenKind.Keyword_Function) {
+                const declarationStart = this.pos;
                 const decl = this.parseFuncDecl();
                 if (!decl) {
+                    this.synchronizeTopLevel(declarationStart);
                     continue;
                 }
+                decl.exported = exported;
                 decls.push(decl);
                 continue;
             } else {
@@ -2111,7 +3123,9 @@ export class Parser {
                         this.filepath,
                         "parser",
                         this.getCurrentPosition(),
-                        "keyword function, type or const expected",
+                        exported
+                            ? "export must be followed by function, type or const"
+                            : "keyword function, type or const expected",
                     ),
                 );
                 this.skipLine();
@@ -2133,6 +3147,67 @@ export class Parser {
     }
 
     /**
+     * Resumes after a malformed top-level declaration without interpreting
+     * its remaining fields or body statements as new declarations.
+     */
+    synchronizeTopLevel(declarationStart: number): void {
+        let braceDepth = 0;
+        let sawBrace = false;
+        for (let index = declarationStart; index < this.pos; index++) {
+            const kind = this.tokens[index]?.kind;
+            if (kind == TokenKind.Symbol_LeftBrace) {
+                braceDepth++;
+                sawBrace = true;
+            } else if (kind == TokenKind.Symbol_RightBrace && braceDepth > 0) {
+                braceDepth--;
+            }
+        }
+        const startsDeclaration = (kind: TokenKind) =>
+            [
+                TokenKind.Keyword_Import,
+                TokenKind.Keyword_Export,
+                TokenKind.Keyword_Module,
+                TokenKind.Keyword_Type,
+                TokenKind.Keyword_Unique,
+                TokenKind.Keyword_Const,
+                TokenKind.Keyword_Function,
+                TokenKind.Keyword_Ffi,
+                TokenKind.Keyword_Extern,
+            ].includes(kind);
+
+        while (this.current().kind != TokenKind.Kind_EOF) {
+            const token = this.current();
+            if (
+                braceDepth == 0 &&
+                this.pos > declarationStart &&
+                startsDeclaration(token.kind)
+            ) {
+                return;
+            }
+            if (token.kind == TokenKind.Symbol_LeftBrace) {
+                sawBrace = true;
+                braceDepth++;
+            } else if (token.kind == TokenKind.Symbol_RightBrace) {
+                if (braceDepth == 0) {
+                    this.advance();
+                    if (this.current().kind == TokenKind.Symbol_Semicolon) this.advance();
+                    return;
+                }
+                braceDepth--;
+                if (sawBrace && braceDepth == 0) {
+                    this.advance();
+                    if (this.current().kind == TokenKind.Symbol_Semicolon) this.advance();
+                    return;
+                }
+            } else if (!sawBrace && token.kind == TokenKind.Symbol_Semicolon) {
+                this.advance();
+                return;
+            }
+            this.advance();
+        }
+    }
+
+    /**
      * Entry point: parses one file's token stream into a {@link Module}.
      * Returns `undefined` if parsing failed (errors are on {@link Diagnostics}).
      */
@@ -2145,6 +3220,10 @@ export class Parser {
         return {
             fileName: this.filepath,
             declarations: decls,
+            exportModule: this.exportModule,
+            ffiHeaders: this.ffiHeaders.length ? this.ffiHeaders : undefined,
+            ffiModuleName: this.ffiModuleName,
+            ffiLibraries: this.ffiLibraries.length ? this.ffiLibraries : undefined,
         };
     }
 

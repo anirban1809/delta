@@ -1,5 +1,5 @@
 // E0209 — condition must be `bool`, found `int32`
-function main(): int32 {
+function main(): int8 {
     const n: int32 = 1;
     if (n) {   // ERROR[E0209]: condition must be `bool`, found `int32`
         return 1;

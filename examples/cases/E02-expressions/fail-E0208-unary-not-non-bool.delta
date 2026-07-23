@@ -1,5 +1,5 @@
 // E0208 — unary `!` expects a `bool` operand, found `int32`
-function main(): int32 {
+function main(): int8 {
     const n: int32 = 1;
     const flipped: bool = !n;   // ERROR[E0208]: unary `!` expects a `bool` operand, found `int32`
     return 0;

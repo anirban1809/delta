@@ -1,6 +1,6 @@
-type OverflowError = { };
+type struct OverflowError = { };
 
-function main(): int32 {
+function main(): int8 {
     let total: int32 = 0;
     for (let i: int32 = 0; i < 5; i++) {
         const s = total + i as result;
@@ -9,5 +9,5 @@ function main(): int32 {
         }
         total = s;
     }
-    return 0;
+    return int8(0);
 }

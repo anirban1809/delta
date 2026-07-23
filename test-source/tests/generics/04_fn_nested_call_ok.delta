@@ -1,0 +1,9 @@
+function identity<T>(value: T): T {
+    return value;
+}
+
+function main(): int8 {
+    let x: int32 = identity(identity(9));
+    if (x != 9) { return int8(1); }
+    return int8(0);
+}

@@ -1,5 +1,5 @@
 // type-inference success — an inferred type propagates through operators.
-function main(): int32 {
+function main(): int8 {
     const count = 0;          // inferred int32
     const sum = count + 10;   // inferred int32 (operand types propagate; `10` is int32)
     const scaled = sum * 2;   // inferred int32

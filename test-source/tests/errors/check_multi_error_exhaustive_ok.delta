@@ -1,0 +1,26 @@
+type struct OverflowError = { overflow: bool };
+type struct DivideByZeroError = { divideByZero: bool };
+
+function calculate(value: int32): int32 | OverflowError, DivideByZeroError {
+    if (value < 0) {
+        return error as { overflow: true };
+    }
+    if (value == 0) {
+        return error as { divideByZero: true };
+    }
+    return value;
+}
+
+function main(): int8 {
+    const value = calculate(5) as result;
+    check result as OverflowError {
+        return int8(1);
+    }
+    check result as DivideByZeroError {
+        return int8(2);
+    }
+    if (value == 5) {
+        return int8(0);
+    }
+    return int8(3);
+}

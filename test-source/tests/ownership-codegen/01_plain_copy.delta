@@ -1,8 +1,8 @@
 // Doc case: Plain copy — Copyable record. Target C: `const delta__Point b = a;`
 type Point = { x: int32; y: int32; };
 
-function main(): int32 {
+function main(): int8 {
     const a: Point = { x: 1, y: 2 };
     const b = a;
-    return b.x;
+    return int8(b.x);
 }

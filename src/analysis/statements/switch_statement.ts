@@ -21,8 +21,12 @@ export class SwitchStatementAnalyzer {
     ) {}
 
     analyze(s: SwitchStatement, context: BlockContext, scope: Scope) {
-        const scrutineeT = this.expressionAnalyzer.analyze(s.scrutinee, scope);
-        if (scrutineeT.value != TypeValue.TypeInvalid && !this.isSwitchable(scrutineeT)) {
+        const scrutineeT = this.expressionAnalyzer.dereferenceOwnedValue(
+            s.scrutinee,
+            this.expressionAnalyzer.analyze(s.scrutinee, scope),
+        );
+        if (scrutineeT.value == TypeValue.TypeInvalid) return;
+        if (!this.isSwitchable(scrutineeT)) {
             this.diagnostics.addError(
                 Error(
                     this.diagnostics.fileName,

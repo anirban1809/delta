@@ -1,0 +1,20 @@
+type struct OverflowError = { };
+type struct DivideByZeroError = { };
+
+function increment(x: int32): int32 | OverflowError {
+    const value = x + 1 as result;
+    check result {
+        return error as { };
+    }
+    return value;
+}
+
+function incompatible(x: int32): int32 | DivideByZeroError {
+    const value = increment(x) as result;
+    forward result;
+    return value;
+}
+
+function main(): int8 {
+    return 0;
+}

@@ -1,0 +1,14 @@
+type struct Circle = { r: float64 };
+type struct Square = { s: float64 };
+
+type union Shape = Circle | Square;
+
+function identity<T>(value: T): T {
+    return value;
+}
+
+function main(): int8 {
+    const input: Shape = Circle { r: 2.0 };
+    const output: Shape = identity<Shape>(input);
+    return int8(0);
+}

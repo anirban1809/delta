@@ -1,0 +1,5 @@
+export type struct Point = { x: int32, y: int32 };
+
+export function makePoint(): Point {
+    return Point { x: 7, y: 11 };
+}

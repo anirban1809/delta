@@ -8,7 +8,7 @@
       "name": "Launch Program",
       "program": "${workspaceFolder}/main.ts",
       "request": "launch",
-      "args": ["build","/Users/anirban/Documents/Code/delta/test-source/tests/controlflow/switch_no_default_err.delta"],
+      "args": ["build","/Users/anirban/Documents/Code/delta/test-source/tests/allocation/02_owned_field_new_primitive_codegen.delta"],
       "skipFiles": [
         "<node_internals>/**"
       ],

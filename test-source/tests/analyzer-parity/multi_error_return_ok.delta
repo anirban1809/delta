@@ -1,15 +1,15 @@
-// Task 15: a function whose error set is `ErrA, ErrB` must return BOTH error
-// values positionally on the error path (the set is a tuple, not a union).
+// An error set is a closed set of alternatives. Each error path returns one
+// declared variant.
 type ErrA = { a: bool; };
 type ErrB = { b: bool; };
 
 function f(flag: bool): int32 | ErrA, ErrB {
     if (flag) {
-        return error as { a: true }, { b: true };
+        return error as { a: true };
     }
     return 0;
 }
 
-function main(): int32 {
-    return 0;
+function main(): int8 {
+    return int8(0);
 }

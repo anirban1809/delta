@@ -1,9 +1,0 @@
-function compute(x: int32): int32 {
-    const offset: int32 = 10;
-    const scale: int32 = 3;
-    return (x + offset) * scale;
-}
-
-function main(): int32 {
-    return compute(4);
-}

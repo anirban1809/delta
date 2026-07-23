@@ -1,0 +1,5 @@
+function main(): int8 {
+    let values: int32[] = [];
+    values = [8, 9];
+    return int8(values[0] - 8);
+}

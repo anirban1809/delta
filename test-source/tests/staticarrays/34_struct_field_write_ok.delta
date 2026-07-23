@@ -1,0 +1,8 @@
+type struct Board = { cells: int32[3] };
+
+function main(): int8 {
+    let b: Board = Board { cells: [1, 2, 3] };
+    b.cells[0] = 99;
+    if (b.cells[0] != 99) { return int8(1); }
+    return int8(0);
+}

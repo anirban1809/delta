@@ -1,0 +1,6 @@
+{
+  "name": "generated_math",
+  "kind": "static",
+  "entry": "math.delta",
+  "dependencies": {}
+}

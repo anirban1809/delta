@@ -1,5 +1,5 @@
 // E0202 — no implicit conversion from `int32` to `int64` — write `int64(x)`
-function main(): int32 {
+function main(): int8 {
     const small: int32 = 10;
     const wide: int64 = small;   // ERROR[E0202]: no implicit conversion from `int32` to `int64` — write `int64(x)`
     return int32(wide);

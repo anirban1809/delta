@@ -1,0 +1,9 @@
+type struct Payload = { count: int32 };
+type struct Holder = { payload: owned<Payload> };
+
+function main(): int8 {
+    const payload = new Payload { count: 6 };
+    const holder: Holder = Holder { payload: payload };
+    const count = holder.payload.count;
+    return int8(count);
+}

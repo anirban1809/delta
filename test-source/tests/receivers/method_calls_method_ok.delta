@@ -8,7 +8,7 @@ function (c: &Counter) doubled(): int32 {
     return c.get() + c.get();
 }
 
-function main(): int32 {
+function main(): int8 {
     let c: Counter = { value: 3 };
-    return c.doubled();
+    return int8(c.doubled());
 }

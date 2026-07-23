@@ -59,9 +59,7 @@ function getColumnIndex(filePath: string, charIndex: number): number {
  */
 export class Diagnostics {
     errors: Error[];
-    fileName: string;
-    constructor() {
-        this.fileName = "";
+    constructor(public fileName: string) {
         this.errors = [];
     }
 
@@ -76,13 +74,14 @@ export class Diagnostics {
      * (`^`) underlining the exact span the error covers.
      */
     format(e: Error): string {
-        const line = getLineByNumber(e.filepath, e.position.line);
-        const startIndex = getColumnIndex(e.filepath, e.position.start);
-        const endIndex = getColumnIndex(e.filepath, e.position.end - 1);
+        const line = getLineByNumber(e.filepath, e.position.line) ?? "";
+        const startIndex = Math.max(0, getColumnIndex(e.filepath, e.position.start));
+        const requestedLength = Math.max(1, e.position.end - e.position.start);
+        const underlineLength = Math.max(1, Math.min(requestedLength, line.length - startIndex || 1));
         return `${e.kind} error: ${e.message}
 at ${e.filepath}:${e.position.line}:${e.position.column}
       |
     ${e.position.line} |\t${line}
-      |\t${" ".repeat(startIndex)}${"^".repeat(endIndex - startIndex + 1)}`;
+      |\t${" ".repeat(startIndex)}${"^".repeat(underlineLength)}`;
     }
 }

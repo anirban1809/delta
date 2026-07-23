@@ -1,0 +1,9 @@
+function main(): int8 {
+    let name = "value1";
+    if (name.length != uintsize(6)) { return int8(1); }
+
+    name = "value2-long";
+    if (name.length != uintsize(11)) { return int8(2); }
+
+    return int8(0);
+}

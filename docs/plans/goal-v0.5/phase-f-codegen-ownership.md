@@ -80,19 +80,49 @@ delta__Document_revise(&document);    // receiver: delta__Document*
 
 ---
 
-### `move` → no runtime op; source not dropped  (`unique_move_ok`)
+### transfer → no runtime op; source not dropped  (`unique_move_ok`)
 ```delta
-consume(move file);
+consume(file);          // File is Unique — bare use transfers
+consume(move file);     // identical lowering
 return 0;
 ```
 ```c
 consume(file);
 return 0;               // no delta__File_drop(&file): analyzer marked it Moved
 ```
+A transfer whose source carries a drop flag also emits `file__live = false;`. That is
+the only code a transfer ever generates.
+
+### Implicit clone → same helper, same abort edge  (`implicit_clone_ok`)
+```delta
+let b = doc;            // Document is Owned — bare use clones
+let b = clone doc;      // identical lowering
+```
+```c
+delta_result_delta__Document __delta_result_0 = delta__Document_clone(&doc);
+if (__delta_result_0.tag != 0) { delta_abort("allocation failed in implicit clone"); }
+const delta__Document b = __delta_result_0.value;
+```
+
+### Conditional move → drop flag  (`maybe_moved_flag_ok`)
+```delta
+if (cond) { archive(tmp); }
+return 0;
+```
+```c
+bool tmp__live = true;
+if (cond) { delta__archive(tmp); tmp__live = false; }
+if (tmp__live) { delta__TempFile_drop(&tmp); }   // flag-gated: tmp is MaybeMoved
+return 0;
+```
+Flags are emitted **only** for bindings that are `MaybeMoved` at a cleanup point.
+A binding that is `Live` (or `Moved`) on every reaching edge lowers exactly as before,
+with no flag and no branch. Flags never enter a record layout, never cross a function
+boundary, and are never consulted inside a `_drop` helper.
 
 ### Implicit return transfer  (`implicit_return_move_ok`)
 ```delta
-return document;        // non-Copyable
+return document;        // non-Copyable: transfers, and for Owned the clone is elided
 ```
 ```c
 delta__Document __delta_return_0 = document;
@@ -190,14 +220,16 @@ dropped, so a failed allocation leaves `current` intact.
 
 ---
 
-### `new x` / `heap<T>`  → not lowered in Phase F
+### `new x` / `owned<T>`  → not lowered in Phase F
 Parses only; typing, auto-deref, and lowering are **Phase H**.
 
 ---
 
 Cross-cutting invariants the C must satisfy:
 - Auto-borrow and explicit `&x`/`edit &x` emit **identical** C.
-- No ownership path uses runtime flags, pointer-nulling, zeroing, refcounts, or hidden allocation.
+- Drop flags are the only runtime ownership mechanism, and only for `MaybeMoved` bindings.
+  Beyond them, no ownership path uses pointer-nulling, zeroing, refcounts, per-object
+  metadata, or hidden allocation.
 - Every live owner is dropped **exactly once**; moved/returned sources are skipped.
 - `restrict` is **not** emitted on `edit &` params in this phase.
 
@@ -238,5 +270,5 @@ byte-for-byte (modulo the harness's whitespace/`#line` normalization):
 
 - **Verified now** (emitter already correct): `01_plain_copy`, `07_receiver_dispatch`.
 - **Red until Phase F lowering lands** (goldens are the target): `02`–`06`, `08`–`11`.
-- **Phase H** (`heap<T>`/`new`, clone of owned records): not in this suite — re-add as
-  `codegen_match` once Phase H defines `heap<T>` lowering.
+- **Phase H** (`owned<T>`/`new`, clone of owned records): not in this suite — re-add as
+  `codegen_match` once Phase H defines `owned<T>` lowering.

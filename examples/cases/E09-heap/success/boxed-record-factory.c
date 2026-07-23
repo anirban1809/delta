@@ -1,4 +1,4 @@
-/* Generated C (illustrative; #line omitted) — heap<T> -> T* via fallible allocator */
+/* Generated C (illustrative; #line omitted) — owned<T> -> T* via fallible allocator */
 #include <stdint.h>
 
 typedef struct { int64_t count; int64_t stride; } delta__Payload;

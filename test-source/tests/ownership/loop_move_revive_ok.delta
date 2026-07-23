@@ -15,4 +15,4 @@ function test(flag: bool): int32 {
     return inspect(value);
 }
 
-function main(): int32 { return test(false); }
+function main(): int8 { return int8(test(false)); }

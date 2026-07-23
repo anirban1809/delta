@@ -4,7 +4,7 @@
 // No stable diagnostic code yet (Phase F structural rejection).
 type Vec3 = { x: float64; y: float64; z: float64; };
 
-function main(): int32 {
+function main(): int8 {
     let p: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
     const r = &p;   // ERROR: a reference cannot be bound to a local in v0.5 (borrows are call-scoped)
     return int32(r.x);

@@ -1,5 +1,5 @@
 // E0205 — operator `+` expects matching numeric operands, found `int32` and `int64`
-function main(): int32 {
+function main(): int8 {
     const a: int32 = 1;
     const b: int64 = 2;
     const c: int32 = a + b;   // ERROR[E0205]: operator `+` expects matching numeric operands, found `int32` and `int64`

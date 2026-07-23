@@ -1,0 +1,26 @@
+type struct list<T> = {
+    data: T[],
+    capacity: uintsize,
+    length: uintsize
+};
+
+function list_new<T>(data: T[]): list<T> {
+    return list{
+        data: data,
+        capacity: data.length,
+        length: data.length
+    };
+}
+
+function slice_length<T>(data: &T[]): uintsize {
+    return data.length;
+}
+
+function main(): int8 {
+    const values: int32[] = [1, 2, 3];
+    const items = list_new<int32>(values);
+    if (items.length == uintsize(3) && slice_length(values) == uintsize(3)) {
+        return 0;
+    }
+    return 1;
+}

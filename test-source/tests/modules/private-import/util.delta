@@ -1,0 +1,3 @@
+function secret(): int32 {
+    return 42;
+}

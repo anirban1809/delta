@@ -381,7 +381,7 @@ Three declaration forms are tracked:
 - Duplicate field names across a composition are rejected.
 - DFS cycle detection follows custom record fields, aliases, and named
   composition operands.
-- A cycle diagnostic suggests using `heap<T>`, although heap types are not
+- A cycle diagnostic suggests using `owned<T>`, although heap types are not
   represented by this analyzer.
 
 Direct record field declarations are not comprehensively validated for

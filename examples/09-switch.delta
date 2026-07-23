@@ -25,7 +25,7 @@ function dayKind(day: int32): int32 {
     }
 }
 
-function main(): int32 {
+function main(): int8 {
     let count: int32 = 0;
 
     for (let d: int32 = 0; d < 7; d++) {
@@ -38,7 +38,7 @@ function main(): int32 {
     // switch (count) { case 0: { } }   // ERROR: `switch` requires a `default` case
     // break;                            // ERROR: `break` outside of a loop
 
-    return count;
+    return int8(count);
 }
 
 /* === Generated C (illustrative) ===

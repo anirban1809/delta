@@ -229,7 +229,7 @@ const LOG = File.open("log.txt") as result; // ERROR - runtime/fallible/global r
 ```
 
 ```ts
-function main(): int32 {
+function main(): int8 {
   const users = new Array<User>();       // OK locally, disposed at scope exit
   return 0;
 }

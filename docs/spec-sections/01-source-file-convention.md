@@ -36,6 +36,93 @@ my-app/
 
 **Conclusion.** Adopt `.delta` as the canonical extension. The compiler driver supports three usage modes: standalone single-file, standalone multi-file, and manifest-driven project. The "no manifest until you need configuration" boundary is a hard rule.
 
+#### C interface files (`.ffi.delta`)
+
+Handwritten C interface modules use the specialized suffix `.ffi.delta`. They
+remain ordinary file-backed Delta modules for import resolution, but only this
+file kind may contain `ffi header` metadata and declaration-only `extern`
+blocks. Since C is Delta's only foreign ABI, the block does not repeat an ABI
+string.
+
+```ts
+// unistd.ffi.delta
+ffi header "<unistd.h>";
+
+export extern {
+    function write(
+        fd: c.int,
+        buffer: c.ptr<c.const<c.void>>,
+        count: c.size_t
+    ): c.ssize_t;
+}
+```
+
+An extensionless import retains the complete stem, so `"./unistd.ffi"`
+resolves to `./unistd.ffi.delta`. Importing an extern C symbol requires the
+explicit unsafe boundary:
+
+```ts
+import unsafe { write } from "./unistd.ffi";
+```
+
+A `.ffi.delta` interface can instead describe regular symbols supplied by a
+prebuilt Delta library. The interface records original ABI module identities
+and one or more native linker inputs:
+
+```ts
+// math.ffi.delta
+ffi module "math";
+ffi static "./libmath.a";
+// Or: ffi dynamic "./libmath.so";
+
+export const DEFAULT_BASE: int32;
+export function add(left: int32, right: int32): int32;
+```
+
+Application code imports these as ordinary safe Delta symbols:
+
+```ts
+import { DEFAULT_BASE, add } from "./math.ffi";
+```
+
+`ffi module` must exactly match the module identity used when the library was
+compiled. Regular declarations retain Delta ABI mangling, such as
+`delta__math__add`; only declarations inside `extern {}` use unmangled C names.
+Static and dynamic library paths resolve relative to the interface file.
+Dynamic library directories are added to the executable's runtime search path.
+Prebuilt generic functions are not yet supported because their concrete ABI
+specializations must be recorded explicitly.
+
+An interface may switch module context. Each `ffi module` applies to the
+regular declarations that follow it, allowing one package interface to
+re-export symbols originating in several source modules:
+
+```ts
+ffi static "./build/libmath.a";
+
+ffi module "src__constants";
+export const DEFAULT_BASE: int32;
+
+ffi module "src__math";
+export function add(left: int32, right: int32): int32;
+
+export module math;
+```
+
+When the source entry ends with `export module math;`, the generated interface
+preserves it as its final declaration. Consumers may therefore use a namespace
+import even when the module is backed by a packaged FFI interface:
+
+```ts
+import math from "./external/math/math.ffi";
+
+const base = math.DEFAULT_BASE;
+const result = math.add(base, 2);
+```
+
+Each namespace member still links using the `ffi module` context attached to
+its declaration; the public namespace name does not alter ABI mangling.
+
 ---
 
 ### 1.2 Manifest File (`delta.json`) and `delta init`
@@ -72,7 +159,18 @@ delta build                # errors if no manifest in current dir and no source 
   "schemaVersion": 1,
 
   // Build entry
+  "kind": "executable",
   "entry": "src/main.delta",
+
+  // Project-root-relative import dependencies
+  "dependencies": {
+    "@app": "src",
+    "@models": "src/models",
+  },
+
+  "external": {
+    "math": "0.0.1:packages/math-0.0.1.tar",
+  },
 
   "target": {
     "backend": "c",
@@ -86,6 +184,120 @@ delta build                # errors if no manifest in current dir and no source 
   },
 }
 ```
+
+`kind` selects the final artifact:
+
+| Kind | Output |
+|---|---|
+| `"executable"` | `build/<name>` |
+| `"static"` | `build/lib<name>.a` |
+| `"dynamic"` | `build/lib<name>.dylib` on macOS, `build/lib<name>.so` on Unix-like targets, or `build/<name>.dll` on Windows |
+
+The field defaults to `"executable"` for existing manifests. Executable
+projects require `function main(): int8`; static and dynamic library projects
+do not generate an executable entry shim and do not require `main`. A static
+project archives all project objects. A dynamic project compiles
+position-independent objects and links them into a platform shared library.
+
+#### Packaging and installing libraries
+
+`delta package [project-directory]` accepts a project whose `kind` is
+`"static"` or `"dynamic"`. It builds the library, derives a declaration-only
+`.ffi.delta` interface from the entry module's exported functions, constants,
+and types, and creates:
+
+```txt
+build/<package-name>-<version>.tar
+```
+
+The archive contains one top-level directory:
+
+```txt
+<package-name>/
+  <package-name>.ffi.delta
+  build/
+    lib<package-name>.a       # or the platform dynamic-library name
+  delta.json
+```
+
+Both `name` and `version` are required for packaged projects. Named imported
+symbols re-exported by an export-all entry module retain their originating ABI
+module in the generated interface. Exported generic functions and re-exported
+module namespaces remain unsupported.
+
+Library dependencies reuse the same `external` property as application
+projects:
+
+```json
+{
+  "name": "package-a",
+  "version": "1.0.0",
+  "kind": "static",
+  "entry": "package-a.ffi.delta",
+  "external": {
+    "shared-core": "1.2.0:../shared-core-1.2.0.tar"
+  },
+  "package": {
+    "formatVersion": 1,
+    "archiveSha256": null
+  }
+}
+```
+
+Package metadata does not duplicate an ABI module or library path. Those are
+authoritatively declared by `ffi module` and `ffi static`/`ffi dynamic` in the
+generated interface. The installer reads and validates the artifact from that
+interface.
+
+From the root of another manifest-backed Delta project:
+
+```bash
+delta install ../packages/math-1.2.3.tar
+```
+
+The direct installation records the package in the owning project's
+`delta.json`:
+
+```json
+{
+  "external": {
+    "math": "1.2.3:../packages/math-1.2.3.tar"
+  }
+}
+```
+
+Archive paths are resolved relative to the project root. Running `delta
+install` without an archive installs every entry in `external`, verifying that
+each archive's package name and version match its manifest entry. This makes a
+fresh checkout restorable from `delta.json` alone, provided the referenced tar
+files remain available.
+
+The package is installed as:
+
+```txt
+external/
+  math/
+    math.ffi.delta
+    build/libmath.a
+    delta.json
+```
+
+Installation validates archive paths and metadata before modifying the
+project. A package with the same name always replaces the installed directory,
+regardless of whether its version is newer or older; side-by-side versions are
+not supported.
+
+The installer computes the archive's SHA-256 and records it in the installed
+`delta.json`. The archive cannot literally contain its own final hash because
+changing an embedded hash changes the archive itself; packaged metadata carries
+a null archive hash which becomes the verified hash during installation.
+
+Dependency names must have the form `@name`. A target is resolved relative to
+the directory containing `delta.json`; an exact dependency may target a file,
+while a subpath is appended to the configured target. For example, with
+`"@app": "src"`, `import { parse } from "@app/parser";` resolves
+`src/parser.delta`. `@std` is reserved by the toolchain for standard-library
+imports and a manifest dependency that attempts to redefine it is rejected.
 
 **Conclusion.** Lock in `delta.json` + JSONC dialect. The manifest is always explicit. `delta init` produces a starter manifest with inline comments so users see the dialect from their first project. Schema is versioned via `schemaVersion` to allow forward evolution (e.g., workspaces in v2).
 
@@ -177,7 +389,7 @@ import { login, Session } from "./auth";     // resolves to ./auth.delta
 
 ### 1.5 Entry Point
 
-**Proposal.** The entry-point symbol is `function main(): i32`, declared at top-level scope in the entry file. The rules:
+**Proposal.** The entry-point symbol is `function main(): int8`, declared at top-level scope in the entry file. The rules:
 
 - The entry *file* is identified by the manifest's `entry` field or by the `delta build <file>` CLI argument — the filename `main.delta` carries no special meaning; it is a convention.
 - A project may contain multiple files each with their own `main`; the manifest or CLI picks which one is built.
@@ -191,7 +403,7 @@ The `i32` return type pins the function as returning a process exit code, which 
 **Examples.**
 ```ts
 // src/main.delta
-function main(): i32 {
+function main(): int8 {
   console.writeLine("hello");
   return 0;
 }
@@ -202,8 +414,8 @@ Multiple entry points in one project:
 my-tools/
   delta.json          # "entry": "cmd/server/main.delta" (default)
   cmd/
-    server/main.delta     # has its own `function main(): i32`
-    migrate/main.delta    # has its own `function main(): i32`
+    server/main.delta     # has its own `function main(): int8`
+    migrate/main.delta    # has its own `function main(): int8`
 
 # default build:
 delta build
@@ -331,8 +543,7 @@ The following are deliberately out of scope, either deferred to later sections o
 - **Auto-generated manifests** — never. Manifest creation is always explicit (`delta init`).
 - **Directory-as-module / `mod.delta` / `index.delta`** — never. One file = one module is a hard rule.
 - **Enforced `src/` directory** — never. `src/` is convention only.
-- **Top-level executable code (script mode)** — never. The entry point is always `function main(): i32`.
+- **Top-level executable code (script mode)** — never. The entry point is always `function main(): int8`.
 - **Filesystem-dependent import casing** — never. Imports are always case-sensitive.
 
 ---
-

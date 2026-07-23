@@ -1,4 +1,4 @@
-function main(): int32 {
+function main(): int8 {
     let x: int32 = int32(1_000_000);
     x *= 1_000_000;
     return x;

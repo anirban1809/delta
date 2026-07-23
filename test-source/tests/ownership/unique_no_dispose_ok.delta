@@ -1,7 +1,7 @@
 // A Unique identity record need not define custom cleanup. Expects pass.
 unique type Identity = { id: int32; };
 
-function main(): int32 {
+function main(): int8 {
     const identity: Identity = { id: 7 };
-    return identity.id;
+    return int8(identity.id);
 }

@@ -1,5 +1,3 @@
-import type { TokenKind } from "./tokens.js";
-
 /** Shorthand for "T or undefined", the result of a parse step that may fail. */
 export type U<T> = T | undefined;
 
@@ -47,6 +45,26 @@ export type Project = {
 export type Module = {
     fileName: string;
     declarations: Declaration[];
+    exportModule?: ModuleDeclaration;
+    /** C headers included by a declaration-only `.ffi.delta` module. */
+    ffiHeaders?: string[];
+    /** ABI module identity used by declarations supplied by a prebuilt Delta library. */
+    ffiModuleName?: string;
+    /** Prebuilt libraries that must participate in the final native link. */
+    ffiLibraries?: FfiLibrary[];
+};
+
+export type FfiLibrary = {
+    kind: "static" | "dynamic";
+    path: string;
+    position: Position;
+};
+
+/** A terminal `export module name;` declaration for an export-all namespace. */
+export type ModuleDeclaration = {
+    kind: "module_declaration";
+    position: Position;
+    name: Identifier;
 };
 
 /**
@@ -55,13 +73,46 @@ export type Module = {
  * Currently only function declarations are supported; this union is expected
  * to grow as more declaration forms (types, imports, etc.) are parsed.
  */
-export type Declaration = FunctionDeclaration | VariableDeclarationStatement | TypeDeclaration;
+export type Declaration =
+    | ImportDeclaration
+    | FunctionDeclaration
+    | VariableDeclarationStatement
+    | TypeDeclaration;
+
+/** A single name in an ES-module-style named import list. */
+export type ImportSpecifier = {
+    name: Identifier;
+    position: Position;
+};
+
+/** A module dependency such as `import { add } from "./math";`. */
+export type ImportDeclaration = {
+    kind: "import_declaration";
+    position: Position;
+    pathPosition: Position;
+    specifiers: ImportSpecifier[];
+    /** Present for `import moduleName [as alias] from "path";`. */
+    namespace?: {
+        module: Identifier;
+        alias?: Identifier;
+    };
+    path: string;
+    resolvedPath?: string;
+    moduleName?: string;
+    /** Acknowledges that imported extern declarations follow C contracts. */
+    unsafe?: boolean;
+};
 
 /** A named reference in the source — the spelling of a symbol or type. */
-export type Identifier = { kind: "identifier"; name: string };
+export type Identifier = {
+    kind: "identifier";
+    name: string;
+    typeArguments?: Type[];
+    position?: Position;
+};
 
-export function CreateIdentifier(name: string): Identifier {
-    return { name, kind: "identifier" };
+export function CreateIdentifier(name: string, position?: Position): Identifier {
+    return { name, kind: "identifier", position };
 }
 
 /**
@@ -72,7 +123,16 @@ export function CreateIdentifier(name: string): Identifier {
  */
 export type Type = {
     position?: Position;
-    kind: "type" | "struct" | "enum" | "union";
+    //here kind: "type" represents all the primitive types and a default type kind
+    kind: "type" | "struct" | "enum" | "union" | "array" | "generic";
+
+    /**
+     * Static-array extents, ordered from the outermost dimension to the
+     * innermost one. For example, `int32[2][3]` is `[2, 3]`.
+     */
+    arrayLengths?: number[];
+    /** Non-owning contiguous view (`T[]`) represented by a pointer and element count. */
+    slice?: boolean;
     name: Identifier;
     value: TypeValue;
     custom?: boolean;
@@ -85,16 +145,27 @@ export type Type = {
         value: IntegerLiteral;
     }[];
     unionVariants?: Type[];
+    typeParameters?: Type[];
+    /** Non-owning reference capability (`&T` / `edit &T`). */
+    reference?: boolean;
+    /** Mutable, exclusive reference capability. Implies `reference`. */
+    edit?: boolean;
 };
 
 /**
  * Constructs a {@link Type} from a source `name` and its resolved
  * {@link TypeValue}, wrapping `name` in an {@link Identifier}.
  */
-export function CreateType(name: string, value: TypeValue, position?: Position): Type {
+export function CreateType(
+    name: string,
+    value: TypeValue,
+    position?: Position,
+    arrayLengths?: number[],
+): Type {
     return {
         kind: "type",
         name: { name, kind: "identifier" },
+        arrayLengths,
         value,
         position,
     };
@@ -109,10 +180,14 @@ export enum TypeDeclKind {
 
 export type StructDecl = {
     name: Identifier;
+    typeParameters?: Type[];
+    concreteTypesMap?: Map<string, Type[]>;
     fields: {
         name: Identifier;
         type: Type;
     }[];
+    /** Named records incorporated through spread/intersection composition. */
+    compositions?: Type[];
 };
 
 export type EnumDecl = {
@@ -125,6 +200,7 @@ export type EnumDecl = {
 
 export type UnionDecl = {
     name: Identifier;
+    typeParameters?: Type[];
     variants: Type[];
 };
 
@@ -138,6 +214,11 @@ export type TypeDeclaration = {
     name: Identifier;
     declKind: TypeDeclKind;
     declaration: StructDecl | EnumDecl | UnionDecl | TypeAlias;
+    exported?: boolean;
+    /** Explicitly non-copyable user-defined type (`unique type ...`). */
+    unique?: boolean;
+    /** Originating ABI module when this type is described by an FFI interface. */
+    external?: { abi: "delta"; moduleName?: string };
 };
 
 /**
@@ -152,10 +233,23 @@ export type FunctionDeclaration = {
     position: Position;
     kind: "function_declaration";
     name: Identifier;
+    typeParameters?: Type[];
     returnTypes: Type[];
     errorTypes: Type[];
     parameters: FunctionParameter[];
     body: BlockStatement;
+    concreteTypesMap?: Map<string, Type[]>;
+    exported?: boolean;
+    /** Receiver binding for `function (self: &T) method(...)`. */
+    receiver?: FunctionParameter;
+    /** Present for a declaration in an `extern {}` block. */
+    external?: {
+        abi: "c";
+        linkName: string;
+    } | {
+        abi: "delta";
+        moduleName?: string;
+    };
 };
 
 /** A single declared parameter of a function: its name and annotated type. */
@@ -194,6 +288,9 @@ export type Statement =
     | IfStatement
     | BlockStatement
     | ReturnStatement
+    | ReturnErrorStatement
+    | CheckBlockStatement
+    | ForwardStatement
     | VariableDeclarationStatement
     | AssignmentStatement
     | ExpressionStatement
@@ -203,11 +300,13 @@ export type Statement =
 export type ContinueStatement = {
     kind: "continue_statement";
     position: Position;
+    validDivergence?: boolean;
 };
 
 export type BreakStatement = {
     kind: "break_statement";
     position: Position;
+    validDivergence?: boolean;
 };
 
 export type ForStatement = {
@@ -252,6 +351,10 @@ export type VariableDeclarationStatement = {
     type: Type;
     name: Identifier;
     value?: Expression;
+    asResult?: AsResultBinding;
+    exported?: boolean;
+    /** Present when storage is supplied by a prebuilt Delta library. */
+    external?: { abi: "delta"; moduleName?: string };
 };
 
 /** A `{ … }` block introducing a nested scope with its own statements. */
@@ -265,15 +368,72 @@ export type BlockStatement = {
 export type ReturnStatement = {
     position: Position;
     kind: "return_statement";
-    expression: Expression;
+    expression?: Expression;
+    /** All returned success values; `expression` aliases the first for compatibility. */
+    expressions?: Expression[];
+};
+
+/** Metadata attached to a binding/assignment/expression suffixed by `as name`. */
+export type AsResultBinding = {
+    kind: "as_result_binding";
+    position: Position;
+    resultName: Identifier;
+    successType?: Type;
+    errorTypes?: Type[];
+};
+
+/** Handles the error edge of a live `as result` binding. */
+export type CheckBlockStatement = {
+    kind: "check_block_statement";
+    position: Position;
+    resultName: Identifier;
+    /** The error variant selected by `as ErrorType`, when present. */
+    errorType?: Type;
+    /** Set by analysis when this check completes the result's exhaustive error set. */
+    dischargesResult?: boolean;
+    body: BlockStatement;
+};
+
+/** Propagates a live result's error unchanged to the enclosing caller. */
+export type ForwardStatement = {
+    kind: "forward_statement";
+    position: Position;
+    resultName: Identifier;
+};
+
+/** Constructs/returns an error value selected from the function's declared error set. */
+export type ReturnErrorStatement = {
+    kind: "return_error_statement";
+    position: Position;
+    value: Expression;
+    values?: Expression[];
+    resolvedErrorType?: Type;
+    resolvedErrorTypes?: Type[];
 };
 
 /**
  * Any value-producing expression.
  */
-export type Expression = { position: Position } & (
+export type Expression = {
+    position: Position;
+    expressionType?: Type;
+    /** Number of compiler-inserted reads through an owned pointer in a value context. */
+    implicitDereference?: number;
+    /** Analysis-marked implicit transfer used only for direct allocation staging. */
+    ownershipTransfer?: boolean;
+    /** Analyzer-inserted conversion from a fixed array or literal to a slice value. */
+    sliceConversion?: {
+        sourceType: Type;
+        targetType: Type;
+    };
+} & (
+    | NewExpression
+    | MoveExpression
+    | CloneExpression
     | MemberAccessExpression
+    | IndexExpression
     | ObjectLiteralExpression
+    | ArrayLiteralExpression
     | UnaryExpression
     | BinaryExpression
     | FunctionCallExpression
@@ -281,14 +441,40 @@ export type Expression = { position: Position } & (
     | FloatLiteral
     | BooleanLiteral
     | CharacterLiteral
+    | StringLiteral
     | Identifier
 );
+
+export type MoveExpression = {
+    kind: "move_expression";
+    source: Expression;
+};
+
+export type CloneExpression = {
+    kind: "clone_expression";
+    source: Expression;
+};
+
+export type NewExpression = {
+    kind: "new_expression";
+    expression: Expression;
+};
 
 export type MemberAccessExpression = {
     kind: "member_access_expression";
     receiver: Expression;
     member: Identifier;
+    receiverType: Type;
     enumMember?: boolean;
+    /** Qualified compile-time namespace reference resolved by semantic analysis. */
+    namespaceReference?: string;
+};
+
+/** A postfix array access (`receiver[index]`). */
+export type IndexExpression = {
+    kind: "index_expression";
+    receiver: Expression;
+    index: Expression;
 };
 
 export type FieldInit = {
@@ -310,6 +496,14 @@ export type ObjectLiteralExpression = {
     kind: "object_literal";
     type: Type;
     elements: ObjectLiteralElement[];
+    genericTypes?: Type[];
+    concreteTypeMap?: Map<string, Type[]>;
+};
+
+/** A bracketed, ordered sequence of element expressions (`[a, b, c]`). */
+export type ArrayLiteralExpression = {
+    kind: "array_literal_expression";
+    elements: Expression[];
 };
 
 /** A prefix unary operation (`!`, `-`, `~`) applied to a single operand. */
@@ -339,9 +533,21 @@ export type FunctionCallExpression = {
         fromType: string;
         toType: string;
     };
-    callee: Identifier;
+    callee: Expression;
     arguments: Expression[];
     position: Position;
+    genericTypes?: Type[];
+    concreteTypeMap?: Map<string, Type[]>;
+    /** Error set resolved for either a free function or receiver call. */
+    resolvedErrorTypes?: Type[];
+    /** Declared parameter types after overload/generic resolution. */
+    resolvedParameterTypes?: Type[];
+    /** Receiver type name when this is a method call. */
+    resolvedReceiverType?: string;
+    /** Original linker symbol for a resolved extern call. */
+    resolvedExternalLinkName?: string;
+    /** Declared receiver reference used for method-call lowering. */
+    resolvedReceiverParameter?: Type;
 };
 
 /** An assignment `root = target;` to an existing binding. */
@@ -350,12 +556,16 @@ export type AssignmentStatement = {
     kind: "assignment_statement";
     root: Expression;
     target: Expression;
+    operator?: string;
+    operatorPosition?: Position;
+    asResult?: AsResultBinding;
 };
 
 export type ExpressionStatement = {
     kind: "expression_statement";
     position: Position;
     expression: Expression;
+    asResult?: AsResultBinding;
 };
 
 /**
@@ -374,6 +584,12 @@ export type IntegerLiteral = {
 export type CharacterLiteral = {
     position: Position;
     kind: "char_literal";
+    value: string;
+};
+
+export type StringLiteral = {
+    position: Position;
+    kind: "string_literal";
     value: string;
 };
 
@@ -412,8 +628,11 @@ export enum TypeValue {
     Type_UIntSize = "Type_UIntSize",
     Type_Char = "Type_Char",
     Type_Bool = "Type_Bool",
+    Type_String = "Type_String",
     Type_Float32 = "Type_Float32",
     Type_Float64 = "Type_Float64",
+    Type_Owned = "Type_Owned",
     TypeCustom = "TypeCustom",
+    TypeGeneric = "TypeGeneric",
     TypeInvalid = "TypeInvalid",
 }

@@ -3,6 +3,6 @@ function add(a: int32, b: int32): int32 {
     return a + b;
 }
 
-function main(): int32 {
+function main(): int8 {
     return add(6, 4);
 }

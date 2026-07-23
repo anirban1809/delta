@@ -4,10 +4,10 @@ function makeVec3(): Vec3 {
     return Vec3 { z: 55, x: 23, y: 65 };
 }
 
-function main(): int32 {
+function main(): int8 {
     const value: Vec3 = makeVec3();
-    if (value.x != 23) { return 1; }
-    if (value.y != 65) { return 2; }
-    if (value.z != 55) { return 3; }
-    return 0;
+    if (value.x != 23) { return int8(1); }
+    if (value.y != 65) { return int8(2); }
+    if (value.z != 55) { return int8(3); }
+    return int8(0);
 }

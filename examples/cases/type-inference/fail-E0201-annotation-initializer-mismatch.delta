@@ -1,7 +1,7 @@
 // E0201 — type mismatch: expected `int32`, found `float64`
 // When a binding has BOTH an annotation and an initializer, they must agree.
 // `1.5` is a float literal; it cannot satisfy an `int32` annotation by context.
-function main(): int32 {
+function main(): int8 {
     const x: int32 = 1.5;   // ERROR[E0201]: type mismatch: expected `int32`, found `float64`
     return x;
 }

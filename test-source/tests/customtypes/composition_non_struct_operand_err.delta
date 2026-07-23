@@ -1,5 +1,5 @@
 type struct Bad = int32 & { x: int32 };
 
-function main(): int32 {
+function main(): int8 {
     return 0;
 }

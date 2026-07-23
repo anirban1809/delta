@@ -576,7 +576,7 @@ libdelta-math.delta-meta
 // my-app/src/main.delta — full Delta API, generics work
 import { dot, clamp } from "delta-math";
 
-function main(): i32 {
+function main(): int8 {
   let a: f64[] = [1.0, 2.0, 3.0];
   let b: f64[] = [4.0, 5.0, 6.0];
   print(dot(a, b));

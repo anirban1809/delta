@@ -10,8 +10,8 @@ function identity(value: Handle): Handle {
     return value;
 }
 
-function main(): int32 {
+function main(): int8 {
     let value: Handle = { id: 7 };
     let result = identity(move value);
-    return result.id;
+    return int8(result.id);
 }

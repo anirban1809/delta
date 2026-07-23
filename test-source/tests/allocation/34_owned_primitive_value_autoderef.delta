@@ -1,0 +1,19 @@
+function calculate(): int32 {
+    const x = new 69;
+    const y = 420;
+    const snapshot = x;
+    const enabled = new true;
+
+    if (enabled && snapshot == 69) {
+        const z = x + y;
+        return z;
+    }
+    return 0;
+}
+
+function main(): int8 {
+    if (calculate() == 489) {
+        return 0;
+    }
+    return 1;
+}

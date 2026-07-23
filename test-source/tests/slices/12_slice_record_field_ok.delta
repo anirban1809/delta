@@ -1,0 +1,6 @@
+type struct Bag = { values: int32[] };
+
+function main(): int8 {
+    const bag: Bag = Bag{ values: [3, 6] };
+    return int8(bag.values[1] - 6);
+}

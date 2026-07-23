@@ -1,0 +1,6 @@
+{
+  "name": "manifest_app",
+  "kind": "executable",
+  "entry": "main.delta",
+  "dependencies": {}
+}

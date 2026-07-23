@@ -1,4 +1,4 @@
-function main(): int32 {
+function main(): int8 {
     let n: int32 = 1;
     switch (n) {
         case 'a':  return 0;

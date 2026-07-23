@@ -1,5 +1,5 @@
-function main(): int32 {
+function main(): int8 {
     let a: int32 = 100;
     let b: int64 = int64(a);
-    return 0;
+    return int8(0);
 }

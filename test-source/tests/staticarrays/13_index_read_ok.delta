@@ -1,0 +1,6 @@
+function main(): int8 {
+    const a: int32[3] = [100, 200, 300];
+    let x: int32 = a[1];
+    if (x != 200) { return int8(1); }
+    return int8(0);
+}

@@ -2,6 +2,6 @@
 type Leaf = { v: int32; };
 type Pair = { a: Leaf; b: Leaf; };
 
-function main(): int32 {
-    return 0;
+function main(): int8 {
+    return int8(0);
 }

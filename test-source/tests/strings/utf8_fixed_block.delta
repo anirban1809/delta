@@ -1,0 +1,4 @@
+function main(): int8 {
+    const word: string = "café";
+    return int8(0);
+}

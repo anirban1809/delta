@@ -1,0 +1,7 @@
+function middle(values: int32[]): int32 {
+    return values[1];
+}
+
+function main(): int8 {
+    return int8(middle([4, 5, 6]) - 5);
+}

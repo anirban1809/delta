@@ -2,6 +2,6 @@
 type Vec3 = { x: float64; y: float64; z: float64; };
 type Borrowed = { target: &Vec3; };   // ERROR[E0806]: references in fields require lifetime support (not available in v0.5)
 
-function main(): int32 {
+function main(): int8 {
     return 0;
 }

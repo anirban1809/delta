@@ -34,7 +34,7 @@ function classify(n: int32): int32 {
     }
 }
 
-function main(): int32 {
+function main(): int8 {
     for (let i: int32 = 1; i <= 5; i++) {
         info("gcd",      gcd(int64(i) * 12, 18));
         info("classify", int64(classify(i)));

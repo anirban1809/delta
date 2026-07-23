@@ -1,0 +1,11 @@
+type struct HiddenNumber = { value: int32 };
+
+export const BONUS: int32 = 2;
+
+export function square(value: int32): int32 {
+    return squarePrivate(value);
+}
+
+function squarePrivate(value: int32): int32 {
+    return value * value;
+}

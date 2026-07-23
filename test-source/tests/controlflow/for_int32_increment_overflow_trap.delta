@@ -1,5 +1,5 @@
-function main(): int32 {
+function main(): int8 {
     for (let i: int32 = 2_147_483_640; i <= 2_147_483_647; i++) {
     }
-    return 0;
+    return int8(0);
 }

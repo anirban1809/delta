@@ -1,10 +1,10 @@
-type OverflowError = { };
-type DivideByZeroError = { };
+type struct OverflowError = { };
+type struct DivideByZeroError = { };
 
 function f(): int32 | OverflowError, DivideByZeroError {
     return 0;
 }
 
-function main(): int32 {
-    return 0;
+function main(): int8 {
+    return int8(0);
 }

@@ -1,5 +1,5 @@
-type OverflowError = { overflow: bool; };
-type DivideByZeroError = { divideByZero: bool; };
+type struct OverflowError = { overflow: bool };
+type struct DivideByZeroError = { divideByZero: bool };
 
 function classify(x: int32, y: int32): int32 | OverflowError, DivideByZeroError {
     if (y == 0) {
@@ -15,13 +15,16 @@ function classify(x: int32, y: int32): int32 | OverflowError, DivideByZeroError 
     return q;
 }
 
-function main(): int32 {
+function main(): int8 {
     const r = classify(10, 2) as result;
-    check result {
-        return 1;
+    check result as OverflowError {
+        return int8(1);
+    }
+    check result as DivideByZeroError {
+        return int8(1);
     }
     if (r == 5) {
-        return 0;
+        return int8(0);
     }
-    return 2;
+    return int8(2);
 }

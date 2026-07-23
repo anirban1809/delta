@@ -2,6 +2,6 @@
 // (Phase I). A bare path is rejected before resolution.
 import { thing } from "some/library";   // ERROR: unknown import root `some/library`
 
-function main(): int32 {
+function main(): int8 {
     return 0;
 }

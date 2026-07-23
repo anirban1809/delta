@@ -1,7 +1,7 @@
 // E0402 — partial initialization is not allowed — assign the whole value of `q` first
 type Vec2 = { x: int32; y: int32; };
 
-function main(): int32 {
+function main(): int8 {
     let q: Vec2;
     q.x = 1;   // ERROR[E0402]: partial initialization is not allowed — assign the whole value of `q` first
     q.y = 2;

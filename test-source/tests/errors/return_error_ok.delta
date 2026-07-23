@@ -1,4 +1,4 @@
-type OverflowError = { };
+type struct OverflowError = { };
 
 function mightFail(x: int32): int32 | OverflowError {
     if (x < 0) {
@@ -15,13 +15,13 @@ function caller(x: int32): int32 | OverflowError {
     return v;
 }
 
-function main(): int32 {
+function main(): int8 {
     const r = caller(5) as result;
     check result {
-        return 1;
+        return int8(1);
     }
     if (r == 5) {
-        return 0;
+        return int8(0);
     }
-    return 2;
+    return int8(2);
 }

@@ -88,10 +88,10 @@ Section 2, and a first real slice of stage 4 (ownership/move/borrow):
    error-handling blocks (every internal path must diverge),
    `return error as { ... }` propagation, pending-state tracking, and
    unbound-fallible rejection (see "Error Model (Phase C)").
-5. C code generation (single-TU, with trapping runtime helpers for checked
+4. C code generation (single-TU, with trapping runtime helpers for checked
    conversions and arithmetic, and tagged result-struct lowering for the
    error model; see "Codegen Status" below for the covered surface)
-6. Clang invocation (single-call compile + link to `build/<basename>`)
+5. Clang invocation (single-call compile + link to `build/<basename>`)
 
 A first slice of **checked error-state analysis** landed as part of
 Phase C (fallible-call binding, pending-read rejection, check-block
@@ -129,9 +129,19 @@ Implemented (Phase I):
   `import { Name } from "std/...";` (resolved against the embedded stdlib FS).
 - `export` modifier on top-level declarations; importing a non-exported name
   is a diagnostic.
+- Terminal `export module Name;` declarations that publish every eligible
+  top-level declaration and imported binding from the file.
+- Namespace imports in both `import Name from "path";` and
+  `import Name as Local from "path";` forms, with qualified value/type lookup,
+  nested namespace re-exports, and direct C symbol lowering.
+- Project-root-relative import mappings declared by `delta.json`'s
+  `dependencies` object. Exact dependencies and dependency subpaths are
+  supported by project builds and the LSP; `@std` is reserved for the standard
+  library.
 - Import-cycle detection with a diagnostic naming the cycle path.
-- `delta.json` manifest (`name`, `version`, `entry`, `target`, per-mode
-  `build.output`) with `delta init` scaffolding and a `--release` build mode.
+- `delta.json` manifest (`name`, `version`, `entry`, `dependencies`, `target`,
+  per-mode `build.output`) with `delta init` scaffolding and a `--release`
+  build mode.
 
 Not implemented yet:
 
@@ -139,7 +149,7 @@ Not implemented yet:
   embed/resolution mechanism exists; `internal/stdlib/stdlib/` is a
   placeholder.
 - `import { Name as Local }` renaming form (out of scope for v0.5).
-- Third-party package roots (non-`std/` bare import paths are a diagnostic).
+- Third-party package roots (unconfigured bare import paths are a diagnostic).
 
 ### Tokens
 
@@ -409,7 +419,7 @@ Implemented:
   Cloneable value; fallible when used with `as result` (clone may abort on
   OOM). Unique values cannot be cloned.
 - `new T { ... }` heap-allocation expressions (Phase H): allocate `T` on the
-  heap, yielding a `heap<T>` single-owner value; typically written
+  heap, yielding a `owned<T>` single-owner value; typically written
   `new T { ... } as result` since allocation is fallible (`AllocError`).
 - Borrow expressions / auto-borrowing (Phase G): `&x` and `edit &x`, plus
   contextual auto-borrowing where a bare addressable `T` argument satisfies a
@@ -719,7 +729,7 @@ Implemented (record types, Phase K):
   error, non-record operands are rejected, and the result is a fresh nominal
   record. Direct self-reference and mutual cycles are rejected at
   declaration time with a diagnostic naming every type on the cycle and
-  suggesting `heap<T>` to break it (`heap T` is not implemented until Phase
+  suggesting `owned<T>` to break it (`heap T` is not implemented until Phase
   H).
 - One-level **bidirectional inference**: typing now threads an *expected*
   type into expression checks at the pinning sites (binding annotation,
@@ -797,7 +807,7 @@ return-coverage walk applied to the block body.
 Implemented (ownership and move, Phase F):
 
 - **Inferred ownership tiers.** A type is *Copyable* iff every field is
-  Copyable; `heap<T>` (and any owning built-in) is an ownership root, so any
+  Copyable; `owned<T>` (and any owning built-in) is an ownership root, so any
   record transitively containing one becomes non-Copyable. `unique` types (and
   anything containing a Unique member) are non-Copyable and additionally
   non-Cloneable. `Validator.IsCopyable` / `IsUnique` compute these recursively.
@@ -835,10 +845,10 @@ Implemented (borrows, Phase G):
 
 Implemented (heap indirection, Phase H):
 
-- `heap<T>` parameter and field types; `new T { ... }` allocation expressions
-  (fallible — `new ... as result`) yielding a `heap<T>` single owner.
-- Auto-deref of `heap<T>` when accessing fields / calling methods on the
-  inner value; `heapDerefTypesMatch` reconciles a `heap<T>` against a `T`.
+- `owned<T>` parameter and field types; `new T { ... }` allocation expressions
+  (fallible — `new ... as result`) yielding a `owned<T>` single owner.
+- Auto-deref of `owned<T>` when accessing fields / calling methods on the
+  inner value; `heapDerefTypesMatch` reconciles a `owned<T>` against a `T`.
 - Single-owner (not refcounted); owner disposal frees the allocation, with
   cascading field disposal.
 
@@ -895,7 +905,7 @@ verbs run end-to-end through clang). The current suites and case counts:
   `errors` (35) — the v0.5a numeric / control-flow / custom-type / error surface.
 - `ownership` (66) and `ownership-codegen` (11) — move/borrow/copy analysis
   and its lowering (Phases F/G).
-- `heap-codegen` (1) and `receivers` (20) — `heap<T>`/`new` lowering (Phase H)
+- `heap-codegen` (1) and `receivers` (20) — `owned<T>`/`new` lowering (Phase H)
   and receiver-method dispatch (Phase L).
 - `analyzer-parity` (27), `basic` (23), `typecheck` (28) — analyzer and
   type-checker regression suites.
@@ -912,7 +922,7 @@ Covered codegen surface:
 - Function lowering: forward declarations for every function are emitted
   in source order at the top of the TU; bodies follow with named
   parameters (no unnamed `int32_t f(int32_t)` style).
-- Entry-point wrapper: a user `function main(): int32` is renamed to
+- Entry-point wrapper: a user `function main(): int8` is renamed to
   `delta_main` at the C level; an `int main()` shim at the bottom of the
   file calls `(int)delta_main()`. The user's Delta source still says
   `main`.
@@ -1017,7 +1027,7 @@ Covered codegen surface:
     field disposal at scope exit for owned (and `const`-bound owned) values,
     skipping moved-from owners; a `unique` type's `dispose` method is invoked
     here and emitted as a `delta__<T>_drop` body.
-- Heap indirection (Phase H), exercised by `heap-codegen`: `heap<T>` lowers to
+- Heap indirection (Phase H), exercised by `heap-codegen`: `owned<T>` lowers to
   `T*`; `new T { ... }` lowers to a heap allocation (single-owner), with
   auto-deref (`->`) on field/method access and a free at owner disposal.
 - Receiver methods (Phase L): each method lowers to a free C function
@@ -1282,7 +1292,7 @@ Pending:
 
 Done:
 
-- Ownership / move / borrow analysis and lowering (Phases F/G) and `heap<T>`
+- Ownership / move / borrow analysis and lowering (Phases F/G) and `owned<T>`
   indirection (Phase H).
 - Multi-file module graph with cycle detection, per-module C translation
   units, and per-module name mangling (Phase I).
@@ -1301,7 +1311,7 @@ Implemented:
 - `type` record declarations: records, aliases, spread/intersection
   composition, object literals, member access (Phase K).
 - `import` / `export`, with `from "..."` paths (Phase I).
-- `move` / `clone` expressions, `&T` / `edit &T` borrow types, `heap<T>`
+- `move` / `clone` expressions, `&T` / `edit &T` borrow types, `owned<T>`
   types, and `new T { ... }` allocation (Phases F/G/H).
 - Receiver-method declarations `function (t: &T) m(...) { ... }` (Phase L).
 
@@ -1367,7 +1377,7 @@ Implemented (v0):
   rejection and revival, and compiler-emitted disposal.
 - Borrows (Phase G): `&T` / `edit &T` with contextual auto-borrowing, the
   const-`&`-only capability rule, and `edit &` exclusivity.
-- Heap (Phase H): `heap<T>` types, `new T { ... }` allocation, and auto-deref.
+- Heap (Phase H): `owned<T>` types, `new T { ... }` allocation, and auto-deref.
 - Receiver methods (Phase L): `&T` / `edit &T` receivers, `value.m(args)`
   dispatch with auto-referencing and capability checking.
 - Modules (Phase I): cross-module name resolution, export visibility,
@@ -1402,7 +1412,7 @@ Implemented (Phases F/G/H):
   revival via whole-value reassignment.
 - `&T` / `edit &T` borrows with contextual auto-borrowing, the
   const-produces-`&`-only capability rule, and `edit &` exclusivity.
-- `heap<T>` single-owner indirection with auto-deref and `new T { ... }`
+- `owned<T>` single-owner indirection with auto-deref and `new T { ... }`
   allocation.
 - Compiler-emitted disposal: reverse-order field disposal and scope-exit
   disposal of owned values, with the `unique`-type `dispose` hook.
@@ -1671,7 +1681,7 @@ After the basic compiler can build small programs, expand in this order:
 9. Generics.
 10. Incremental compilation.
 
-Also landed alongside these: `heap<T>` indirection (Phase H) and receiver
+Also landed alongside these: `owned<T>` indirection (Phase H) and receiver
 methods (Phase L). Remaining v0.5 work is the `std/log` standard library
 (Phase J) and the `extern "c"` interop slice (Phase D).
 
@@ -1740,7 +1750,7 @@ also tag-only (error-payload fields are not yet materialized). See "Error
 Model (Phase C)" and the "Error Model" pending list for the open items.
 
 The **v0.5b** slice — ownership and move semantics (**Phase F**), safe borrows
-(**Phase G**), `heap<T>` indirection (**Phase H**), receiver methods
+(**Phase G**), `owned<T>` indirection (**Phase H**), receiver methods
 (**Phase L**), and the multi-file module system (**Phase I**) — has now landed.
 Inferred ownership tiers, `move`/`clone`, use-after-move tracking, `&T`/`edit &T`
 borrows with contextual auto-borrowing and exclusivity, `new T { ... }` heap

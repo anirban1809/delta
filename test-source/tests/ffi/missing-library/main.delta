@@ -1,0 +1,5 @@
+import { add } from "./math.ffi";
+
+function main(): int8 {
+    return int8(add(1, 2));
+}

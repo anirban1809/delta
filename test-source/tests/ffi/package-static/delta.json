@@ -1,0 +1,7 @@
+{
+  "name": "package_consumer",
+  "version": "0.1.0",
+  "kind": "executable",
+  "entry": "main.delta",
+  "dependencies": {}
+}

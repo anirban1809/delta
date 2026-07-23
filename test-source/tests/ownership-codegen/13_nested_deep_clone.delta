@@ -1,0 +1,12 @@
+type Inner = { value: owned<int32>; };
+type Outer = { inner: Inner; };
+
+function read(value: int32): int32 { return value; }
+
+function main(): int8 {
+    let original: Outer = { inner: { value: new 11 } };
+    let duplicate = clone original as result;
+    check result { return int8(99); }
+    duplicate.inner.value = new 17;
+    return int8(read(original.inner.value));
+}

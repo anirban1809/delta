@@ -1,9 +1,9 @@
 type enum Color = { Red, Green, Blue };
 
-function main(): int32 {
+function main(): int8 {
     const c: Color = Color.Green;
-    if (c != 1)          { return 1; }
-    if (Color.Red != 0)  { return 2; }
-    if (Color.Blue != 2) { return 3; }
-    return 0;
+    if (c != 1)          { return int8(1); }
+    if (Color.Red != 0)  { return int8(2); }
+    if (Color.Blue != 2) { return int8(3); }
+    return int8(0);
 }

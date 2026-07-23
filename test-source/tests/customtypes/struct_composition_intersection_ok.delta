@@ -1,10 +1,10 @@
 type struct Animal = { species: int32, age: int32 };
 type struct Cat    = Animal & { color: int32 };
 
-function main(): int32 {
+function main(): int8 {
     const c: Cat = Cat { species: 2, age: 5, color: 7 };
-    if (c.species != 2) { return 1; }
-    if (c.age != 5)     { return 2; }
-    if (c.color != 7)   { return 3; }
-    return 0;
+    if (c.species != 2) { return int8(1); }
+    if (c.age != 5)     { return int8(2); }
+    if (c.color != 7)   { return int8(3); }
+    return int8(0);
 }

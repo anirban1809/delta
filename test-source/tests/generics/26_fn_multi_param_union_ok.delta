@@ -1,0 +1,14 @@
+type struct Circle = { r: float64 };
+type struct Square = { s: float64 };
+
+type union Shape = Circle | Square;
+
+function first<T, U>(a: T, b: U): T {
+    return a;
+}
+
+function main(): int8 {
+    const input: Shape = Square { s: 3.0 };
+    const output: Shape = first<Shape, int32>(input, 7);
+    return int8(0);
+}

@@ -9,7 +9,7 @@ function bump(c: &Counter): void {
     c.add(1);   // ERROR[E1103]: cannot call `edit`-receiver method `add` through a `&T` reference
 }
 
-function main(): int32 {
+function main(): int8 {
     let c: Counter = { value: new 0 };
     bump(&c);
     return 0;

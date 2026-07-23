@@ -1,6 +1,6 @@
 // Task 10: reading a `let` binding before it is assigned must error as
 // uninitialized. Declaration without an initializer should itself be allowed.
-function main(): int32 {
+function main(): int8 {
     let x: int32;
     return x;
 }

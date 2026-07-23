@@ -1,0 +1,14 @@
+type union nullable<T> = T | null;
+
+type struct listNode = {
+    value: int32,
+    next: owned<listNode>,
+};
+
+type struct linkedList = {
+    start: listNode,
+};
+
+function main(): int8 {
+    return 0;
+}

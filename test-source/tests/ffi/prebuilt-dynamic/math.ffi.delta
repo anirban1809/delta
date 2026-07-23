@@ -1,0 +1,4 @@
+ffi module "prebuilt_math_dynamic";
+ffi dynamic "./libprebuilt_math.shared";
+
+export function multiply(left: int32, right: int32): int32;

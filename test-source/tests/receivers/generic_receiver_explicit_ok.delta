@@ -1,0 +1,15 @@
+type struct Box<T> = { value: T };
+
+function (box: edit &Box<T>) set<T>(value: T) {
+    box.value = value;
+}
+
+function (box: &Box<T>) get<T>(): T {
+    return box.value;
+}
+
+function main(): int8 {
+    let box: Box<int32> = Box<int32>{ value: 1 };
+    box.set<int32>(9);
+    return int8(box.get<int32>() - 9);
+}

@@ -1,0 +1,10 @@
+type Box = { value: owned<int32> };
+const global: Box = { value: new 7 };
+
+function take(): Box {
+    return global;
+}
+
+function main(): int8 {
+    return 0;
+}

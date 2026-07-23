@@ -2,6 +2,6 @@
 const x: int32 = 1;
 x = 2;   // ERROR[E0106]: top-level executable statements are not allowed
 
-function main(): int32 {
+function main(): int8 {
     return x;
 }

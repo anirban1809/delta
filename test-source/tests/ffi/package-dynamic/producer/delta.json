@@ -1,0 +1,7 @@
+{
+  "name": "multiplier",
+  "version": "2.0.0",
+  "kind": "dynamic",
+  "entry": "library.delta",
+  "dependencies": {}
+}

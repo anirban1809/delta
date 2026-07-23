@@ -5,10 +5,10 @@ function vowel(c: char): int32 {
     }
 }
 
-function main(): int32 {
-    if (vowel('a') != 0) { return 1; }
-    if (vowel('e') != 0) { return 2; }
-    if (vowel('u') != 0) { return 3; }
-    if (vowel('z') != 1) { return 4; }
-    return 0;
+function main(): int8 {
+    if (vowel('a') != 0) { return int8(1); }
+    if (vowel('e') != 0) { return int8(2); }
+    if (vowel('u') != 0) { return int8(3); }
+    if (vowel('z') != 1) { return int8(4); }
+    return int8(0);
 }

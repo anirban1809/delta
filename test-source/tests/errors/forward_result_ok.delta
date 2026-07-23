@@ -1,0 +1,18 @@
+type struct OverflowError = { };
+
+function increment(x: int32): int32 | OverflowError {
+    const value = x + 1 as result;
+    forward result;
+    return value;
+}
+
+function main(): int8 {
+    const value = increment(4) as result;
+    check result {
+        return int8(1);
+    }
+    if (value == 5) {
+        return int8(0);
+    }
+    return int8(2);
+}

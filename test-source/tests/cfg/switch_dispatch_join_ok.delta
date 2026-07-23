@@ -1,4 +1,4 @@
-function main(): int32 {
+function main(): int8 {
     let value: int32 = 0;
     let tag: int32 = 2;
     switch (tag) {
@@ -9,5 +9,5 @@ function main(): int32 {
         default:
             value = 30;
     }
-    return value;
+    return int8(value);
 }

@@ -1,0 +1,5 @@
+function main(): int8 {
+    const allocator: int32 = 0;
+    const value = new 1 in allocator;
+    return 0;
+}

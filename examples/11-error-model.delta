@@ -26,7 +26,7 @@ function safeDivide(a: int32, b: int32): int32 | DivByZero {
     return a / b;                            // success value
 }
 
-function main(): int32 {
+function main(): int8 {
     const q = safeDivide(10, 2) as result;   // success value of `q` is pending
     check result {
         // runs only on the error path; must diverge
@@ -40,7 +40,7 @@ function main(): int32 {
 
     // const ok = (1 + 1) as result;  // ERROR: this expression cannot fail
 
-    return doubled;
+    return int8(doubled);
 }
 
 /* === Generated C (illustrative) ===

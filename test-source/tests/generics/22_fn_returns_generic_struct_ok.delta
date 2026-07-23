@@ -1,0 +1,11 @@
+type struct Box<T> = { value: T };
+
+function wrap<T>(x: T): Box<T> {
+    return Box<T> { value: x };
+}
+
+function main(): int8 {
+    const b: Box<int32> = wrap(5);
+    if (b.value != 5) { return int8(1); }
+    return int8(0);
+}

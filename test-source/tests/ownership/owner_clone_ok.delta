@@ -3,11 +3,11 @@ type Box = { value: heap<int32>; };
 
 function inspect(value: &Box) { }
 
-function main(): int32 {
+function main(): int8 {
     const original: Box = { value: new 7 };
     const duplicate = clone original as result;
-    check result { return 1; }
+    check result { return int8(1); }
     inspect(original);
     inspect(duplicate);
-    return 0;
+    return int8(0);
 }

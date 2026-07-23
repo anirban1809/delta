@@ -1,0 +1,164 @@
+[
+    {
+        "file": "01_owned_field_new_record_codegen.delta",
+        "expect": "codegen_contains",
+        "emits": ["malloc(", "sizeof(delta__Payload)", "payload->count"],
+        "note": "H1: allocate into a staging local, transfer it once into an owned field, and auto-deref without references or general Phase F moves"
+    },
+    {
+        "file": "02_owned_field_new_primitive_codegen.delta",
+        "expect": "codegen_contains",
+        "emits": ["malloc(", "sizeof(int32_t)"],
+        "note": "H1: a boxed primitive is allocated first and then consumed by owned-field initialization"
+    },
+    {
+        "file": "03_owned_field_new_existing_value_ok.delta",
+        "expect": "pass",
+        "note": "H1: new accepts an existing Copyable value and the resulting staging owner is consumed once"
+    },
+    {
+        "file": "04_owned_parameter_type_ok.delta",
+        "expect": "pass",
+        "note": "H1: owned<T> is legal in parameter position; the fixture does not call the function"
+    },
+    {
+        "file": "05_owned_local_annotation_err.delta",
+        "expect": "fail",
+        "contains": "indirection types are only permitted in record fields and function parameters",
+        "note": "H1 placement: a general-purpose or uninitialized owned local is rejected; direct-new staging locals are the only exception"
+    },
+    {
+        "file": "06_owned_return_type_err.delta",
+        "expect": "fail",
+        "contains": "indirection types are only permitted",
+        "note": "current placement subset rejects bare indirection return types"
+    },
+    {
+        "file": "07_owned_inner_type_mismatch_err.delta",
+        "expect": "fail",
+        "contains": "owned<int32>",
+        "note": "H1: owned-field initialization rejects a staging owner with the wrong pointee type"
+    },
+    {
+        "file": "08_owned_unknown_inner_type_err.delta",
+        "expect": "fail",
+        "contains": "unknown type identifier: Missing",
+        "note": "H1: the payload type of an indirection must resolve"
+    },
+    {
+        "file": "09_owned_missing_type_argument_err.delta",
+        "expect": "fail",
+        "contains": "owned<T> requires exactly one type argument",
+        "note": "H1: owned requires exactly one type argument"
+    },
+    {
+        "file": "10_owned_too_many_type_arguments_err.delta",
+        "expect": "fail",
+        "contains": "owned<T> requires exactly one type argument",
+        "note": "H1: owned rejects extra type arguments"
+    },
+    {
+        "file": "11_owned_void_payload_err.delta",
+        "expect": "fail",
+        "contains": "cannot allocate void",
+        "note": "H1: void has no allocatable value representation"
+    },
+    {
+        "file": "12_owned_autoderef_write_ok.delta",
+        "expect": "pass",
+        "note": "H1: staged allocation transfer followed by ordinary mutable auto-dereference and a Copyable return snapshot"
+    },
+    {
+        "file": "13_owned_autoderef_argument_ok.delta",
+        "expect": "pass",
+        "note": "H1: an owned payload auto-dereferences into a Copyable call argument; the call result is snapshotted before return"
+    },
+    {
+        "file": "14_owned_breaks_self_cycle_ok.delta",
+        "expect": "codegen_contains",
+        "emits": ["delta__Node* next"],
+        "note": "H1: owned indirection gives a self-recursive record finite size"
+    },
+    {
+        "file": "15_owned_breaks_mutual_cycle_ok.delta",
+        "expect": "codegen_contains",
+        "emits": ["delta__Right* right"],
+        "note": "H1: one owned edge breaks a mutual record-layout cycle"
+    },
+    {
+        "file": "16_inline_recursive_cycle_still_err.delta",
+        "expect": "fail",
+        "contains": "infinite size",
+        "note": "H1: Phase H does not make an all-inline recursive layout finite"
+    },
+    {
+        "file": "17_owned_generic_payload_ok.delta",
+        "expect": "pass",
+        "note": "H1: a concrete generic record allocation is staged before owned-field initialization"
+    },
+    {
+        "file": "18_owned_nested_allocation_ok.delta",
+        "expect": "pass",
+        "note": "H1: nested allocations are staged one statement at a time and consumed from inner owner to outer owner"
+    },
+    {
+        "file": "19_owned_alloc_as_result_ok.delta",
+        "expect": "pass",
+        "note": "H1/Phase C: a recoverable staging allocation exposes AllocError, is checked, and is read through a Copyable snapshot"
+    },
+    {
+        "file": "20_owned_alloc_result_unchecked_err.delta",
+        "expect": "fail",
+        "contains": "pending",
+        "note": "H1/Phase C: a pending recoverable allocation cannot be read before check"
+    },
+    {
+        "file": "21_owned_bare_new_not_pending_ok.delta",
+        "expect": "pass",
+        "note": "H1: bare new follows the abort-on-OOM path, then its staging owner is consumed by field initialization"
+    },
+    {
+        "file": "22_shared_not_builtin_err.delta",
+        "expect": "fail",
+        "contains": "unknown type identifier: shared",
+        "note": "shared<T> is not a compiler type; it must be supplied by the standard library or user code"
+    },
+    {
+        "file": "23_shared_library_type_ok.delta",
+        "expect": "pass",
+        "note": "the name shared remains available to an ordinary generic type derived from owned<T>"
+    },
+    {
+        "file": "28_custom_allocator_syntax_err.delta",
+        "expect": "fail",
+        "contains": "custom allocators are not supported",
+        "note": "out of scope: new value in allocator is not part of Phase H"
+    },
+    {
+        "file": "29_owned_new_function_result_ok.delta",
+        "expect": "pass",
+        "note": "H1: new accepts a function-call result as its staging-local initializer"
+    },
+    {
+        "file": "30_owned_new_expression_precedence_ok.delta",
+        "expect": "pass",
+        "note": "H1: parenthesized arithmetic is fully evaluated before its result is allocated into a staging local"
+    },
+    {
+        "file": "33_inline_new_owned_field_err.delta",
+        "expect": "pass",
+        "note": "aggregate field context selects owned allocation for inline new"
+    },
+    {
+        "file": "34_owned_primitive_value_autoderef.delta",
+        "expect": "run",
+        "expected_exit": 0,
+        "note": "owned primitive operands transparently read their pointee value in ordinary expressions"
+    },
+    {
+        "file": "35_owned_field_assignment_autoderef.delta",
+        "expect": "run",
+        "expected_exit": 0,
+        "note": "assigning a pointee value through an owned field writes through the pointer without replacing ownership"
+    }
+]

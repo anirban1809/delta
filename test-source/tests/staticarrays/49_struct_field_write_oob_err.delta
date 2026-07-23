@@ -1,0 +1,8 @@
+type struct Board = { cells: int32[4] };
+
+function main(): int8 {
+    let b: Board = Board { cells: [10, 20, 30, 40] };
+    let i: uintsize = 8;
+    b.cells[i] = 5;
+    return 0;
+}

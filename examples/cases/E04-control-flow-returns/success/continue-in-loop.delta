@@ -1,5 +1,5 @@
 // E04 success — `continue` skips to the next loop iteration.
-function main(): int32 {
+function main(): int8 {
     let sum: int32 = 0;
     for (let i: int32 = 0; i < 5; i++) {
         if (i == 2) {

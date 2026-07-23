@@ -1,4 +1,4 @@
-function main(): int32 {
+function main(): int8 {
     let n: uint32 = 65;
     let c: char = char(n);
     return 0;

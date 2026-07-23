@@ -5,10 +5,10 @@ function makePosition(): Position {
     return Vec3 { x: 8, y: 13, z: 21 };
 }
 
-function main(): int32 {
+function main(): int8 {
     const value: Vec3 = makePosition();
-    if (value.x != 8)  { return 1; }
-    if (value.y != 13) { return 2; }
-    if (value.z != 21) { return 3; }
-    return 0;
+    if (value.x != 8)  { return int8(1); }
+    if (value.y != 13) { return int8(2); }
+    if (value.z != 21) { return int8(3); }
+    return int8(0);
 }

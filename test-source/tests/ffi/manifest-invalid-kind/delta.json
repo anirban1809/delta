@@ -1,0 +1,6 @@
+{
+  "name": "invalid_kind",
+  "kind": "archive",
+  "entry": "main.delta",
+  "dependencies": {}
+}

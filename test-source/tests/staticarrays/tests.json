@@ -1,0 +1,234 @@
+[
+    {
+        "file": "01_decl_literal_ok.delta",
+        "expect": "pass",
+        "note": "phase A — T[N] declaration with a full array literal; element type/length come from the annotation"
+    },
+    {
+        "file": "02_infer_from_literal_ok.delta",
+        "expect": "pass",
+        "note": "phase A — no annotation; T[N] is inferred from the literal (element type from first element, N from element count)"
+    },
+    {
+        "file": "03_empty_literal_err.delta",
+        "expect": "fail",
+        "note": "phase A — empty array literal `[]` is rejected: neither element type nor length is inferable"
+    },
+    {
+        "file": "04_wrong_element_count_err.delta",
+        "expect": "fail",
+        "note": "phase A — literal has 3 elements but the T[4] context requires exactly 4"
+    },
+    {
+        "file": "05_mixed_element_types_err.delta",
+        "expect": "fail",
+        "note": "phase A — element types disagree (int32 then bool); remaining elements must match the first"
+    },
+    {
+        "file": "06_element_type_mismatch_err.delta",
+        "expect": "fail",
+        "note": "phase A — element type disagrees with the int32[N] annotation"
+    },
+    {
+        "file": "07_element_width_mismatch_err.delta",
+        "expect": "fail",
+        "note": "phase A — an int64 value cannot be an int32[N] element; no implicit widening (§5)"
+    },
+    {
+        "file": "08_non_literal_length_err.delta",
+        "expect": "fail",
+        "note": "phase A — array length must be a compile-time integer literal, not a variable"
+    },
+    {
+        "file": "09_zero_length_err.delta",
+        "expect": "fail",
+        "note": "phase A — T[0] is rejected; zero-length arrays are out of scope (decision 12)"
+    },
+    {
+        "file": "10_negative_length_err.delta",
+        "expect": "fail",
+        "note": "phase A — negative length is rejected; only positive literal lengths are accepted"
+    },
+    {
+        "file": "11_void_element_err.delta",
+        "expect": "fail",
+        "note": "phase A — void is not a storable element type (§6.8)"
+    },
+    {
+        "file": "12_literal_index_in_range_ok.delta",
+        "expect": "pass",
+        "note": "phase A — compile-time literal index inside [0, N) is accepted (and the bounds check may be elided)"
+    },
+    {
+        "file": "13_index_read_ok.delta",
+        "expect": "pass",
+        "note": "phase A — a[i] read yields T; literal index in range is fine"
+    },
+    {
+        "file": "14_element_arithmetic_ok.delta",
+        "expect": "pass",
+        "note": "phase A — array elements participate in ordinary arithmetic once indexed"
+    },
+    {
+        "file": "15_literal_index_oob_err.delta",
+        "expect": "fail",
+        "note": "phase A — a compile-time literal index outside [0, N) is an analyzer error, NOT a runtime trap (decision 44)"
+    },
+    {
+        "file": "16_index_non_integer_err.delta",
+        "expect": "fail",
+        "note": "phase A — index must be uintsize; a bool index is rejected"
+    },
+    {
+        "file": "17_uint8_array_ok.delta",
+        "expect": "pass",
+        "note": "phase A — uint8 element type; integer literals in the array literal adopt the element type"
+    },
+    {
+        "file": "18_bool_array_ok.delta",
+        "expect": "pass",
+        "note": "phase A — bool[N] is byte-per-element per §6.6; element usable directly as a condition"
+    },
+    {
+        "file": "19_char_array_ok.delta",
+        "expect": "pass",
+        "note": "phase A — char[N] with char-literal elements; char == comparison per §6.4"
+    },
+    {
+        "file": "20_float64_array_ok.delta",
+        "expect": "pass",
+        "note": "phase A — float64[N] with decimal-literal elements; float ordering per §5"
+    },
+    {
+        "file": "21_index_write_let_ok.delta",
+        "expect": "pass",
+        "note": "phase A — a[i] = v write is permitted through a `let` array"
+    },
+    {
+        "file": "23_const_element_write_err.delta",
+        "expect": "fail",
+        "note": "phase A — element write through a `const` array is rejected"
+    },
+    {
+        "file": "24_length_property_ok.delta",
+        "expect": "run",
+        "expected_exit": 0,
+        "note": "phase A — .length is a compile-time-known uintsize property"
+    },
+    {
+        "file": "26_index_oob_read_err.delta",
+        "expect": "fail",
+        "note": "phase A — index `i` is a let bound to a constant literal (10); analyzeIndexExpression constant-folds the identifier and reports out-of-bounds at COMPILE time. Genuine runtime-trap coverage needs an index the analyzer cannot fold (a loop counter, or a value read at runtime)"
+    },
+    {
+        "file": "27_index_oob_write_err.delta",
+        "expect": "fail",
+        "note": "phase A — write-path index `i` is a let bound to a constant literal (7); once the assignment path runs analyzeIndexExpression the identifier constant-folds and out-of-bounds is reported at COMPILE time"
+    },
+    {
+        "file": "29_whole_array_assign_ok.delta",
+        "expect": "pass",
+        "note": "phase A — whole-array assignment between same-type arrays; value (copy) semantics"
+    },
+    {
+        "file": "30_length_mismatch_assign_err.delta",
+        "expect": "fail",
+        "note": "phase A — int32[3] and int32[4] are distinct types; whole-array assignment between them is rejected"
+    },
+    {
+        "file": "31_uninit_buffer_ok.delta",
+        "expect": "pass",
+        "note": "Arrays can be declared without initializing with a value."
+    },
+    {
+        "file": "32_nested_array_ok.delta",
+        "expect": "pass",
+        "note": "phase A? — nested/multidim array int32[2][2] with nested literals. OPEN: nested arrays may be out of initial Phase A scope; adjust if so"
+    },
+    {
+        "file": "33_struct_field_decl_ok.delta",
+        "expect": "pass",
+        "note": "phase A — a T[N] array as a struct field; constructed with an array literal and read via s.field[i]"
+    },
+    {
+        "file": "34_struct_field_write_ok.delta",
+        "expect": "pass",
+        "note": "phase A — element write to an array field through a `let` struct value"
+    },
+    {
+        "file": "35_struct_field_const_write_err.delta",
+        "expect": "fail",
+        "note": "phase A — element write through a `const` struct is rejected, same as a direct const array"
+    },
+    {
+        "file": "36_struct_field_length_ok.delta",
+        "expect": "pass",
+        "note": "phase A — .length works on an array field (s.field.length)"
+    },
+    {
+        "file": "37_struct_multi_field_ok.delta",
+        "expect": "pass",
+        "note": "phase A — an array field coexisting with scalar fields; inline storage, no indirection"
+    },
+    {
+        "file": "39_struct_field_bool_array_ok.delta",
+        "expect": "pass",
+        "note": "phase A — bool[N] as a struct field (byte-per-element per §6.6)"
+    },
+    {
+        "file": "40_struct_copy_array_field_ok.delta",
+        "expect": "pass",
+        "note": "phase A — whole-struct copy deep-copies the inline array field; mutating the copy leaves the original intact (value semantics)"
+    },
+    {
+        "file": "41_nested_struct_array_field_ok.delta",
+        "expect": "pass",
+        "note": "phase A — array field on an inner struct, reached through a nested struct field (o.inner.data[i])"
+    },
+    {
+        "file": "42_struct_field_count_mismatch_err.delta",
+        "expect": "fail",
+        "note": "phase A — array-literal element count disagrees with the field's declared length"
+    },
+    {
+        "file": "43_struct_field_elem_type_err.delta",
+        "expect": "fail",
+        "note": "phase A — array-literal element type disagrees with the field's element type"
+    },
+    {
+        "file": "44_struct_field_literal_index_oob_err.delta",
+        "expect": "fail",
+        "note": "phase A — compile-time literal index outside [0, N) on a field array is an analyzer error"
+    },
+    {
+        "file": "45_struct_field_void_array_err.delta",
+        "expect": "fail",
+        "note": "phase A — void[N] is not a valid field type (§6.8)"
+    },
+    {
+        "file": "46_struct_field_zero_length_err.delta",
+        "expect": "fail",
+        "note": "phase A — a zero-length array field is rejected (decision 12)"
+    },
+    {
+        "file": "47_struct_field_missing_err.delta",
+        "expect": "fail",
+        "note": "phase A — struct literal omits the array field; all fields must be initialized (no partial init)"
+    },
+    {
+        "file": "48_struct_field_index_oob_err.delta",
+        "expect": "fail",
+        "note": "phase A — struct-field-array index `i` is a let bound to a constant literal (9); once member-access indexing folds the constant, out-of-bounds on b.cells[i] is reported at COMPILE time"
+    },
+    {
+        "file": "49_struct_field_write_oob_err.delta",
+        "expect": "fail",
+        "note": "phase A — struct-field-array write index `i` is a let bound to a constant literal (8); the constant folds and out-of-bounds on b.cells[i] = v is reported at COMPILE time"
+    },
+    {
+        "file": "50_generic_call_array_length_mismatch_err.delta",
+        "expect": "fail",
+        "contains": "int32[6]",
+        "note": "A generic T[5] parameter rejects a six-element literal before C emission."
+    }
+]

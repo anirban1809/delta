@@ -1,0 +1,8 @@
+type Box = { value: owned<int32> };
+type Holder = { box: Box };
+
+function main(): int8 {
+    const holder: Holder = { box: { value: new 7 } };
+    const copy = holder.box;
+    return 0;
+}

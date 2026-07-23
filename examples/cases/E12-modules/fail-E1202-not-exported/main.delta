@@ -1,7 +1,7 @@
 // E1202 — `scaleInPlace` is not exported by `./geometry`
 import { Vec3, scaleInPlace } from "./geometry";   // ERROR[E1202]: `scaleInPlace` is not exported by `./geometry`
 
-function main(): int32 {
+function main(): int8 {
     let v: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
     scaleInPlace(edit &v, 2.0);
     return int32(v.x);

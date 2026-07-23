@@ -1,6 +1,6 @@
-function main(): int32 {
+function main(): int8 {
     let a: int64 = 1_000_000;
     let b: int64 = 2_000_000;
     let c: int64 = a * b - 1;
-    return 0;
+    return int8(0);
 }

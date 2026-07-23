@@ -10,7 +10,7 @@ function relay(counter: edit &Counter): int32 {
     return inspect(counter);
 }
 
-function main(): int32 {
+function main(): int8 {
     let counter: Counter = { value: 7 };
-    return relay(counter);
+    return int8(relay(counter));
 }

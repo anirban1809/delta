@@ -1,8 +1,8 @@
-function main(): int32 {
+function main(): int8 {
     let total: int32 = 0;
     for (let i: int32 = 0; i < 10; i++) {
         total = total + i;
     }
-    if (total != 45) { return 1; }
-    return 0;
+    if (total != 45) { return int8(1); }
+    return int8(0);
 }

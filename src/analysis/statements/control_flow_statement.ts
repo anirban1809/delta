@@ -8,7 +8,8 @@ export class ControlFlowStatementAnalyzer {
 
     analyze(s: Statement, context: BlockContext) {
         if (s.kind == "break_statement") {
-            if (context.loopDepth != 0) return;
+            s.validDivergence = context.loopDepth != 0;
+            if (s.validDivergence) return;
             this.diagnostics.addError(
                 Error(
                     this.diagnostics.fileName,
@@ -21,6 +22,7 @@ export class ControlFlowStatementAnalyzer {
         }
 
         if (s.kind == "continue_statement") {
+            s.validDivergence = context.loopDepth != 0;
             if (context.loopDepth == 0) {
                 this.diagnostics.addError(
                     Error(

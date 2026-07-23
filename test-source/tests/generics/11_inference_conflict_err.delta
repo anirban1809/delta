@@ -1,0 +1,8 @@
+function same<T>(a: T, b: T): T {
+    return a;
+}
+
+function main(): int8 {
+    let r: int32 = same(5, true);
+    return 0;
+}

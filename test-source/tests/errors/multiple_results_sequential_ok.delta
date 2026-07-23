@@ -1,4 +1,4 @@
-type OverflowError = { };
+type struct OverflowError = { };
 
 function step(x: int32): int32 | OverflowError {
     const y = x + 1 as result;
@@ -8,17 +8,17 @@ function step(x: int32): int32 | OverflowError {
     return y;
 }
 
-function main(): int32 {
+function main(): int8 {
     const a = step(1) as result;
     check result {
-        return 1;
+        return int8(1);
     }
     const b = step(a) as result;
     check result {
-        return 2;
+        return int8(2);
     }
     if (b == 3) {
-        return 0;
+        return int8(0);
     }
-    return 3;
+    return int8(3);
 }

@@ -3,7 +3,7 @@
 type Vec3 = { x: float64; y: float64; z: float64; };
 type Color = { x: float64; y: float64; z: float64; };
 
-function main(): int32 {
+function main(): int8 {
     const base: Color = { x: 1.0, y: 0.0, z: 0.0 };
     const v: Vec3 = { ...base };   // ERROR: spread source is `Color`, target is `Vec3`; cross-type spread is not allowed
     return int32(v.x);

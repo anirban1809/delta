@@ -1,0 +1,5 @@
+ffi header "<unistd.h>";
+
+function main(): int8 {
+    return 0;
+}

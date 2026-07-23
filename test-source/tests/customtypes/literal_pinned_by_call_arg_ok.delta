@@ -4,7 +4,7 @@ function sum(v: Vec3): float64 {
     return v.x + v.y + v.z;
 }
 
-function main(): int32 {
-    if (int32(sum(Vec3 { x: 1.0, y: 2.0, z: 3.0 })) != 6) { return 1; }
-    return 0;
+function main(): int8 {
+    if (int32(sum(Vec3 { x: 1.0, y: 2.0, z: 3.0 })) != 6) { return int8(1); }
+    return int8(0);
 }

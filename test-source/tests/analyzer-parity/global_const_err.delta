@@ -2,6 +2,6 @@
 // declared type. Pass 2 currently has no ConstDeclaration case.
 const MAX: int32 = true;
 
-function main(): int32 {
+function main(): int8 {
     return 0;
 }

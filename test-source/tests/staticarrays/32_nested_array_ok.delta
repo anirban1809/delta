@@ -1,0 +1,5 @@
+function main(): int8 {
+    const grid: int32[2][2] = [[1, 2], [3, 4]];
+    if (grid[1][0] != 3) { return int8(1); }
+    return int8(0);
+}

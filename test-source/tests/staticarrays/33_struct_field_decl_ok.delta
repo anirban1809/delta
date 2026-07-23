@@ -1,0 +1,7 @@
+type struct Board = { cells: int32[4] };
+
+function main(): int8 {
+    const b: Board = Board { cells: [10, 20, 30, 40] };
+    if (b.cells[1] != 20) { return int8(1); }
+    return int8(0);
+}

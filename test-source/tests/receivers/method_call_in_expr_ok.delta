@@ -4,7 +4,7 @@ function (c: &Counter) get(): int32 {
     return c.value;
 }
 
-function main(): int32 {
+function main(): int8 {
     let c: Counter = { value: 8 };
-    return c.get() + c.get();
+    return int8(c.get() + c.get());
 }

@@ -1,0 +1,11 @@
+{
+  "name": "exampleproject",
+  "version": "0.1.0",
+  "schemaVersion": 1,
+  "entry": "src/main.delta",
+  "target": {
+    "backend": "c",
+    "standard": "c17",
+    "compiler": "clang"
+  }
+}

@@ -13,7 +13,7 @@ Ship the stdlib delivery mechanism by populating the `std/...` resolver from Pha
 ```delta
 import { info, warn, error } from "std/log";
 
-function main(): int32 {
+function main(): int8 {
     info("startup", 0);
     info("count", 42);
     return 0;

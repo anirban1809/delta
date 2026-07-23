@@ -5,6 +5,6 @@ type B = A & D;
 type C = B;
 type D = { x: int32; };
 
-function main(): int32 {
+function main(): int8 {
     return 0;
 }

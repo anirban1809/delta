@@ -1,6 +1,6 @@
 // E0205 — operator `<` expects matching numeric operands, found `int32` and `int64`
 // Comparisons require matching operand types just like arithmetic; the result is bool.
-function main(): int32 {
+function main(): int8 {
     const a: int32 = 1;
     const b: int64 = 2;
     const less: bool = a < b;   // ERROR[E0205]: operator `<` expects matching numeric operands, found `int32` and `int64`

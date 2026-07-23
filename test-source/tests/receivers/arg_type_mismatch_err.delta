@@ -4,7 +4,7 @@ function (c: edit &Counter) set(n: int32) {
     c.value = n;
 }
 
-function main(): int32 {
+function main(): int8 {
     let c: Counter = { value: 1 };
     c.set(true);
     return 0;

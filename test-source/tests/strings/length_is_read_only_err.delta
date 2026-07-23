@@ -1,0 +1,5 @@
+function main(): int8 {
+    let value = "Delta";
+    value.length = uintsize(2);
+    return int8(0);
+}

@@ -1,5 +1,5 @@
 // E02 success — integer division `/`.
-function main(): int32 {
+function main(): int8 {
     const a: int32 = 6;
     const b: int32 = 4;
     return a / b;

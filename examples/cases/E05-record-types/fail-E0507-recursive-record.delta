@@ -1,7 +1,7 @@
 // E0507 — recursive record `Loop` requires indirection
-// hint: wrap the field in `heap<T>` to break the cycle
+// hint: wrap the field in `owned<T>` to break the cycle
 type Loop = { self: Loop; };   // ERROR[E0507]: recursive record `Loop` requires indirection
 
-function main(): int32 {
+function main(): int8 {
     return 0;
 }

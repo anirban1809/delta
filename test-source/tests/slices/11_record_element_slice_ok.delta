@@ -1,0 +1,6 @@
+type struct Item = { value: int32 };
+
+function main(): int8 {
+    const items: Item[] = [Item{ value: 4 }, Item{ value: 7 }];
+    return int8(items[1].value - 7);
+}

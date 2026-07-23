@@ -1,10 +1,10 @@
-// Feature 14 — Heap indirection (`heap<T>`, `new`)
+// Feature 14 — Heap indirection (`owned<T>`, `new`)
 // Spec: §8 (heap fields), §13, Phase H
 //
-// `heap<T>` is a single-owner owning pointer (lowers to `T*`). Allocated with
-// `new`. Bare `new` aborts on OOM; `new ... as result` yields `heap<T> | AllocError`.
+// `owned<T>` is a single-owner owning pointer (lowers to `T*`). Allocated with
+// `new`. Bare `new` aborts on OOM; `new ... as result` yields `owned<T> | AllocError`.
 // Auto-deref means `.field`/`.method()` read through the pointer transparently.
-// `heap<T>` is move-only (copying the handle would alias the allocation); `clone`
+// `owned<T>` is move-only (copying the handle would alias the allocation); `clone`
 // is recursive. Owner disposal frees the allocation at scope exit; field disposal
 // cascades. No reference counting.
 //
@@ -12,15 +12,15 @@
 // `new move x` (box a non-copyable binding).
 //
 // Pipeline work:
-//   parser     : `heap<T>` type; `new T { }`, `new value`, `new move x`, `new ... as result`.
-//   semantics  : heap<T> is move-only; auto-deref member access; clone is recursive;
+//   parser     : `owned<T>` type; `new T { }`, `new value`, `new move x`, `new ... as result`.
+//   semantics  : owned<T> is move-only; auto-deref member access; clone is recursive;
 //                scope-exit disposal frees + runs the pointee's drop.
-//   codegen    : `heap<T>` -> `T*` via malloc; `x.field` -> `x->field`; free on scope exit.
+//   codegen    : `owned<T>` -> `T*` via malloc; `x.field` -> `x->field`; free on scope exit.
 
 type Payload = { count: int64; stride: int64; };
 type BoxedCounter = { payload: heap<Payload>; };
 
-function main(): int32 {
+function main(): int8 {
     // construct the payload on the heap; handle OOM explicitly
     const bc: BoxedCounter = { payload: new Payload { count: 10, stride: 2 } as result };
     check bc {
@@ -31,11 +31,11 @@ function main(): int32 {
 
     // `bc` goes out of scope here -> its `payload` allocation is freed automatically.
 
-    return int32(total);
+    return int8(total);
 }
 
 /* === Generated C (illustrative) ===
-   `heap<T>` -> `T*` allocated via the runtime. `new ... as result` uses the
+   `owned<T>` -> `T*` allocated via the runtime. `new ... as result` uses the
    fallible allocator (returns AllocError on OOM); bare `new` would call a variant
    that aborts. Auto-deref: `bc.payload.count` -> `bc.payload->count`. Scope exit
    frees the allocation (and would cascade to the pointee's drop).

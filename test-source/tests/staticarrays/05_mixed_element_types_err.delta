@@ -1,0 +1,4 @@
+function main(): int8 {
+    const a = [1, true, 3];
+    return 0;
+}

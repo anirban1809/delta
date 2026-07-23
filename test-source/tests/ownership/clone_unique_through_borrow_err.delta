@@ -6,4 +6,4 @@ function invalid(value: &Handle) {
     check result { return; }
 }
 
-function main(): int32 { return 0; }
+function main(): int8 { return 0; }

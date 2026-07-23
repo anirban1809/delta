@@ -21,6 +21,7 @@ import {
     type MemberAccessExpression,
     type Module,
     type ObjectLiteralExpression,
+    type Position,
     type ReturnStatement,
     type Statement,
     type StructDecl,
@@ -49,6 +50,7 @@ export enum SymbolKind {
     SymbolLocalConst,
     SymbolLocalLet,
     SymbolParameter,
+    SymbolModule,
 }
 
 export enum Flow {
@@ -69,6 +71,14 @@ export type FunctionSignature = {
     returnTypes: Type[];
     errorTypes: Type[];
     parameters: FunctionParameter[];
+    declaration?: FunctionDeclaration;
+    typeParameters?: Type[];
+    receiverType?: Type;
+    receiverName?: string;
+    receiverEdit?: boolean;
+    external?:
+        | { abi: "c"; linkName: string }
+        | { abi: "delta"; moduleName?: string };
 };
 
 /**
@@ -83,6 +93,21 @@ export type Symbol = {
     type?: Type;
     signature?: FunctionSignature;
     assigned?: boolean;
+    value?: Expression;
+    declaration?: Declaration;
+    /** Name of the live result guarding this binding, if its success value is pending. */
+    pendingResult?: string;
+    moved?: "active" | "moved" | "maybe";
+    movePosition?: Position;
+};
+
+export type PendingResult = {
+    name: string;
+    position: Position;
+    bindings: string[];
+    successType?: Type;
+    errorTypes: Type[];
+    handledErrorTypes: Set<string>;
 };
 
 /** The kind of block being analyzed, which controls statement-level rules. */
@@ -107,6 +132,7 @@ export type BlockContext = {
     loopDepth: number;
     switch: boolean;
     scopedAssignments: string[];
+    pendingResults: Map<string, PendingResult>;
 };
 
 /**
@@ -215,7 +241,7 @@ export class Analyzer {
                         this.ast.fileName,
                         "semantic",
                         decl.position,
-                        "`main` must be declared at top level as `function main(): int32`",
+                        "`main` must be declared at top level as `function main(): int8`",
                     ),
                 );
                 return;
@@ -229,9 +255,23 @@ export class Analyzer {
             loopDepth: 0,
             switch: false,
             scopedAssignments: [],
+            pendingResults: new Map(),
         };
 
         const flow = this.analyzeBlockStmt(decl.body, blockContext, functionScope);
+        for (const pending of blockContext.pendingResults.values()) {
+            const missing = pending.errorTypes
+                .map((type) => type.name.name)
+                .filter((name) => !pending.handledErrorTypes.has(name));
+            this.diagnostics.addError(
+                Error(
+                    this.ast.fileName,
+                    "semantic",
+                    pending.position,
+                    `fallible result \`${pending.name}\` is not fully handled; missing check${missing.length == 1 ? "" : "s"} for ${missing.map((name) => `\`${name}\``).join(", ")}`,
+                ),
+            );
+        }
         if (flow != Flow.FlowReturns && decl.returnTypes.length != 0) {
             this.diagnostics.addError(
                 Error(
@@ -247,7 +287,7 @@ export class Analyzer {
 
     /**
      * Checks that a function's signature is a valid `main`: no parameters, no
-     * error types, and an `int32` return type. Returns `false` for any
+     * error types, and exactly one `int8` return type. Returns `false` for any
      * deviation so the caller can report the canonical `main` shape.
      */
     verifyMainFunctionSignature(s: FunctionSignature): boolean {
@@ -259,7 +299,7 @@ export class Analyzer {
             return false;
         }
 
-        if (s.returnTypes[0]?.value != TypeValue.Type_Int32) {
+        if (s.returnTypes.length != 1 || s.returnTypes[0]?.value != TypeValue.Type_Int8) {
             return false;
         }
 
@@ -357,6 +397,8 @@ export class Analyzer {
                     return CreateType("invalid", TypeValue.TypeInvalid);
                 }
                 return memberT;
+            default:
+                return CreateType("invalid", TypeValue.TypeInvalid);
         }
     }
 
@@ -472,6 +514,10 @@ export class Analyzer {
 
     analyzeMemberAccessExpression(e: MemberAccessExpression, scope: Scope): U<Type> {
         const receiverT = this.getExpressionType(e.receiver as Expression, scope);
+
+        if (receiverT.value == TypeValue.Type_String && e.member.name == "length") {
+            return CreateType("uintsize", TypeValue.Type_UIntSize);
+        }
 
         if (receiverT.kind == "union") {
             this.diagnostics.addError(
@@ -708,7 +754,8 @@ export class Analyzer {
      * {@link TypeValue.TypeInvalid} for an unknown callee.
      */
     analyzeFunctionCallExpression(scope: Scope, e: FunctionCallExpression): U<Type> {
-        const sym = scope.getSymbol(e.callee.name);
+        const calleeName = e.callee.kind == "identifier" ? e.callee.name : "";
+        const sym = calleeName ? scope.getSymbol(calleeName) : undefined;
 
         if (sym) {
             if (!sym.signature) {
@@ -767,7 +814,7 @@ export class Analyzer {
                         this.ast.fileName,
                         "semantic",
                         x.position,
-                        `argument ${i + 1} of function ${e.callee.name} has type \`${argT.name.name}\`, want \`${wantT!.name.name}\``,
+                        `argument ${i + 1} of function ${calleeName} has type \`${argT.name.name}\`, want \`${wantT!.name.name}\``,
                     ),
                 );
             });
@@ -776,14 +823,14 @@ export class Analyzer {
         }
 
         //for conversion functions like int32(x)
-        const convSig = this.getConverterFunction(e.callee.name);
+        const convSig = this.getConverterFunction(calleeName);
         if (!convSig) {
             this.diagnostics.addError(
                 Error(
                     this.ast.fileName,
                     "semantic",
                     e.position,
-                    "function does not exist: " + e.callee.name,
+                    "function does not exist: " + calleeName,
                 ),
             );
             return CreateType("invalid", TypeValue.TypeInvalid);
@@ -795,7 +842,7 @@ export class Analyzer {
 
             e.conversion = {
                 fromType: argT.name.name,
-                toType: e.callee.name,
+                toType: calleeName,
             };
 
             if (this.isInteger(argT) && this.isInteger(wantT!)) {
@@ -1653,7 +1700,11 @@ export class Analyzer {
                 return Flow.FlowContinues;
 
             case "return_statement":
-                const exprT = this.getExpressionType((s as ReturnStatement).expression, scope);
+                if (!(s as ReturnStatement).expression) {
+                    context.returns = true;
+                    return Flow.FlowReturns;
+                }
+                const exprT = this.getExpressionType((s as ReturnStatement).expression!, scope);
                 if (exprT.value == TypeValue.TypeInvalid) {
                     return Flow.FlowReturns;
                 }
@@ -1756,6 +1807,7 @@ export class Analyzer {
             case "int16":
                 return TypeValue.Type_Int16;
             case "int32":
+            case "c.int":
                 return TypeValue.Type_Int32;
             case "int64":
                 return TypeValue.Type_Int64;
@@ -1768,8 +1820,10 @@ export class Analyzer {
             case "uint64":
                 return TypeValue.Type_UInt64;
             case "intsize":
+            case "c.ssize_t":
                 return TypeValue.Type_IntSize;
             case "uintsize":
+            case "c.size_t":
                 return TypeValue.Type_UIntSize;
             case "char":
                 return TypeValue.Type_Char;
@@ -1779,6 +1833,8 @@ export class Analyzer {
                 return TypeValue.Type_Float64;
             case "bool":
                 return TypeValue.Type_Bool;
+            case "string":
+                return TypeValue.Type_String;
         }
 
         return TypeValue.TypeCustom;
@@ -1801,6 +1857,7 @@ export class Analyzer {
             TypeValue.Type_Float32,
             TypeValue.Type_Float64,
             TypeValue.Type_Bool,
+            TypeValue.Type_String,
         ];
 
         return primitives.includes(this.resolveTypeValue(t));

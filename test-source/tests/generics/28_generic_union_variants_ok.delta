@@ -1,0 +1,10 @@
+type struct Ok<T> = { value: T };
+type struct Error<E> = { error: E };
+
+type union Result<T, E> = Ok<T> | Error<E>;
+
+function main(): int8 {
+    const success: Result<int32, char> = Ok<int32> { value: 42 };
+    const failure: Result<int32, char> = Error<char> { error: 'x' };
+    return int8(0);
+}

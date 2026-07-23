@@ -135,13 +135,13 @@
   {
     "file": "multi_error_return_ok.delta",
     "expect": "pass",
-    "note": "positional error set — `ErrA, ErrB` returns both error values via `return error as {..}, {..}`"
+    "note": "closed error set — each error path returns one declared variant"
   },
   {
     "file": "multi_error_arity_err.delta",
     "expect": "fail",
-    "contains": "2 value",
-    "note": "positional error set — returning one literal for a 2-member error set is an arity error"
+    "contains": "got 2",
+    "note": "closed error set — returning two variants on one path is an arity error"
   },
   {
     "file": "forbidden_conversion_err.delta",

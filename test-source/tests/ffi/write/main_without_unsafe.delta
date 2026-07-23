@@ -1,0 +1,7 @@
+import { write } from "./unistd.ffi";
+
+function main(): int8 {
+    const message = "unsafe import required\n";
+    write(1, message, message.length);
+    return 0;
+}

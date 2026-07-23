@@ -1,6 +1,6 @@
 // Runtime panic: value doesn't fit destination signedness
 // Casting a negative `int32` to `uint32` traps (the value can't be represented).
-function main(): int32 {
+function main(): int8 {
     const neg: int32 = int32(0) - 1;
     const flipped: uint32 = uint32(neg);   // TRAP: value out of range for `uint32`
     return int32(flipped);

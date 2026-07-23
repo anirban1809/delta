@@ -1,0 +1,5 @@
+function main(): int8 {
+    const letters: char[3] = ['a', 'b', 'c'];
+    if (letters[0] != 'a') { return int8(1); }
+    return int8(0);
+}

@@ -131,5 +131,18 @@
     "file": "return_nested_ok.delta",
     "expect": "pass",
     "note": "nested if/else with returns on every leaf branch satisfies coverage"
+  },
+  {
+    "file": "main_int8_ok.delta",
+    "expect": "codegen_contains",
+    "emits": ["int8_t delta_main", "return (int)delta_main();"],
+    "note": "the program entry point returns int8"
+  },
+  {
+    "file": "main_int32_err.delta",
+    "expect": "fail",
+    "contains": "function main(): int8",
+    "error_count": 1,
+    "note": "the former int32 entry-point signature is rejected"
   }
 ]

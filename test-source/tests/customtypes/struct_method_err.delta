@@ -5,6 +5,6 @@ type struct Vec3 = {
     magnitudeSquared(): float64 { return x * x + y * y + z * z; }
 };
 
-function main(): int32 {
+function main(): int8 {
     return 0;
 }

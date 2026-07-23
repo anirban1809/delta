@@ -8,7 +8,7 @@ function identity(v: &Vec3): &Vec3 {
     return v;   // ERROR: a reference cannot escape its call in v0.5 (returning a borrow is post-v0.5)
 }
 
-function main(): int32 {
+function main(): int8 {
     let p: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
     identity(&p);
     return 0;

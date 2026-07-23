@@ -1,13 +1,13 @@
-type OverflowError = { };
-type DivideByZeroError = { };
-type NarrowingError = { };
-type ShiftCountError = { };
-type AllocError = { };
+type struct OverflowError = { };
+type struct DivideByZeroError = { };
+type struct NarrowingError = { };
+type struct ShiftCountError = { };
+type struct AllocError = { };
 
 function f(): int32 | OverflowError, DivideByZeroError, NarrowingError, ShiftCountError, AllocError {
     return 0;
 }
 
-function main(): int32 {
-    return 0;
+function main(): int8 {
+    return int8(0);
 }

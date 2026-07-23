@@ -1,0 +1,7 @@
+type struct Box<T> = { value: T };
+
+function main(): int8 {
+    const b: Box<int32> = Box<int32> { value: 42 };
+    if (b.value != 42) { return int8(1); }
+    return int8(0);
+}

@@ -1,7 +1,7 @@
 // Replacement does not implicitly copy/move its RHS (current = next on a Unique). Expects fail ("non-copyable").
 unique type Handle = { id: int32; };
 
-function main(): int32 {
+function main(): int8 {
     let current: Handle = { id: 1 };
     let next: Handle = { id: 2 };
     current = next;

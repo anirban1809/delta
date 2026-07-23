@@ -1,9 +1,9 @@
-function main(): int32 {
+function main(): int8 {
     let value: int32 = 0;
     if (value == 0) {
         value = 1;
     } else {
         value = 2;
     }
-    return value;
+    return int8(value);
 }

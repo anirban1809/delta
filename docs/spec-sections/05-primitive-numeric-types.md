@@ -760,7 +760,7 @@ function logCrash(info: PanicInfo): void {
   fs.writeText("/var/log/myapp/crash.log", info.message);
 }
 
-function main(): int32 {
+function main(): int8 {
   runtime.setPanicHook(logCrash);
   // ... rest of main
   return 0;

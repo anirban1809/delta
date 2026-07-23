@@ -1,4 +1,4 @@
-function main(): int32 {
+function main(): int8 {
     let x: int32 = 10;
     x += 5;
     x -= 3;

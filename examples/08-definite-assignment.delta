@@ -35,8 +35,8 @@ function pickAbs(n: int32, useDefault: bool): int32 {
 //     return x;                 // ERROR: `x` may be read before assignment
 // }
 
-function main(): int32 {
-    return pickAbs(7, false) + pickAbs(7, true);
+function main(): int8 {
+    return int8(pickAbs(7, false) + pickAbs(7, true));
 }
 
 /* === Generated C (illustrative) ===

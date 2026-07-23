@@ -1,0 +1,16 @@
+type struct dynamicstring = {
+    v: owned<int32>
+};
+
+function consume(x: edit &dynamicstring) {
+    x.v = 34;
+}
+
+function main(): int8 {
+    let x = new dynamicstring { v: new 4 };
+    consume(x);
+    if (x.v == 34) {
+        return 0;
+    }
+    return 1;
+}

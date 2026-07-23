@@ -1,0 +1,6 @@
+function main(): int8 {
+    const a: int32[5] = [1, 2, 3, 4, 5];
+    let n: uintsize = a.length;
+    if (n != 5) { return int8(1); }
+    return int8(0);
+}

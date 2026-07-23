@@ -15,7 +15,7 @@ extern "c" {
     function printf(fmt: cstringview, ...args): int32;
 }
 
-function main(): int32 {
+function main(): int8 {
     printf("hello\n");
     return 0;
 }

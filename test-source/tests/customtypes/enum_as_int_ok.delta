@@ -1,15 +1,15 @@
 type enum Facing = { North: 0, East: 90, South: 180, West: 270 };
 
-function main(): int32 {
+function main(): int8 {
     // an enum member IS an int32 literal — no cast needed
-    if (Facing.East != 90)  { return 1; }
-    if (Facing.West != 270) { return 2; }
+    if (Facing.East != 90)  { return int8(1); }
+    if (Facing.West != 270) { return int8(2); }
 
     // interchanges with any integer type
     const sum: int64 = Facing.East + Facing.South;
-    if (sum != 270) { return 3; }
+    if (sum != 270) { return int8(3); }
 
     const wide: int16 = Facing.North;
-    if (wide != 0) { return 4; }
-    return 0;
+    if (wide != 0) { return int8(4); }
+    return int8(0);
 }

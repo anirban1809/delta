@@ -2,7 +2,7 @@
 // hint: use `move x` to transfer it or `clone x` to duplicate it
 type Counter = { value: heap<int64>; };
 
-function main(): int32 {
+function main(): int8 {
     let a: Counter = { value: new 0 };
     let b = a;   // ERROR[E0706]: cannot copy `Counter`; it owns a resource and is move-only
     return 0;

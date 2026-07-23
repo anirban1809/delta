@@ -4,14 +4,14 @@
 // Three tiers, inferred structurally (only `unique` is ever declared — and that's
 // post-v0.5):
 //   copyable  — primitives, bool, char, &T, views; a record all of whose fields are copyable.
-//   cloneable — not copyable, not unique, fields copyable-or-cloneable (e.g. owns a `heap<T>`).
+//   cloneable — not copyable, not unique, fields copyable-or-cloneable (e.g. owns a `owned<T>`).
 //   unique    — contains a unique field / `edit &T`; move-or-reference only.
 //
 // Move transfers ownership and INVALIDATES the source. `clone` produces a new
 // owned value without consuming the source (and may abort/`as result` on OOM).
 //
 // NOTE: move/clone are only observable on NON-copyable types. In v0.5 that means a
-// record owning a `heap<T>` (feature 14). This file forward-references heap.
+// record owning a `owned<T>` (feature 14). This file forward-references heap.
 //
 // Pipeline work:
 //   semantics  : structural tier inference; move-state lattice over the CFG
@@ -20,7 +20,7 @@
 
 type Counter = { value: heap<int64>; };   // owns heap -> cloneable, non-copyable, move-meaningful
 
-function main(): int32 {
+function main(): int8 {
     let a: Counter = { value: new 0 };     // `new 0` boxes an int64 on the heap (feature 14)
 
     let b = move a;                        // ownership moves to `b`; `a` is now invalid

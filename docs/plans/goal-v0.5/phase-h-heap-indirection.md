@@ -1,8 +1,8 @@
 # Plan: Phase H — Indirection Types (full model)
 
 Date drafted: 2026-06-03
-Revised: 2026-06-21 — classes dropped (records + receiver methods); type spelled `heap<T>`; allocation via `new`
-Revised: 2026-07-04 — type renamed `heap<T>` → `owned<T>`. Final indirection vocabulary settled.
+Revised: 2026-06-21 — classes dropped (records + receiver methods); type spelled `owned<T>`; allocation via `new`
+Revised: 2026-07-04 — type renamed `owned<T>` → `owned<T>`. Final indirection vocabulary settled.
 Revised: 2026-07-04b — **all indirections brought into scope.** Phase H now covers the full model: `owned<T>` · `shared<T>` · `atomic shared<T>` · `mutex<T>` / `rwlock<T>` · `sync<T>` / `rwsync<T>`. Reorganized into four sequential sub-parts (H1–H4). See "Scope note" below.
 Status: planning, not started.
 Predecessor: Phases through **F** landed (former Phase G — safe references — is now part of Phase F, which also reserves and parses the `new` allocation operator). Records (Phase **K**) and receiver methods (Phase **L**) provide the `type`/method model this phase wraps.
@@ -165,6 +165,50 @@ After Phase F:
 10. **Disposal pass**: `Live` owned binding at scope exit → `delta_rt_owned_dispose_<T>(x)`; `Moved` → skip; LIFO.
 11. **Field cascade**: record drop frees `owned<T>` fields after the field-by-field pass.
 
+#### Pre-Phase-F return restriction
+
+Until Phase F ownership transfer is implemented, return statements may not return an ownership-bearing value or directly read through an owned indirection. This is an intentional staging restriction: it gives codegen an explicit local snapshot to return after disposing every live owner.
+
+The analyzer rejects all of the following:
+
+```delta
+return holder;                    // owned<Holder>, or a record containing owned fields
+return holder.hold;               // direct read through owned<Holder>
+return holder.payload.value1 + 1; // expression contains a read through owned storage
+return holder.payload;            // result itself is owned<Payload>
+```
+
+A non-owning, Copyable result must first be stored in a local variable:
+
+```delta
+const result: int32 = holder.hold;
+return result;
+```
+
+This lowers with an explicit lifetime boundary:
+
+```c
+int32_t result = holder->hold;
+delta_rt_owned_dispose_Holder(holder);
+return result;
+```
+
+The local-snapshot escape hatch applies only to non-owning, Copyable values. It does not permit ownership extraction: `const result = holder.payload;` remains an error because `result` would itself be ownership-bearing.
+
+Return analysis follows these rules, in order:
+
+1. Resolve the return expression's type. If it is `owned<T>` or recursively contains an owned field, reject it.
+2. Walk the return expression. If any member-access receiver crosses an `owned<T>` indirection, reject the return even when the final expression type is Copyable.
+3. A plain local identifier of Copyable type is allowed. No ownership provenance is carried from the local's initializer; the binding is the required snapshot boundary.
+
+Diagnostics:
+
+- Direct read: `cannot return an expression that reads through an owned value; store the non-owning result in a local variable before returning`.
+- Owned result: `cannot return an owned value before ownership transfer is implemented`.
+- Ownership-bearing record: ``cannot return `T` because it contains owned fields``.
+
+Once Phase F transfer tracking lands, returning ownership-bearing values can be reconsidered. The explicit-snapshot rule for direct owned-member reads may remain as a source-level lifetime-clarity rule if desired.
+
 ### H2 — shared / atomic shared
 12. **`shared<T>` lowers to a pointer to a control block** `delta_shared_<T> { size_t rc; T value; }`. The `shared<T>` value is `delta_shared_<T>*`; auto-deref goes through `->value` (`x.field` → `x->value.field`). Alloc sets `rc = 1`.
 13. **Copyable-via-retain — a new tier.** The tier resolver gains a "shared" tier: not move-only (unlike `owned`), not memcpy-copyable (unlike plain `T`) — copy emits a **retain**. A record containing a `shared<T>` field stays copyable (its copy retains each shared field). This is the crux difference from `owned`.
@@ -214,6 +258,7 @@ After Phase F:
 - **Model-A mutation**: `edit &` through `shared`/`atomic shared` is allowed (no exclusivity claim); through a `mutex`/`rwlock` guard the capability is whatever the guard grants.
 - **Disposal scheduling**: extend per-binding disposal entries with a kind tag `{ Owned | Shared | AtomicShared | Guard }` so the emitter picks the right teardown (dispose-free / release / atomic-release / unlock).
 - **Refcount-insertion analysis (H2)**: mark each `shared`-typed copy point (retain) and drop point (release) on the move-state graph; suppress on `move`.
+- **Pre-Phase-F return validation (H1 staging)**: reject ownership-bearing return values and any return expression that contains a member access through `owned<T>`. Permit a plain Copyable local identifier so callers can explicitly snapshot a member before returning it.
 
 ## Codegen changes
 
@@ -442,7 +487,7 @@ typedef struct { _Atomic size_t rc; delta_mutex__m__Counter value; }
 
 Fixtures under `test-source/tests/codegen/indirection/`, grouped by sub-part.
 
-**H1 — owned (mirrors the prior suite):** `owned_field_ok`, `owned_param_ok`, `owned_local_err`, `owned_alloc_failure_propagation_ok`; auto-deref read/write/method; `owned_dispose_at_scope_exit_ok`, `owned_dispose_skipped_after_move_ok`, `owned_field_dispose_in_record_drop_ok`; `ref_owned_field_read_ok`, `edit_ref_owned_edit_method_ok`; `clone_record_with_owned_field_ok`, `clone_transactional_cleanup_ok`.
+**H1 — owned (mirrors the prior suite):** `owned_field_ok`, `owned_param_ok`, `owned_local_err`, `owned_alloc_failure_propagation_ok`; auto-deref read/write/method; `owned_dispose_at_scope_exit_ok`, `owned_dispose_skipped_after_move_ok`, `owned_field_dispose_in_record_drop_ok`; `ref_owned_field_read_ok`, `edit_ref_owned_edit_method_ok`; `clone_record_with_owned_field_ok`, `clone_transactional_cleanup_ok`; pre-Phase-F return staging with `return_owned_value_err`, `return_ownership_bearing_record_err`, `return_owned_member_direct_err`, `return_expression_reading_owned_member_err`, `return_copyable_snapshot_ok`, and `snapshot_owned_member_err`.
 
 **H2 — shared / atomic shared:**
 - `shared_field_ok`, `shared_alias_retain_ok` (snapshot: `b = a` emits retain; two owners), `shared_release_at_zero_ok` (last release frees + drops), `shared_release_skipped_after_move_ok`.

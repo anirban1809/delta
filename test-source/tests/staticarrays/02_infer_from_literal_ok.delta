@@ -1,0 +1,4 @@
+function main(): int8 {
+    const primes = [2, 3, 5, 7];
+    return int8(primes[0] - 2);
+}

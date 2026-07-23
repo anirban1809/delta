@@ -84,7 +84,7 @@ function consume(c: Counter): int64 {
     return c.get();
 }
 
-function main(): int32 {
+function main(): int8 {
     let a = makeCounter(10);
     let b = makeCounter(20);
 
@@ -202,14 +202,15 @@ The full feature surface required for the acceptance program, grouped by spec se
 
 - Resource ownership is inferred transitively from built-in ownership roots; there is no `owned type` keyword. Every resource-owning record is non-Copyable.
 - Every non-Unique record is Cloneable. A record is Copyable iff every member is Copyable; Unique is declared with `unique type` or propagated from Unique members.
-- Plain assignment and by-value passing copy only Copyable values.
-- `move x` expression — whole-name only, live owned binding.
+- Tier-directed implicit duplication: a bare assignment or by-value argument copies a Copyable value, deep-clones an Owned value, and transfers a Unique value. Ordinary code names no ownership operation.
+- `move x` expression — whole-name only, live owned binding. Required nowhere; its job is opting an Owned value out of implicit cloning, and restating a Unique transfer for the reader.
 - Use-after-move as a compile error with source location.
 - Move-state tracking per binding across straight-line code, `if`/`else`, `while`, and `for`.
-- Conditional-move rejection: a binding moved on some paths but not all is an error at the merge point; diverging paths (those that `return`, `break`, `continue`, `panic`, or `process.exit`) are exempt.
+- Conditional moves compile via runtime drop flags: a binding moved on some paths but not all is disposed under a hidden `bool` at cleanup points. Flags are emitted only where the state is genuinely ambiguous. *Using* such a binding remains a compile error — flags make it disposable, not usable.
 - Revival of a moved-from binding via whole-value reassignment.
-- Implicit `return` move of owned locals and owned by-value parameters.
-- `clone x as result` expression for cloneable types — explicitly fallible.
+- Implicit `return` move of owned locals and owned by-value parameters, including clone elision for Owned returns.
+- `clone x as result` expression for cloneable types — explicitly fallible, and the only way to handle allocation failure; every other clone form aborts.
+- Auto-borrow outranks by-value for non-Copyable arguments, confining implicit clone to callees that genuinely demand ownership.
 - Auto-derived clone for non-Copyable Cloneable records (recursive, transactional); Copyable records clone by plain copy.
 - Unique values cannot clone.
 - Receiver-based custom cleanup only on explicitly Unique records: `function (x: edit &T) dispose(): void`; it is compiler-invoked and cannot be called manually.

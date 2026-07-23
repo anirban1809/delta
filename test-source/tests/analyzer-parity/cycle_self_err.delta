@@ -1,6 +1,6 @@
 // Task 14: a record that contains itself by value is an infinite-size cycle.
 type Node = { next: Node; };
 
-function main(): int32 {
+function main(): int8 {
     return 0;
 }

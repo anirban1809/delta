@@ -4,6 +4,6 @@ type A = { x: int32; y: int32; };
 type B = { y: int32; z: int32; };
 type AB = { ...A; ...B; };   // ERROR: duplicate field `y` from composition operands `A` and `B`
 
-function main(): int32 {
+function main(): int8 {
     return 0;
 }

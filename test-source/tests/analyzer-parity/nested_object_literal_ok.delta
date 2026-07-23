@@ -8,6 +8,6 @@ function make(): Outer {
     return { inner: { a: 1 } };
 }
 
-function main(): int32 {
-    return 0;
+function main(): int8 {
+    return int8(0);
 }

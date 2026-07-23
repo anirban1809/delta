@@ -29,7 +29,7 @@ at file.delta:LINE:COL
 | E0104 | cannot infer the type of `` `x` `` without an initializer or annotation |
 | E0105 | `let` is not allowed at file scope; use `const` |
 | E0106 | top-level executable statements are not allowed |
-| E0107 | `main` must be declared at top level as `function main(): int32` |
+| E0107 | `main` must be declared at top level as `function main(): int8` |
 | E0108 | `` `f` `` is declared more than once (no overloading by name alone) |
 
 ## E02xx — Types, operators, conversions
@@ -87,7 +87,7 @@ at file.delta:LINE:COL
 |       | hint: annotate the binding or use it in a typed position |
 | E0506 | duplicate field `` `x` `` in record `` `T` `` |
 | E0507 | recursive record `` `T` `` requires indirection |
-|       | hint: wrap the field in `` `heap<T>` `` to break the cycle |
+|       | hint: wrap the field in `` `owned<T>` `` to break the cycle |
 
 ## E06xx — Recoverable error model
 | Code | Message |
@@ -105,15 +105,27 @@ at file.delta:LINE:COL
 | Code | Message |
 |------|---------|
 | E0701 | use of moved value `` `x` `` |
-|       | hint: `` `x` `` was moved on line `N`; `move` invalidates the source |
+|       | hint: `` `x` `` has type `` `T` ``, which is unique — passing it on line `N` transferred it |
 | E0702 | cannot move out of `` `const` `` binding `` `x` `` |
 | E0703 | cannot move out of a reference `` `x` `` |
 | E0704 | cannot partially move out of `` `x` `` — move the whole value |
 | E0705 | `` `x` `` may be used after being moved on a previous loop iteration |
-| E0706 | cannot copy `` `T` ``; it owns a resource and is move-only |
-|       | hint: use `move x` to transfer it or `clone x` to duplicate it |
+| E0706 | *retired* — a bare use of a resource-owning value now clones; see `E0709` for the maybe-moved case |
 | E0707 | `clone` requires a cloneable type; `` `T` `` is unique |
 | E0708 | `` `<clone T>` `` body must choose `&x`, `move x`, or `clone x` — bare reuse is forbidden |
+| E0709 | use of maybe-moved value `` `x` `` |
+|       | hint: `` `x` `` is moved on line `N` but not on line `M`; both paths reach here |
+
+`E0701`'s hint names the tier because a transfer no longer requires a keyword — the
+user may be looking at a line that reads like an ordinary call. When the transfer
+*was* written as `move x`, use the shorter form: `` hint: `x` was moved on line `N` ``.
+
+`E0709` must name both predecessors. A drop flag lets the *cleanup* proceed, so the
+only remaining failure is the use, and the user needs to see which branch disagreed.
+
+`move` on a copyable value has **no** diagnostic: it transfers and invalidates the
+source like any other `move`, so it is meaningful rather than redundant (§14.11).
+Only `clone` on a copyable value warns.
 
 ## E08xx — Safe references (`&T` / `edit &T`)
 | Code | Message |
@@ -125,12 +137,12 @@ at file.delta:LINE:COL
 | E0805 | cannot read `` `x` `` while it is mutably borrowed |
 | E0806 | references in fields require lifetime support (not available in v0.5) |
 
-## E09xx — Heap (`heap<T>`, `new`)
+## E09xx — Heap (`owned<T>`, `new`)
 | Code | Message |
 |------|---------|
-| E0901 | `` `heap<T>` `` is move-only; copying the handle would alias the allocation |
+| E0901 | `` `owned<T>` `` is move-only; copying the handle would alias the allocation |
 | E0902 | `` `new` `` operand has type `` `U` ``, expected `` `T` `` |
-| E0903 | `` `heap<T>` `` may only be a field or parameter type in v0.5, not a local binding |
+| E0903 | `` `owned<T>` `` may only be a field or parameter type in v0.5, not a local binding |
 | E0904 | allocation may fail — bind with `` `new ... as result` `` or let it abort |
 
 ## E10xx — Lifetimes

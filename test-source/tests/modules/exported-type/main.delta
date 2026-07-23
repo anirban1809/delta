@@ -1,0 +1,6 @@
+import { Point, makePoint } from "./geometry";
+
+function main(): int8 {
+    const point: Point = makePoint();
+    return point.x;
+}

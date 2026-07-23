@@ -1,4 +1,4 @@
-type OverflowError = { };
+type struct OverflowError = { };
 
 function safeAdd(a: int64, b: int64): int64 | OverflowError {
     const sum = a + b as result;
@@ -8,14 +8,14 @@ function safeAdd(a: int64, b: int64): int64 | OverflowError {
     return sum;
 }
 
-function main(): int32 {
+function main(): int8 {
     const x = safeAdd(4, 5) as result;
     check result {
-        return 1;
+        return int8(1);
     }
     const y = x;
     if (y == 9) {
-        return 0;
+        return int8(0);
     }
-    return 2;
+    return int8(2);
 }

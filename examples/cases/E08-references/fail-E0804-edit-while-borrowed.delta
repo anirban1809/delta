@@ -5,7 +5,7 @@ function mix(read: &Vec3, write: edit &Vec3): void {
     write.x = read.x;
 }
 
-function main(): int32 {
+function main(): int8 {
     let p: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
     mix(&p, edit &p);   // ERROR[E0804]: cannot take `edit &p` while `p` is already borrowed here
     return 0;

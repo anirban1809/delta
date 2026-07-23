@@ -1,0 +1,115 @@
+[
+  {
+    "file": "write/unistd.ffi.delta",
+    "name": "ffi interface syntax and C types are accepted",
+    "expect": "pass"
+  },
+  {
+    "file": "write/main.delta",
+    "name": "handwritten unistd interface calls write",
+    "expect": "project_run",
+    "expected_stdout": "Hello from Delta\n"
+  },
+  {
+    "file": "write/main_without_unsafe.delta",
+    "name": "extern imports require unsafe",
+    "expect": "project_fail",
+    "contains": "requires an unsafe import"
+  },
+  {
+    "file": "extern_in_regular_file.delta",
+    "name": "extern declarations require ffi file suffix",
+    "expect": "fail",
+    "contains": "only allowed in `.ffi.delta` files"
+  },
+  {
+    "file": "header_in_regular_file.delta",
+    "name": "ffi header metadata requires ffi file suffix",
+    "expect": "fail",
+    "contains": "only allowed in `.ffi.delta` files"
+  },
+  {
+    "file": "prebuilt-static/main.delta",
+    "name": "application links a prebuilt static Delta library",
+    "expect": "project_run",
+    "prebuilt_library": {
+      "kind": "static",
+      "source": "prebuilt_math.c",
+      "output": "libprebuilt_math.a"
+    }
+  },
+  {
+    "file": "prebuilt-dynamic/main.delta",
+    "name": "application links and loads a prebuilt dynamic Delta library",
+    "expect": "project_run",
+    "prebuilt_library": {
+      "kind": "dynamic",
+      "source": "prebuilt_math.c",
+      "output": "libprebuilt_math.shared"
+    }
+  },
+  {
+    "file": "prebuilt_without_module.ffi.delta",
+    "name": "prebuilt declarations require an ABI module identity",
+    "expect": "fail",
+    "contains": "must specify `ffi module"
+  },
+  {
+    "file": "missing-library/main.delta",
+    "name": "missing prebuilt libraries produce a source diagnostic",
+    "expect": "project_fail",
+    "contains": "prebuilt static library does not exist"
+  },
+  {
+    "file": "delta-static-output/main.delta",
+    "name": "static Delta project produces a reusable archive",
+    "expect": "project_run",
+    "build_library_project": {
+      "project": "producer",
+      "interface": "math.ffi.delta",
+      "expected_kind": "static"
+    }
+  },
+  {
+    "file": "delta-dynamic-output/main.delta",
+    "name": "dynamic Delta project produces a reusable shared library",
+    "expect": "project_run",
+    "build_library_project": {
+      "project": "producer",
+      "interface": "math.ffi.delta",
+      "expected_kind": "dynamic"
+    }
+  },
+  {
+    "file": "manifest-executable/main.delta",
+    "name": "explicit executable project kind remains runnable",
+    "expect": "project_run"
+  },
+  {
+    "file": "manifest-invalid-kind/main.delta",
+    "name": "manifest rejects unknown project kinds",
+    "expect": "project_fail",
+    "contains": "kind must be one of"
+  },
+  {
+    "file": "package-static/main.delta",
+    "name": "package and install a static Delta library",
+    "expect": "project_run",
+    "package_project": {
+      "project": "producer",
+      "install_twice": true,
+      "reinstall_from_manifest": true,
+      "expected_external": {
+        "shared-core": "1.2.0:../shared-core-1.2.0.tar"
+      }
+    }
+  },
+  {
+    "file": "package-dynamic/main.delta",
+    "name": "package and install a dynamic Delta library",
+    "expect": "project_run",
+    "package_project": {
+      "project": "producer"
+    }
+  }
+]

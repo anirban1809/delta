@@ -739,7 +739,7 @@ The following are deliberately out of scope, either deferred to a later section 
 - **Partial / uninitialized class construction** — never.
 - **Fallible field initializers inside class literals** — never. Bind and check fallible values before construction.
 - **Implicit move in assignment or function arguments** — never. Use `move`.
-- **A `copy` operator** — never. Plain assignment copies Copyable values; `move` transfers; `clone x` deep-copies owned types. A standalone `copy x` would duplicate assignment's behavior and is not part of the language ([§9.6](#96-copy-and-move-semantics), [§14.2](#142-three-operations-no-copy-operator)).
+- **A `copy` operator** — never. A bare use copies Copyable values; `move` transfers; `clone x` deep-copies owned types. A standalone `copy x` would duplicate a bare use's behavior and is not part of the language ([§9.6](#96-copy-and-move-semantics), [§14.2](#142-the-three-operations)).
 - **Custom Copyable implementations** — out of scope for MVP. `Copyable` is compiler-derived only.
 - **Cloning a `Disposable` (resource-owning) class, or `uses Cloneable` together with `uses Disposable`** — never. Compiler-derived deep copy via the `clone` operator *is* in MVP for cloneable classes — auto-derived markerlessly (deep, recursive, fieldwise, transactional on failure), with `uses Cloneable` supplying optional custom behavior through a recognized `clone()` hook ([§14.4](#144-the-clone-operator)). It is excluded only for `Disposable` types, which cannot be meaningfully duplicated. (Earlier drafts deferred derived clone to post-MVP; it is now in scope.)
 - **`heap T` being Copyable** — never in MVP.

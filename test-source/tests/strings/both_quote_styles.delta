@@ -1,0 +1,10 @@
+function passThrough(value: string): string {
+    return value;
+}
+
+function main(): int8 {
+    const name = "Anirban";
+    const name2 = 'Anirban';
+    const result: string = passThrough(name2);
+    return int8(0);
+}

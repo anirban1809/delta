@@ -1,8 +1,8 @@
-// `heap<T>` is an ownership root and can never be copied; bare copy rejected. Expects fail ("non-copyable").
-// NOTE: depends on Phase H `heap<T>` typing plus generic-type parsing — currently a parse error until those land.
+// `owned<T>` is an ownership root and can never be copied; bare copy rejected. Expects fail ("non-copyable").
+// NOTE: depends on Phase H `owned<T>` typing plus generic-type parsing — currently a parse error until those land.
 type Box = { value: heap<int32>; };
 
-function main(): int32 {
+function main(): int8 {
     const a: Box = { value: new 1 };
     const b = a;
     return 0;

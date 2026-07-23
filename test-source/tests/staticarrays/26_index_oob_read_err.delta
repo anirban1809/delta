@@ -1,0 +1,6 @@
+function main(): int8 {
+    const a: int32[4] = [10, 20, 30, 40];
+    let i: uintsize = 10;
+    let x: int32 = a[i];
+    return x;
+}

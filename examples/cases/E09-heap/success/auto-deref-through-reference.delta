@@ -1,4 +1,4 @@
-// E09 success — a `heap<T>` field is auto-dereferenced when read, including
+// E09 success — a `owned<T>` field is auto-dereferenced when read, including
 // through a `&` reference parameter.
 type Payload = { count: int64; stride: int64; };
 type BoxedCounter = { payload: heap<Payload>; };
@@ -15,7 +15,7 @@ function total(bc: &BoxedCounter): int64 {
     return bc.payload.count + bc.payload.stride;   // auto-deref through the heap pointer
 }
 
-function main(): int32 {
+function main(): int8 {
     const bc = makeBoxedCounter(3, 4) as result;
     check result {
         return 1;

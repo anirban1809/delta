@@ -1,5 +1,5 @@
 // E0201 — type mismatch: expected `int32`, found `bool`
-function main(): int32 {
+function main(): int8 {
     const bad: int32 = true;   // ERROR[E0201]: type mismatch: expected `int32`, found `bool`
     return 0;
 }

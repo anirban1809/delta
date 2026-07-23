@@ -1,0 +1,9 @@
+function first<T, U>(a: T, b: U): T {
+    return a;
+}
+
+function main(): int8 {
+    let x: int32 = first(7, true);
+    if (x != 7) { return int8(1); }
+    return int8(0);
+}

@@ -1,4 +1,4 @@
-function main(): int32 {
+function main(): int8 {
     for (let i: int32 = 0; i < 1; i++) {
         continue;
         let value: int32 = i;

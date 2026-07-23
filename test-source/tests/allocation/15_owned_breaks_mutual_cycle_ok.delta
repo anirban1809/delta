@@ -1,0 +1,6 @@
+type struct Left = { right: owned<Right> };
+type struct Right = { left: Left };
+
+function main(): int8 {
+    return int8(0);
+}

@@ -1,6 +1,6 @@
 // E0205 — operator `+` expects matching numeric operands, found `float32` and `float64`
 // Mixed-precision float arithmetic is rejected (§5); there is no implicit promotion.
-function main(): int32 {
+function main(): int8 {
     const a: float32 = 1.5;
     const b: float64 = 2.5;
     const c: float64 = a + b;   // ERROR[E0205]: operator `+` expects matching numeric operands, found `float32` and `float64`

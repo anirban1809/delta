@@ -1,4 +1,4 @@
-type ShiftCountError = { };
+type struct ShiftCountError = { };
 
 function safeShift(a: int32, n: int32): int32 | ShiftCountError {
     const s = a << n as result;
@@ -8,13 +8,13 @@ function safeShift(a: int32, n: int32): int32 | ShiftCountError {
     return s;
 }
 
-function main(): int32 {
+function main(): int8 {
     const s = safeShift(1, 4) as result;
     check result {
-        return 1;
+        return int8(1);
     }
     if (s == 16) {
-        return 0;
+        return int8(0);
     }
-    return 2;
+    return int8(2);
 }

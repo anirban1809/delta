@@ -4,7 +4,7 @@
 //  are post-v0.5; `unique type` is the v0.5 way to declare a Unique record.)
 unique type Token = { id: int32; };
 
-function main(): int32 {
+function main(): int8 {
     let a: Token = { id: 1 };
     let b = clone a;   // ERROR[E0707]: `clone` requires a cloneable type; `Token` is unique
     return 0;

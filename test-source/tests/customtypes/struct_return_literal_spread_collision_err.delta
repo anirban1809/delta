@@ -4,6 +4,6 @@ function invalidVec3(source: Vec3): Vec3 {
     return Vec3 { ...source, x: 89 };
 }
 
-function main(): int32 {
+function main(): int8 {
     return 0;
 }

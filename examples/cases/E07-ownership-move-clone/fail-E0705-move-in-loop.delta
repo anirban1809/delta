@@ -3,7 +3,7 @@ type Counter = { value: heap<int64>; };
 
 function consume(c: Counter): void { }
 
-function main(): int32 {
+function main(): int8 {
     let a: Counter = { value: new 0 };
     for (let i: int32 = 0; i < 3; i++) {
         consume(move a);   // ERROR[E0705]: `a` may be used after being moved on a previous loop iteration

@@ -1,80 +1,142 @@
 #!/usr/local/bin/node
-import * as fs from "fs";
-import { Tokenizer } from "./src/ast/tokenizer.js";
-import { Parser } from "./src/ast/parser.js";
-import { Diagnostics } from "./src/diagnostics/diagnostics.js";
+import * as path from "path";
 import { Formatter } from "./src/ast/formatter.js";
-// import { Analyzer } from "./src/analysis/analyzer.js";
-import { AnalyzerCore } from "./src/analysis/core.js";
-import { Emitter } from "./src/codegen/emitter.js";
+import { Diagnostics } from "./src/diagnostics/diagnostics.js";
+import { buildProject, scaffoldProject } from "./src/compiler/project.js";
+import { startLanguageServer } from "./src/lsp/server.js";
+import {
+    installExternalPackages,
+    installPackage,
+    packageProject,
+} from "./src/compiler/package.js";
 
-function build(content: string, filepath: string) {
-    const tokenizer = new Tokenizer(content);
-    const tokens = tokenizer.tokenize();
-    const diagnostics = new Diagnostics();
-    const parser = new Parser(filepath, diagnostics);
-
-    const ast = parser.parse(tokens);
-    if (!ast) {
-        if (diagnostics.errors.length > 0) {
-            diagnostics.errors.forEach((e) => {
-                console.log(diagnostics.format(e));
-            });
+/** Builds an entry file or the manifest-backed project in the current directory. */
+function build(entry?: string, debug = false): boolean {
+    const result = buildProject(entry, { debug });
+    for (const error of result.diagnostics) {
+        console.error(new Diagnostics(error.filepath).format(error));
+    }
+    if (result.error) {
+        console.error(result.error);
+    }
+    if (debug && result.diagnostics.length == 0) {
+        for (const ast of result.asts) {
+            new Formatter(ast).dump();
         }
-
-        return;
+        for (const codegen of result.generatedCode) {
+            console.log(codegen);
+        }
+        return !result.error;
     }
-    // const analyzer = new Analyzer(ast, diagnostics);
-    const analyzer = new AnalyzerCore(ast, diagnostics);
-    const globalScope = analyzer.analyze();
-
-    if (diagnostics.errors.length > 0) {
-        diagnostics.errors.forEach((e) => {
-            console.log(diagnostics.format(e));
-        });
-
-        return;
+    if (!result.artifactPath || result.diagnostics.length > 0 || result.error) {
+        return false;
     }
 
-    const formatter = new Formatter(ast);
-    formatter.dump();
-
-    const emitter = new Emitter(ast);
-    console.log(emitter.emit());
+    console.log(`Built ${result.artifactPath}`);
+    return true;
 }
 
-function scaffold(name: string, path: string) {
-    // TODO: create empty project scaffold
+/** Creates `delta.json`, `.gitignore`, and a buildable `src/main.delta`. */
+function scaffold(name: string, parentDirectory: string): boolean {
+    try {
+        const projectRoot = scaffoldProject(name, parentDirectory);
+        console.log(`Created Delta project at ${projectRoot}`);
+        return true;
+    } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        return false;
+    }
 }
 
-function main() {
-    const cmdArg = process.argv[2];
+function usage(): void {
+    console.log(
+        "usage:\n  delta build [filename.delta | project-directory]\n  delta build --debug <filename.delta | project-directory>\n  delta package [project-directory]\n  delta install [package.tar]\n  delta init projectname\n  delta lsp",
+    );
+}
 
-    if (!cmdArg) {
-        console.log("usage:\ndelta build filename.delta\ndelta init projectname");
-        process.exit(1);
+function main(): void {
+    const command = process.argv[2];
+    if (!command) {
+        usage();
+        process.exitCode = 1;
+        return;
     }
 
-    switch (cmdArg) {
-        case "build":
-            const fileNameArg = process.argv[3];
-            if (!fileNameArg) {
-                console.log("usage: delta build filename.delta");
-                process.exit(1);
+    switch (command) {
+        case "lsp":
+            startLanguageServer();
+            return;
+        case "build": {
+            const debug = process.argv[3] == "--debug";
+            const input = process.argv[debug ? 4 : 3];
+            if (debug && !input) {
+                console.error("usage: delta build --debug <filename.delta | project-directory>");
+                process.exitCode = 1;
+                return;
             }
-
-            // TODO: handle file not found
-            const file = fs.readFileSync(fileNameArg, "utf8");
-            build(file, fileNameArg);
-
-        case "init":
+            const resolvedInput = input ? path.resolve(input) : undefined;
+            if (!build(resolvedInput, debug)) {
+                process.exitCode = 1;
+            }
+            return;
+        }
+        case "package": {
+            const input = path.resolve(process.argv[3] ?? process.cwd());
+            const result = packageProject(input);
+            if (result.error || !result.archivePath) {
+                console.error(result.error ?? "package creation failed");
+                process.exitCode = 1;
+                return;
+            }
+            console.log(`Packaged ${result.archivePath}`);
+            console.log(`SHA-256 ${result.archiveSha256}`);
+            return;
+        }
+        case "install": {
+            const archive = process.argv[3];
+            if (!archive) {
+                const result = installExternalPackages(process.cwd());
+                if (result.error) {
+                    console.error(result.error);
+                    process.exitCode = 1;
+                    return;
+                }
+                if (!result.installed.length) {
+                    console.log("No external packages to install");
+                    return;
+                }
+                for (const installed of result.installed) {
+                    console.log(
+                        `Installed ${installed.packageName}@${installed.version} to ${installed.installedPath}`,
+                    );
+                }
+                return;
+            }
+            const result = installPackage(path.resolve(archive), process.cwd());
+            if (result.error || !result.installedPath) {
+                console.error(result.error ?? "package installation failed");
+                process.exitCode = 1;
+                return;
+            }
+            console.log(`Installed ${result.packageName}@${result.version} to ${result.installedPath}`);
+            console.log(`SHA-256 ${result.archiveSha256}`);
+            return;
+        }
+        case "init": {
             const projectName = process.argv[3];
             if (!projectName) {
-                console.log("usage: delta init projectname");
-                process.exit(1);
+                console.error("usage: delta init projectname");
+                process.exitCode = 1;
+                return;
             }
-
-            scaffold(projectName, process.cwd());
+            if (!scaffold(projectName, process.cwd())) {
+                process.exitCode = 1;
+            }
+            return;
+        }
+        default:
+            usage();
+            process.exitCode = 1;
     }
 }
 

@@ -10,7 +10,7 @@ function (handle: edit &Handle) dispose() {
     handle.id = 0;
 }
 
-function main(): int32 {
+function main(): int8 {
     let handle: Handle = { id: 7 };
-    return 0;
+    return int8(0);
 }

@@ -4,11 +4,11 @@ function returnVec3(value: Vec3): Vec3 {
     return value;
 }
 
-function main(): int32 {
+function main(): int8 {
     const source: Vec3 = Vec3 { x: 2.0, y: 3.0, z: 4.0 };
     const value: Vec3 = returnVec3(source);
-    if (value.x != 2.0) { return 1; }
-    if (value.y != 3.0) { return 2; }
-    if (value.z != 4.0) { return 3; }
-    return 0;
+    if (value.x != 2.0) { return int8(1); }
+    if (value.y != 3.0) { return int8(2); }
+    if (value.z != 4.0) { return int8(3); }
+    return int8(0);
 }

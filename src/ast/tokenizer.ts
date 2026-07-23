@@ -74,9 +74,9 @@ export class Tokenizer {
 
         switch (c) {
             case '"':
-                return this.scanString(startPos, startLine, startColumn);
+                return this.scanQuotedLiteral('"', TokenKind.Kind_StringLiteral, startPos, startLine, startColumn);
             case "'":
-                return this.scanChar(startPos, startLine, startColumn);
+                return this.scanSingleQuotedLiteral(startPos, startLine, startColumn);
 
             case "(":
                 return this.finish(TokenKind.Symbol_LeftParen, startPos, startLine, startColumn);
@@ -86,6 +86,10 @@ export class Tokenizer {
                 return this.finish(TokenKind.Symbol_LeftBrace, startPos, startLine, startColumn);
             case "}":
                 return this.finish(TokenKind.Symbol_RightBrace, startPos, startLine, startColumn);
+            case "[":
+                return this.finish(TokenKind.Symbol_LeftBracket, startPos, startLine, startColumn);
+            case "]":
+                return this.finish(TokenKind.Symbol_RightBracket, startPos, startLine, startColumn);
             case ":":
                 return this.finish(TokenKind.Symbol_Colon, startPos, startLine, startColumn);
             case ";":
@@ -93,8 +97,12 @@ export class Tokenizer {
             case ",":
                 return this.finish(TokenKind.Symbol_Comma, startPos, startLine, startColumn);
             case "%":
+                if (this.match("="))
+                    return this.finish(TokenKind.Symbol_PercentEquals, startPos, startLine, startColumn);
                 return this.finish(TokenKind.Symbol_Percent, startPos, startLine, startColumn);
             case "^":
+                if (this.match("="))
+                    return this.finish(TokenKind.Symbol_CaretEquals, startPos, startLine, startColumn);
                 return this.finish(TokenKind.Symbol_Caret, startPos, startLine, startColumn);
             case "~":
                 return this.finish(TokenKind.Symbol_Tilde, startPos, startLine, startColumn);
@@ -148,28 +156,36 @@ export class Tokenizer {
                     return this.scanLineComment(startPos, startLine, startColumn);
                 if (this.peek() === "*")
                     return this.scanBlockComment(startPos, startLine, startColumn);
+                if (this.match("="))
+                    return this.finish(TokenKind.Symbol_FSlashEquals, startPos, startLine, startColumn);
                 return this.finish(TokenKind.Symbol_FSlash, startPos, startLine, startColumn);
 
             case "<":
-                if (this.match("<"))
+                if (this.match("<")) {
+                    if (this.match("="))
+                        return this.finish(TokenKind.Symbol_ShiftLeftEquals, startPos, startLine, startColumn);
                     return this.finish(
                         TokenKind.Symbol_ShiftLeft,
                         startPos,
                         startLine,
                         startColumn,
                     );
+                }
                 if (this.match("="))
                     return this.finish(TokenKind.Symbol_LessEq, startPos, startLine, startColumn);
                 return this.finish(TokenKind.Symbol_Less, startPos, startLine, startColumn);
 
             case ">":
-                if (this.match(">"))
+                if (this.match(">")) {
+                    if (this.match("="))
+                        return this.finish(TokenKind.Symbol_ShiftRightEquals, startPos, startLine, startColumn);
                     return this.finish(
                         TokenKind.Symbol_ShiftRight,
                         startPos,
                         startLine,
                         startColumn,
                     );
+                }
                 if (this.match("="))
                     return this.finish(
                         TokenKind.Symbol_GreaterEq,
@@ -202,6 +218,8 @@ export class Tokenizer {
                         startLine,
                         startColumn,
                     );
+                if (this.match("="))
+                    return this.finish(TokenKind.Symbol_AmpersandEquals, startPos, startLine, startColumn);
                 return this.finish(TokenKind.Symbol_Ampersand, startPos, startLine, startColumn);
 
             case "|":
@@ -212,6 +230,8 @@ export class Tokenizer {
                         startLine,
                         startColumn,
                     );
+                if (this.match("="))
+                    return this.finish(TokenKind.Symbol_PipeEquals, startPos, startLine, startColumn);
                 return this.finish(TokenKind.Symbol_Pipe, startPos, startLine, startColumn);
 
             case ".":
@@ -293,12 +313,18 @@ export class Tokenizer {
         return this.finish(kind, startPos, startLine, startColumn);
     }
 
-    private scanString(startPos: number, startLine: number, startColumn: number): Token {
+    private scanQuotedLiteral(
+        delimiter: '"' | "'",
+        kind: TokenKind,
+        startPos: number,
+        startLine: number,
+        startColumn: number,
+    ): Token {
         while (!this.isAtEnd()) {
             const c = this.peek();
-            if (c === '"') {
+            if (c === delimiter) {
                 this.advance(); // closing quote
-                return this.finish(TokenKind.Kind_StringLiteral, startPos, startLine, startColumn);
+                return this.finish(kind, startPos, startLine, startColumn);
             }
             if (c === "\n") {
                 break; // unterminated: strings do not span lines
@@ -312,27 +338,53 @@ export class Tokenizer {
         return this.finish(TokenKind.Kind_Illegal, startPos, startLine, startColumn);
     }
 
-    private scanChar(startPos: number, startLine: number, startColumn: number): Token {
-        while (!this.isAtEnd()) {
-            const c = this.peek();
-            if (c === "'") {
-                this.advance(); // closing quote
-                return this.finish(
-                    TokenKind.Kind_CharacterLiteral,
-                    startPos,
-                    startLine,
-                    startColumn,
-                );
-            }
-            if (c === "\n") {
-                break;
-            }
-            if (c === "\\") {
-                this.advance();
-            }
-            this.advance();
+    /**
+     * Single quotes support strings while retaining the existing one-scalar
+     * character literal syntax. Empty and multi-scalar bodies are strings.
+     */
+    private scanSingleQuotedLiteral(
+        startPos: number,
+        startLine: number,
+        startColumn: number,
+    ): Token {
+        const token = this.scanQuotedLiteral(
+            "'",
+            TokenKind.Kind_StringLiteral,
+            startPos,
+            startLine,
+            startColumn,
+        );
+        if (token.kind == TokenKind.Kind_Illegal) {
+            return token;
         }
-        return this.finish(TokenKind.Kind_Illegal, startPos, startLine, startColumn);
+        token.kind = this.countQuotedScalars(token.value) == 1
+            ? TokenKind.Kind_CharacterLiteral
+            : TokenKind.Kind_StringLiteral;
+        return token;
+    }
+
+    /** Counts source scalars, treating each escape sequence as one scalar. */
+    private countQuotedScalars(value: string): number {
+        const body = value.slice(1, -1);
+        let count = 0;
+        for (let i = 0; i < body.length; count++) {
+            if (body[i] == "\\") {
+                i++;
+                if (body[i] == "u" && body[i + 1] == "{") {
+                    i += 2;
+                    while (i < body.length && body[i] != "}") i++;
+                    if (i < body.length) i++;
+                } else if (body[i] == "x") {
+                    i = Math.min(body.length, i + 3);
+                } else {
+                    i++;
+                }
+                continue;
+            }
+            const codePoint = body.codePointAt(i)!;
+            i += codePoint > 0xffff ? 2 : 1;
+        }
+        return count;
     }
 
     private scanLineComment(startPos: number, startLine: number, startColumn: number): Token {

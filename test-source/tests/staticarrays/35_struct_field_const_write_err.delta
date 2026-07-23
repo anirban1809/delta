@@ -1,0 +1,7 @@
+type struct Board = { cells: int32[3] };
+
+function main(): int8 {
+    const b: Board = Board { cells: [1, 2, 3] };
+    b.cells[0] = 9;
+    return 0;
+}
