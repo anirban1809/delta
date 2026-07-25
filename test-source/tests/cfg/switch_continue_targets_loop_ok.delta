@@ -1,4 +1,4 @@
-function main(): int8 {
+function main(): uint8 {
     let count: int32 = 0;
     for (let i: int32 = 0; i < 3; i++) {
         switch (i) {
@@ -8,5 +8,5 @@ function main(): int8 {
                 count = count + 1;
         }
     }
-    return int8(count);
+    return uint8(count);
 }

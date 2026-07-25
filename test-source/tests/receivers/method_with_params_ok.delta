@@ -4,8 +4,8 @@ function (c: edit &Counter) add(n: int32) {
     c.value = c.value + n;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let c: Counter = { value: 10 };
     c.add(5);
-    return int8(c.value);
+    return uint8(c.value);
 }

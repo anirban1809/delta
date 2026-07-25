@@ -1,7 +1,7 @@
 // E05 success — an object literal is pinned to a record type by its annotation.
 type Vec3 = { x: float64; y: float64; z: float64; };
 
-function main(): int8 {
+function main(): uint8 {
     const p: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
     return 0;
 }

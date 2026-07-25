@@ -229,6 +229,7 @@ export class StatementAnalyzer {
             return [];
         }
         if (expression.kind == "binary_expression") {
+            if (expression.constantStringValue !== undefined) return [];
             const name = ["/", "%"].includes(expression.operator)
                 ? "DivideByZeroError"
                 : ["<<", ">>"].includes(expression.operator)

@@ -12,7 +12,7 @@ function test(flag: bool) {
     }
 }
 
-function main(): int8 {
+function main(): uint8 {
     test(false);
-    return int8(0);
+    return uint8(0);
 }

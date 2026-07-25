@@ -2,9 +2,9 @@ function touch(value: int32): int32 {
     return value;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let value: int32 = 1;
     value = value + 1;
     touch(value);
-    return int8(value);
+    return uint8(value);
 }

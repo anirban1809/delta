@@ -1,16 +1,16 @@
-function main(): int8 {
+function main(): uint8 {
     let n: int32 = 1;
     switch (n) {
         case 1: 
             let x: int32 = 10;
-            if (x != 10) { return int8(1); }
+            if (x != 10) { return uint8(1); }
         
         case 2: 
             let x: int32 = 20;
-            if (x != 20) { return int8(2); }
+            if (x != 20) { return uint8(2); }
         
         default:
-            return int8(-1);
+            return 255;
     }
-    return int8(0);
+    return uint8(0);
 }

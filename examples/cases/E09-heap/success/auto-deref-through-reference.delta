@@ -15,7 +15,7 @@ function total(bc: &BoxedCounter): int64 {
     return bc.payload.count + bc.payload.stride;   // auto-deref through the heap pointer
 }
 
-function main(): int8 {
+function main(): uint8 {
     const bc = makeBoxedCounter(3, 4) as result;
     check result {
         return 1;

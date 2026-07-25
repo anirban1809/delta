@@ -1,7 +1,7 @@
-function main(): int8 {
+function main(): uint8 {
     let value: int32 = 0;
     while (value < 3) {
         value = value + 1;
     }
-    return int8(value);
+    return uint8(value);
 }

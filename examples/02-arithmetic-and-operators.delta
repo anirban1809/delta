@@ -10,7 +10,7 @@
 //   codegen    : lower nested expression trees (arithmetic ops route through the
 //                checked helpers from feature 06).
 
-function main(): int8 {
+function main(): uint8 {
     const a: int32 = 6;
     const b: int32 = 4;
 
@@ -32,7 +32,7 @@ function main(): int8 {
     // const bad: int32 = a && b;       // ERROR: `&&` expects `bool` operands, found `int32`
     // const cmp: int32 = a > b;        // ERROR: type mismatch: expected `int32`, found `bool`
 
-    return int8(sum + diff + prod + quot + rem + masked + shifted + grouped);
+    return uint8(sum + diff + prod + quot + rem + masked + shifted + grouped);
 }
 
 /* === Generated C (illustrative) ===

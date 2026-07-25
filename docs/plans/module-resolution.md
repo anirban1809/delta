@@ -68,10 +68,10 @@ A consumer may import the declared module under a local alias:
 ```delta
 import math as numbers from "./arithmetic";
 
-function main(): int8 {
+function main(): uint8 {
     const sum: int32 = numbers.add(20, 22);
     const difference: int32 = numbers.subtract(50, 8);
-    return int8(sum - difference);
+    return uint8(sum - difference);
 }
 ```
 

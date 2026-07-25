@@ -65,5 +65,41 @@
     "file": "length_is_read_only_err.delta",
     "expect": "fail",
     "contains": "string length is read-only"
+  },
+  {
+    "file": "static_concatenation.delta",
+    "expect": "codegen_contains",
+    "emits": [
+      "static char __delta_string_0[13] = { 72, 101, 108, 108, 111, 44, 32, 119, 111, 114, 108, 100, 0 };",
+      "static char __delta_string_2[12] = { 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 0 };",
+      "static const delta_string message = (delta_string){ .data = __delta_string_0, .length = 12 };",
+      "static const delta_string world = (delta_string){ .data = __delta_string_2, .length = 11 };"
+    ],
+    "note": "literal and transitive const concatenations fold to independent static UTF-8 slices"
+  },
+  {
+    "name": "static concatenation produces compilable C",
+    "file": "static_concatenation.delta",
+    "expect": "run"
+  },
+  {
+    "file": "chained_utf8_concatenation.delta",
+    "expect": "run",
+    "note": "chained local constants are folded after escape decoding and preserve UTF-8 byte length"
+  },
+  {
+    "file": "runtime_let_concat_err.delta",
+    "expect": "fail",
+    "contains": "runtime string concatenation requires owned storage"
+  },
+  {
+    "file": "runtime_parameter_concat_err.delta",
+    "expect": "fail",
+    "contains": "runtime string concatenation requires owned storage"
+  },
+  {
+    "file": "runtime_const_concat_err.delta",
+    "expect": "fail",
+    "contains": "runtime string concatenation requires owned storage"
   }
 ]

@@ -1,5 +1,5 @@
 // E01 success — a local `let` binding with an initializer.
-function main(): int8 {
+function main(): uint8 {
     let total: int32 = 10;
     return total;
 }

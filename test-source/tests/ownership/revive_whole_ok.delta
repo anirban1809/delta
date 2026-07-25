@@ -3,9 +3,9 @@ unique type Handle = { id: int32; };
 
 function consume(value: Handle) { }
 
-function main(): int8 {
+function main(): uint8 {
     let value: Handle = { id: 7 };
     consume(move value);
     value = { id: 8 };
-    return int8(value.id);
+    return uint8(value.id);
 }

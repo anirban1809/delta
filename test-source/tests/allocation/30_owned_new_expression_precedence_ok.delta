@@ -1,7 +1,7 @@
 type struct Holder = { value: owned<int32> };
 
-function main(): int8 {
+function main(): uint8 {
     const value = new (1 + 2);
     const holder: Holder = Holder { value: value };
-    return int8(0);
+    return uint8(0);
 }

@@ -2,7 +2,7 @@ function noop(): void {
     let x: int32 = 1;
 }
 
-function main(): int8 {
+function main(): uint8 {
     noop();
-    return int8(0);
+    return uint8(0);
 }

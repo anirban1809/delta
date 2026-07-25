@@ -41,6 +41,7 @@ import { Scope } from "./scope.js";
 
 /** What a {@link Symbol} declares — used to distinguish entries in a {@link Scope}. */
 export enum SymbolKind {
+    SymbolInterfaceDecl,
     SymbolTypeStructDecl,
     SymbolTypeEnumDecl,
     SymbolTypeUnionDecl,
@@ -76,9 +77,9 @@ export type FunctionSignature = {
     receiverType?: Type;
     receiverName?: string;
     receiverEdit?: boolean;
-    external?:
-        | { abi: "c"; linkName: string }
-        | { abi: "delta"; moduleName?: string };
+    /** Synthetic signature selected from a generic parameter's interface bound. */
+    interfaceName?: string;
+    external?: { abi: "c"; linkName: string } | { abi: "delta"; moduleName?: string };
 };
 
 /**
@@ -241,7 +242,7 @@ export class Analyzer {
                         this.ast.fileName,
                         "semantic",
                         decl.position,
-                        "`main` must be declared at top level as `function main(): int8`",
+                        "`main` must be declared at top level as `function main(): uint8`",
                     ),
                 );
                 return;
@@ -287,7 +288,7 @@ export class Analyzer {
 
     /**
      * Checks that a function's signature is a valid `main`: no parameters, no
-     * error types, and exactly one `int8` return type. Returns `false` for any
+     * error types, and exactly one `uint8` return type. Returns `false` for any
      * deviation so the caller can report the canonical `main` shape.
      */
     verifyMainFunctionSignature(s: FunctionSignature): boolean {
@@ -299,7 +300,7 @@ export class Analyzer {
             return false;
         }
 
-        if (s.returnTypes.length != 1 || s.returnTypes[0]?.value != TypeValue.Type_Int8) {
+        if (s.returnTypes.length != 1 || s.returnTypes[0]?.value != TypeValue.Type_UInt8) {
             return false;
         }
 

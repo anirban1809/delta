@@ -1,4 +1,4 @@
-function main(): int8 {
+function main(): uint8 {
     let n: uintsize = 3;
     let a: int32[n] = [1, 2, 3];
     return 0;

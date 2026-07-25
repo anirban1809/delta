@@ -1,7 +1,7 @@
 // E0210 — integer literal `256` does not fit in `uint8`
 // Literal-fits-target is checked at the literal site (binding context typing),
 // before any runtime semantics — a compile error, not a trap.
-function main(): int8 {
+function main(): uint8 {
     const x: uint8 = 256;   // ERROR[E0210]: integer literal `256` does not fit in `uint8`
     return int32(x);
 }

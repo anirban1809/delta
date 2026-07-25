@@ -1,0 +1,6 @@
+function invalid<...T>(...values: T, other: uint8): void {
+}
+
+function main(): uint8 {
+    return uint8(0);
+}

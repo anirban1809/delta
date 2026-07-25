@@ -1,4 +1,4 @@
-function main(): int8 {
+function main(): uint8 {
     continue;
     return 0;
 }

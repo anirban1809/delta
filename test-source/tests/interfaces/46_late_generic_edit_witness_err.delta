@@ -1,0 +1,20 @@
+interface Readable {
+    function value(): int32;
+}
+
+type struct number_box = {
+    stored: int32
+} implements Readable;
+
+function (box: edit &number_box) value(): int32 {
+    return box.stored;
+}
+
+function main(): uint8 {
+    let box = number_box { stored: 1 };
+    return uint8(read_value(box));
+}
+
+function read_value<R: Readable>(reader: &R): int32 {
+    return reader.value();
+}

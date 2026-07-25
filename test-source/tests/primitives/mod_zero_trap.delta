@@ -1,6 +1,6 @@
-function main(): int8 {
+function main(): uint8 {
     let a: int32 = 7;
     let b: int32 = 0;
     let r: int32 = a % b;
-    return int8(r);
+    return uint8(r);
 }

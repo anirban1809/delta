@@ -7,8 +7,8 @@ function duplicate(value: &Box): Box {
     return cloned;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const value: Box = { value: new 7 };
     const duplicateValue = duplicate(value);
-    return int8(0);
+    return uint8(0);
 }

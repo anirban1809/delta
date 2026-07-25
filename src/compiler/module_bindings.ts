@@ -1,6 +1,12 @@
 import { SymbolKind, type FunctionSignature, type Symbol } from "../analysis/analyzer.js";
 import { Scope } from "../analysis/scope.js";
-import { TypeValue, type Module, type Position, type Type } from "../ast/types.js";
+import {
+    TypeValue,
+    type InterfaceDeclaration,
+    type Module,
+    type Position,
+    type Type,
+} from "../ast/types.js";
 
 export type ImportedSymbolReference = {
     moduleName: string;
@@ -48,6 +54,9 @@ function rewriteType(type: Type | undefined, names: Map<string, string>): Type |
     rewritten.typeParameters = rewritten.typeParameters?.map(
         (argument) => rewriteType(argument, names)!,
     );
+    rewritten.interfaceBounds = rewritten.interfaceBounds?.map(
+        (bound) => rewriteType(bound, names)!,
+    );
     rewritten.fields = rewritten.fields?.map((field) => ({
         name: field.name,
         type: rewriteType(field.type, names)!,
@@ -82,7 +91,12 @@ function namespaceTypeNames(
 ): Map<string, string> {
     const names = new Map<string, string>();
     for (const [exportName, binding] of exports) {
-        if (binding.kind != "symbol" || !binding.symbol.type) continue;
+        if (binding.kind != "symbol") continue;
+        if (binding.symbol.kind == SymbolKind.SymbolInterfaceDecl) {
+            names.set(binding.sourceName, `${prefix}.${exportName}`);
+            continue;
+        }
+        if (!binding.symbol.type) continue;
         if (
             ![
                 SymbolKind.SymbolTypeStructDecl,
@@ -99,12 +113,43 @@ function namespaceTypeNames(
 }
 
 function cloneSymbol(symbol: Symbol, name: string, typeNames: Map<string, string>): Symbol {
+    const declaration =
+        symbol.declaration?.kind == "interface_declaration"
+            ? ({
+                  ...symbol.declaration,
+                  name: { ...symbol.declaration.name, name },
+                  methods: symbol.declaration.methods.map((method) => ({
+                      ...method,
+                      parameters: method.parameters.map((parameter) => ({
+                          ...parameter,
+                          type: rewriteType(parameter.type, typeNames)!,
+                      })),
+                      returnTypes: method.returnTypes.map((type) => rewriteType(type, typeNames)!),
+                      errorTypes: method.errorTypes.map((type) => rewriteType(type, typeNames)!),
+                      typeParameters: method.typeParameters?.map(
+                          (type) => rewriteType(type, typeNames)!,
+                      ),
+                  })),
+              } satisfies InterfaceDeclaration)
+            : symbol.declaration;
     return {
         ...symbol,
         name,
+        declaration,
         type: rewriteType(symbol.type, typeNames),
         signature: rewriteSignature(symbol.signature, typeNames),
     };
+}
+
+function copyImplementations(
+    target: Scope,
+    targetTypeName: string,
+    binding: SymbolExportBinding,
+    typeNames: Map<string, string>,
+): void {
+    for (const interfaceName of binding.scope.implementations.get(binding.sourceName) ?? []) {
+        target.addImplementation(targetTypeName, typeNames.get(interfaceName) ?? interfaceName);
+    }
 }
 
 function copyMethods(
@@ -158,6 +203,7 @@ export function bindExport(
                         : undefined,
             });
             copyMethods(target, qualifiedName, member, typeNames);
+            copyImplementations(target, qualifiedName, member, typeNames);
         }
         return true;
     }
@@ -173,6 +219,7 @@ export function bindExport(
                 : undefined,
     });
     copyMethods(target, localName, binding, typeNames);
+    copyImplementations(target, localName, binding, typeNames);
     return true;
 }
 
@@ -195,7 +242,8 @@ export function buildExportTable(
             symbol.signature?.external?.abi == "delta"
                 ? symbol.signature.external.moduleName
                 : symbol.declaration?.kind == "variable_declaration_statement" ||
-                    symbol.declaration?.kind == "type_declaration"
+                    symbol.declaration?.kind == "type_declaration" ||
+                    symbol.declaration?.kind == "interface_declaration"
                   ? symbol.declaration.external?.moduleName
                   : undefined;
         exports.set(declaration.name.name, {

@@ -1,7 +1,7 @@
 type struct Box<T> = { value: T };
 
-function main(): int8 {
+function main(): uint8 {
     const b: Box<Box<int32>> = Box<Box<int32>> { value: Box<int32> { value: 9 } };
-    if (b.value.value != 9) { return int8(1); }
-    return int8(0);
+    if (b.value.value != 9) { return uint8(1); }
+    return uint8(0);
 }

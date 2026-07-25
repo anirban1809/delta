@@ -1,7 +1,7 @@
 // E05 success — compiler-derived structural equality `==` on records.
 type Point = { x: int32; y: int32; };
 
-function main(): int8 {
+function main(): uint8 {
     const a: Point = { x: 1, y: 2 };
     const b: Point = { x: 1, y: 2 };
     const same: bool = (a == b);

@@ -1,8 +1,8 @@
 type struct Inner = { data: int32[3] };
 type struct Outer = { inner: Inner, tag: int32 };
 
-function main(): int8 {
+function main(): uint8 {
     const o: Outer = Outer { inner: Inner { data: [7, 8, 9] }, tag: 1 };
-    if (o.inner.data[2] != 9) { return int8(1); }
-    return int8(0);
+    if (o.inner.data[2] != 9) { return uint8(1); }
+    return uint8(0);
 }

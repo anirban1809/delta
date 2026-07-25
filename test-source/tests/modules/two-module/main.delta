@@ -1,5 +1,5 @@
 import { BONUS, square } from "./math";
 
-function main(): int8 {
+function main(): uint8 {
     return square(5) + BONUS;
 }

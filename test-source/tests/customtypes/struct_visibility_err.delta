@@ -4,6 +4,6 @@ type struct Vec3 = {
     z: float64
 };
 
-function main(): int8 {
+function main(): uint8 {
     return 0;
 }

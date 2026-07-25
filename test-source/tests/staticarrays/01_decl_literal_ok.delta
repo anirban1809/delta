@@ -1,6 +1,6 @@
 type struct X = {a: int32, b: int32};
 
-function main(): int8 {
+function main(): uint8 {
     const values: int32[4] = [10, 20, 30, 40];
-    return int8(values[3] - 40);
+    return uint8(values[3] - 40);
 }

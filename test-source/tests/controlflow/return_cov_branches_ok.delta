@@ -2,6 +2,6 @@ function pick(b: bool): int32 {
     if (b) { return 0; } else { return 1; }
 }
 
-function main(): int8 {
-    return int8(pick(true));
+function main(): uint8 {
+    return uint8(pick(true));
 }

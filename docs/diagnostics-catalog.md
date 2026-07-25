@@ -29,7 +29,7 @@ at file.delta:LINE:COL
 | E0104 | cannot infer the type of `` `x` `` without an initializer or annotation |
 | E0105 | `let` is not allowed at file scope; use `const` |
 | E0106 | top-level executable statements are not allowed |
-| E0107 | `main` must be declared at top level as `function main(): int8` |
+| E0107 | `main` must be declared at top level as `function main(): uint8` |
 | E0108 | `` `f` `` is declared more than once (no overloading by name alone) |
 
 ## E02xx — Types, operators, conversions
@@ -171,7 +171,7 @@ Only `clone` on a copyable value warns.
 | E1203 | import cycle detected: `` `a → b → a` `` |
 |       | hint: declarations that reference each other must live in the same file |
 | E1204 | import path case mismatch: file is `` `./User.delta` `` but the import says `` `./user` `` |
-| E1205 | unknown standard library module `` `std/foo` `` |
+| E1205 | unknown or unconfigured standard library module (`std/foo` or `@std/foo`) |
 
 ---
 

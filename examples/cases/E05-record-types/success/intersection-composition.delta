@@ -2,7 +2,7 @@
 type Animal = { legs: int32; sound: int32; };
 type Cat = Animal & { indoor: bool; };
 
-function main(): int8 {
+function main(): uint8 {
     const felix: Cat = { legs: 4, sound: 2, indoor: true };
     return felix.legs;
 }

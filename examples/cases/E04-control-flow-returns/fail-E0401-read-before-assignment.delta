@@ -1,5 +1,5 @@
 // E0401 — `x` may be read before it is assigned
-function main(): int8 {
+function main(): uint8 {
     let x: int32;
     return x;   // ERROR[E0401]: `x` may be read before it is assigned
 }

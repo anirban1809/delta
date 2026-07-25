@@ -1,0 +1,11 @@
+interface Writer {
+    function write(value: string): void;
+}
+
+type struct output = {
+    marker: uint8
+} implements Writer, Writer;
+
+function (output: &output) write(value: string): void {
+}
+

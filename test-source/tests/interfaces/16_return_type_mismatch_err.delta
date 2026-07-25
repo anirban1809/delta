@@ -1,0 +1,12 @@
+interface Readable {
+    function read(): int32;
+}
+
+type struct reader = {
+    marker: uint8
+} implements Readable;
+
+function (reader: &reader) read(): bool {
+    return true;
+}
+

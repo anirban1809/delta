@@ -1,5 +1,5 @@
 // type-inference success — a float literal infers as float64.
-function main(): int8 {
+function main(): uint8 {
     const ratio = 1.5;   // inferred float64
     return int32(ratio);
 }

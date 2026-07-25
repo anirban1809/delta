@@ -1,4 +1,4 @@
-function main(): int8 {
+function main(): uint8 {
     let value: int32 = 0;
     if (true) {
         if (value == 0) {
@@ -9,5 +9,5 @@ function main(): int8 {
     } else {
         value = 3;
     }
-    return int8(value);
+    return uint8(value);
 }

@@ -13,4 +13,4 @@ function test(flag: bool): int32 {
     return inspect(value);
 }
 
-function main(): int8 { return int8(test(false)); }
+function main(): uint8 { return uint8(test(false)); }

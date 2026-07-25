@@ -1,5 +1,5 @@
 // E0210 — integer literal `99999999999` does not fit in `int32`
-function main(): int8 {
+function main(): uint8 {
     const big: int32 = 99999999999;   // ERROR[E0210]: integer literal `99999999999` does not fit in `int32`
     return big;
 }

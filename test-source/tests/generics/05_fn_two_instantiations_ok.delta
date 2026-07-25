@@ -2,10 +2,10 @@ function identity<T>(value: T): T {
     return value;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let a: int32 = identity(42);
     let b: bool = identity(true);
-    if (a != 42) { return int8(1); }
-    if (!b)      { return int8(2); }
-    return int8(0);
+    if (a != 42) { return uint8(1); }
+    if (!b)      { return uint8(2); }
+    return uint8(0);
 }

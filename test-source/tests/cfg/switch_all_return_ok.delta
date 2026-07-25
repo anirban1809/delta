@@ -1,11 +1,11 @@
-function main(): int8 {
+function main(): uint8 {
     let tag: int32 = 2;
     switch (tag) {
         case 1:
-            return int8(1);
+            return uint8(1);
         case 2:
-            return int8(2);
+            return uint8(2);
         default:
-            return int8(3);
+            return uint8(3);
     }
 }

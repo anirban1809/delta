@@ -1,0 +1,5 @@
+function main(): uint8 {
+    let hello = "hello";
+    const message = hello + " world";
+    return uint8(0);
+}

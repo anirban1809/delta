@@ -1,5 +1,5 @@
 // E02 success — explicit narrowing conversion `int64 -> int32` (in-range value).
-function main(): int8 {
+function main(): uint8 {
     const big: int64 = 100;
     const small: int32 = int32(big);
     return small;

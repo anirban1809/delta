@@ -1,0 +1,23 @@
+interface Counter {
+    function increment(): void;
+    function current(): int32;
+}
+
+type struct counter = {
+    value: int32
+} implements Counter;
+
+function (counter: edit &counter) increment(): void {
+    counter.value = counter.value + 1;
+}
+
+function (counter: &counter) current(): int32 {
+    return counter.value;
+}
+
+function main(): uint8 {
+    let value = counter { value: 7 };
+    value.increment();
+    return uint8(value.current());
+}
+

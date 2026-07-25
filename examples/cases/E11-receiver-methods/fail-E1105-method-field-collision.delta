@@ -5,7 +5,7 @@ function (c: &Counter) value(): int64 {   // ERROR[E1105]: method `value` collid
     return c.value;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let c: Counter = { value: new 0 };
     return int32(c.value());
 }

@@ -34,7 +34,7 @@ class Counter {
     }
 }
 
-function main(): int8 {
+function main(): uint8 {
     let a = Counter.new(10);
     a.add(5) as result;
     check result {

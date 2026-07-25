@@ -36,11 +36,11 @@ Assignment is a statement, not a value. The assignment operators are `=`, `+=`, 
 
 - One file is one module. A module's stable identity is its project-relative path without `.delta`; path separators become namespace separators for generated symbols.
 - Selective imports have the form `import { Name, Other } from "path";`. A file ending in `export module name;` exports its complete top-level scope, including imported bindings, and may be consumed with `import name from "path";` or `import name as local from "path";`. All imports must precede every non-import declaration. The current core has no selective-import renaming syntax.
-- Relative paths must begin with `./` or `../` and resolve relative to the importing file. A manifest may define project-root-relative import mappings through `delta.json`'s `dependencies` object; dependency names have the form `@name` and match both exact imports and subpaths. `@std/...` is reserved for the compiler-shipped standard library and cannot be redefined. The legacy `std/...` spelling remains accepted. Other bare roots are rejected.
+- Relative paths must begin with `./` or `../` and resolve relative to the importing file. A manifest may define project-root-relative import mappings through `delta.json`'s `dependencies` object; dependency names have the form `@name` and match both exact imports and subpaths. Extensionless relative and dependency imports try `<path>.delta` and then `<path>.ffi.delta`. `@std/...` is reserved for the standard library, takes its dependency root from `DELTA_STD_LIB`, uses the same extensionless resolution, and cannot be redefined. The legacy `std/...` spelling remains accepted. Other bare roots are rejected.
 - The module graph is acyclic. Missing modules, missing names, import cycles, and imports of private declarations are compile errors.
 - `export` on a top-level function, `const`, type, or receiver function makes it visible outside its module. Without `export module`, an unmarked declaration is module-private. `export module` exports every eligible local declaration and re-exports every imported binding as a group. Record fields are transparent; receiver functions travel with their receiver type.
 - A record's receiver function must be declared in the same module as the record. Importing the record makes its exported receiver functions available; method names are not separately imported.
-- A program has exactly one `function main(): int8`. Its returned value is the process exit status. Top-level code never runs implicitly.
+- A program has exactly one `function main(): uint8`. Its returned value is the process exit status. Top-level code never runs implicitly.
 - A project may be built from an explicit entry `.delta` file or a JSONC `delta.json`. A manifest may select the entry, build options, and import path aliases; comments and trailing commas are permitted, unknown fields are ignored, and the schema version is checked.
 
 ## 3. Names, scopes, and bindings
@@ -274,7 +274,7 @@ export function (counter: edit &Counter) add(amount: int32): void | OverflowErro
     return;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let counter: Counter = Counter { value: 0 };
     counter.add(1) as update;
     check update {

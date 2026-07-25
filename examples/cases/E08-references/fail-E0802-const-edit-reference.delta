@@ -5,7 +5,7 @@ function scale(v: edit &Vec3, factor: float64): void {
     v.x = v.x * factor;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const frozen: Vec3 = { x: 0.0, y: 0.0, z: 0.0 };
     scale(edit &frozen, 2.0);   // ERROR[E0802]: `const` binding `frozen` cannot produce an `edit &` reference
     return 0;

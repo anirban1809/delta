@@ -3,4 +3,4 @@ unique type Handle = { id: int32; };
 
 function (value: edit &Handle) dispose(force: bool) { }
 
-function main(): int8 { return 0; }
+function main(): uint8 { return 0; }

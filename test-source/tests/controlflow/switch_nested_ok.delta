@@ -1,12 +1,12 @@
-function main(): int8 {
+function main(): uint8 {
     let a: int32 = 1;
     let b: int32 = 2;
     switch (a) {
         case 1:
             switch (b) {
-                case 2:   return int8(0);
-                default:  return int8(1);
+                case 2:   return uint8(0);
+                default:  return uint8(1);
             }
-        default: return int8(2);
+        default: return uint8(2);
     }
 }

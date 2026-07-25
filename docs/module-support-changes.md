@@ -606,7 +606,7 @@ export function scaffoldProject(name: string, parentDirectory: string): string {
     fs.writeFileSync(path.join(projectRoot, ".gitignore"), "/build\n");
     fs.writeFileSync(
         path.join(projectRoot, "src", "main.delta"),
-        `function main(): int8 {
+        `function main(): uint8 {
     return 0;
 }
 `,

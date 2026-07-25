@@ -2,6 +2,6 @@ function pick(): int32 {
     let x: int32 = 1;
 }
 
-function main(): int8 {
+function main(): uint8 {
     return pick();
 }

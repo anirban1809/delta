@@ -1,6 +1,6 @@
-function main(): int8 {
+function main(): uint8 {
     const a: int32[3] = [10, 20, 30];
     let s: int32 = a[0] + a[1] + a[2];
-    if (s != 60) { return int8(1); }
-    return int8(0);
+    if (s != 60) { return uint8(1); }
+    return uint8(0);
 }

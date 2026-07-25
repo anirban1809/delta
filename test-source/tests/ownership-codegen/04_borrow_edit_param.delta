@@ -6,8 +6,8 @@ function increment(counter: edit &Counter) {
     counter.value = counter.value + 1;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let counter: Counter = { value: 7 };
     increment(counter);
-    return int8(counter.value);
+    return uint8(counter.value);
 }

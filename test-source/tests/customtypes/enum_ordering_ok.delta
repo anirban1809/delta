@@ -1,10 +1,10 @@
 type enum Facing = { North: 0, East: 90, South: 180, West: 270 };
 
-function main(): int8 {
+function main(): uint8 {
     // ordering falls out of enum members being int32 literals
-    if (!(Facing.North < Facing.East)) { return int8(1); }
-    if (!(Facing.West > Facing.South)) { return int8(2); }
-    if (Facing.East >= Facing.South)   { return int8(3); }
-    if (Facing.South <= 90)            { return int8(4); }
-    return int8(0);
+    if (!(Facing.North < Facing.East)) { return uint8(1); }
+    if (!(Facing.West > Facing.South)) { return uint8(2); }
+    if (Facing.East >= Facing.South)   { return uint8(3); }
+    if (Facing.South <= 90)            { return uint8(4); }
+    return uint8(0);
 }

@@ -15,6 +15,6 @@ function incompatible(x: int32): int32 | DivideByZeroError {
     return value;
 }
 
-function main(): int8 {
+function main(): uint8 {
     return 0;
 }

@@ -1,5 +1,5 @@
 type struct Node<T> = { item: T, next: Node<T> };
 
-function main(): int8 {
+function main(): uint8 {
     return 0;
 }

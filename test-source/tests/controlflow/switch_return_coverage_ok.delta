@@ -6,9 +6,9 @@ function pick(n: int32): int32 {
     }
 }
 
-function main(): int8 {
-    if (pick(0) != 100) { return int8(1); }
-    if (pick(1) != 200) { return int8(2); }
-    if (pick(9) != 300) { return int8(3); }
-    return int8(0);
+function main(): uint8 {
+    if (pick(0) != 100) { return uint8(1); }
+    if (pick(1) != 200) { return uint8(2); }
+    if (pick(9) != 300) { return uint8(3); }
+    return uint8(0);
 }

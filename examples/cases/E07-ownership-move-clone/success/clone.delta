@@ -2,7 +2,7 @@
 // Cloning a heap-owning record allocates, so it binds with `as result` (OOM).
 type Counter = { value: heap<int64>; };
 
-function main(): int8 {
+function main(): uint8 {
     let a: Counter = { value: new 0 };
     let b = clone a as result;   // fresh allocation; `a` remains valid
     check result {

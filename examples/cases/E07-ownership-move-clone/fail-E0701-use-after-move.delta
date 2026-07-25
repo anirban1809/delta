@@ -2,7 +2,7 @@
 // hint: `a` was moved on line N; `move` invalidates the source
 type Counter = { value: heap<int64>; };
 
-function main(): int8 {
+function main(): uint8 {
     let a: Counter = { value: new 0 };
     let b = move a;
     const dead = a.value;   // ERROR[E0701]: use of moved value `a`

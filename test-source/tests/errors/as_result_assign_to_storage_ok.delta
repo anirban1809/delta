@@ -11,13 +11,13 @@ function accumulate(a: int64, b: int64): int64 | OverflowError {
     return acc;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const total = accumulate(10, 20) as result;
     check result {
-        return int8(1);
+        return uint8(1);
     }
     if (total == 30) {
-        return int8(0);
+        return uint8(0);
     }
-    return int8(2);
+    return uint8(2);
 }

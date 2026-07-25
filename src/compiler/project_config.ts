@@ -17,7 +17,7 @@ export type DeltaManifest = {
 
 export type ImportPathResolution =
     | { kind: "file"; filePath: string }
-    | { kind: "standard"; modulePath: string }
+    | { kind: "standard"; modulePath: string; reason?: string }
     | { kind: "unknown" };
 
 const dependencyNamePattern = /^@[A-Za-z][A-Za-z0-9_-]*$/;
@@ -35,9 +35,7 @@ export function readDeltaManifest(manifestPath: string): DeltaManifest {
     };
     const kind = parsed.kind ?? "executable";
     if (!["executable", "static", "dynamic"].includes(kind as string)) {
-        throw new Error(
-            "delta.json kind must be one of `executable`, `static`, or `dynamic`",
-        );
+        throw new Error("delta.json kind must be one of `executable`, `static`, or `dynamic`");
     }
     const dependencies = new Map<string, string>();
     const external = new Map<string, string>();
@@ -83,8 +81,7 @@ export function readDeltaManifest(manifestPath: string): DeltaManifest {
                     `invalid external package name \`${name}\`: package names may contain letters, numbers, underscores, and hyphens`,
                 );
             }
-            const separator =
-                typeof specification == "string" ? specification.indexOf(":") : -1;
+            const separator = typeof specification == "string" ? specification.indexOf(":") : -1;
             if (
                 typeof specification !== "string" ||
                 separator <= 0 ||
@@ -119,8 +116,12 @@ export function findNearestDeltaManifest(startDirectory: string): string | undef
     }
 }
 
-function withDeltaExtension(filePath: string): string {
-    return filePath.endsWith(".delta") ? filePath : `${filePath}.delta`;
+function resolveDeltaFile(filePath: string): string {
+    if (filePath.endsWith(".delta")) return filePath;
+    const sourcePath = `${filePath}.delta`;
+    if (fs.existsSync(sourcePath)) return sourcePath;
+    const interfacePath = `${filePath}.ffi.delta`;
+    return fs.existsSync(interfacePath) ? interfacePath : sourcePath;
 }
 
 /** Resolves relative, configured-alias, and reserved standard-library imports. */
@@ -137,15 +138,24 @@ export function resolveImportSpecifier(
         importPath === STANDARD_LIBRARY_ALIAS ||
         importPath.startsWith(`${STANDARD_LIBRARY_ALIAS}/`)
     ) {
+        const configuredRoot = process.env.DELTA_STD_LIB?.trim();
+        if (configuredRoot) {
+            const suffix = importPath.slice(STANDARD_LIBRARY_ALIAS.length).replace(/^\//, "");
+            const resolved = suffix
+                ? path.resolve(configuredRoot, suffix)
+                : path.resolve(configuredRoot);
+            return { kind: "file", filePath: resolveDeltaFile(resolved) };
+        }
         return {
             kind: "standard",
             modulePath: `std${importPath.slice(STANDARD_LIBRARY_ALIAS.length)}`,
+            reason: "DELTA_STD_LIB is not set",
         };
     }
     if (importPath.startsWith("./") || importPath.startsWith("../")) {
         return {
             kind: "file",
-            filePath: withDeltaExtension(path.resolve(path.dirname(importer), importPath)),
+            filePath: resolveDeltaFile(path.resolve(path.dirname(importer), importPath)),
         };
     }
 
@@ -157,7 +167,7 @@ export function resolveImportSpecifier(
     const resolved = suffix
         ? path.resolve(projectRoot, target, suffix)
         : path.resolve(projectRoot, target);
-    return { kind: "file", filePath: withDeltaExtension(resolved) };
+    return { kind: "file", filePath: resolveDeltaFile(resolved) };
 }
 
 /** Returns the shortest configured alias spelling for an existing source path. */
@@ -170,13 +180,15 @@ export function aliasSpecifierForPath(
     const candidates: string[] = [];
     for (const [alias, configuredTarget] of aliases) {
         const aliasTarget = path.resolve(projectRoot, configuredTarget);
-        if (withDeltaExtension(aliasTarget) === normalizedTarget) {
+        if (resolveDeltaFile(aliasTarget) === normalizedTarget) {
             candidates.push(alias);
             continue;
         }
         const relative = path.relative(aliasTarget, normalizedTarget);
         if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) continue;
-        candidates.push(`${alias}/${relative.replaceAll(path.sep, "/").replace(/\.delta$/i, "")}`);
+        candidates.push(
+            `${alias}/${relative.replaceAll(path.sep, "/").replace(/(?:\.ffi)?\.delta$/i, "")}`,
+        );
     }
     return candidates.sort((left, right) => left.length - right.length)[0];
 }

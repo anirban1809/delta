@@ -1,5 +1,5 @@
 // E0405 — `break` outside of a loop
-function main(): int8 {
+function main(): uint8 {
     break;   // ERROR[E0405]: `break` outside of a loop
     return 0;
 }

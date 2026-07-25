@@ -4,6 +4,6 @@ type A = { x: int32; };
 type B = A & C;
 type C = { b: B; };
 
-function main(): int8 {
+function main(): uint8 {
     return 0;
 }

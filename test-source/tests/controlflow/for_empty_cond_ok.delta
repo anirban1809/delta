@@ -1,4 +1,4 @@
-function main(): int8 {
+function main(): uint8 {
     let sum: int32 = 0;
     for (let i: int32 = 0; ; i++) {
         if (i == 5) {
@@ -6,5 +6,5 @@ function main(): int8 {
         }
         sum = sum + i;
     }
-    return int8(sum);
+    return uint8(sum);
 }

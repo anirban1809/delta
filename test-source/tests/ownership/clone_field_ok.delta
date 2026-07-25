@@ -3,9 +3,9 @@
 type Box = { value: heap<int32>; };
 type Holder = { box: Box; tag: int32; };
 
-function main(): int8 {
+function main(): uint8 {
     const holder: Holder = { box: { value: new 1 }, tag: 2 };
     const cloned = clone holder.box as result;
-    check result { return int8(1); }
-    return int8(0);
+    check result { return uint8(1); }
+    return uint8(0);
 }

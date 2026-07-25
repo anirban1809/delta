@@ -1,5 +1,5 @@
 // type-inference success — a bare integer literal infers as int32.
-function main(): int8 {
+function main(): uint8 {
     const count = 0;   // inferred int32
     return count;
 }

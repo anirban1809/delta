@@ -4,7 +4,7 @@ unique type Handle = { id: int32; };
 function inspect(value: &Handle): int32 { return value.id; }
 function consume(value: Handle) { }
 
-function main(): int8 {
+function main(): uint8 {
     let value: Handle = { id: 7 };
     consume(move value);
     return inspect(value);

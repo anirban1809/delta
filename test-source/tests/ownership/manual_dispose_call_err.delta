@@ -3,7 +3,7 @@ unique type Handle = { id: int32; };
 
 function (value: edit &Handle) dispose() { }
 
-function main(): int8 {
+function main(): uint8 {
     let value: Handle = { id: 7 };
     value.dispose();
     return 0;

@@ -8,13 +8,13 @@ function safeNarrow(big: int64): int32 | NarrowingError {
     return small;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const v = safeNarrow(42) as result;
     check result {
-        return int8(1);
+        return uint8(1);
     }
     if (v == 42) {
-        return int8(0);
+        return uint8(0);
     }
-    return int8(2);
+    return uint8(2);
 }

@@ -1,0 +1,9 @@
+const message = "Hello, " + "world";
+const hello = "hello";
+const world = hello + ' world';
+
+function main(): uint8 {
+    if (message.length != uintsize(12)) { return uint8(1); }
+    if (world.length != uintsize(11)) { return uint8(2); }
+    return uint8(0);
+}

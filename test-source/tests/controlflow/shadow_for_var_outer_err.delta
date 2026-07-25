@@ -1,4 +1,4 @@
-function main(): int8 {
+function main(): uint8 {
     let i: int32 = 0;
     for (let i: int32 = 0; i < 5; i++) {
     }

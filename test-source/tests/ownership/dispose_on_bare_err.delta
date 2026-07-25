@@ -5,4 +5,4 @@ function (counter: edit &Counter) dispose() {
     counter.value = 0;
 }
 
-function main(): int8 { return 0; }
+function main(): uint8 { return 0; }

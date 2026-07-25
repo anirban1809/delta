@@ -15,8 +15,8 @@ function (stack: edit &Stack<T>) push<T>(value: T) {
     stack.pointer = stack.pointer + 1;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let stack = stack_new<int32>([0, 0, 0, 0, 0]);
     stack.push(7);
-    return int8(stack.data[0] - 7);
+    return uint8(stack.data[0] - 7);
 }

@@ -1,9 +1,9 @@
 type enum Facing = { North: 0, East: 90, South: 180, West: 270 };
 
-function main(): int8 {
+function main(): uint8 {
     // an integer literal that names a member coerces to the enum by context
     const f: Facing = 90;
-    if (f != Facing.East) { return int8(1); }
-    if (f != 90)          { return int8(2); }
-    return int8(0);
+    if (f != Facing.East) { return uint8(1); }
+    if (f != 90)          { return uint8(2); }
+    return uint8(0);
 }

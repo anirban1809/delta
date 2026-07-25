@@ -1,105 +1,109 @@
 {
-  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-  "name": "Delta",
-  "scopeName": "source.delta",
-  "patterns": [
-    { "include": "#comments" },
-    { "include": "#strings" },
-    { "include": "#numbers" },
-    { "include": "#keywords" },
-    { "include": "#types" },
-    { "include": "#functions" }
-  ],
-  "repository": {
-    "comments": {
-      "patterns": [
-        {
-          "name": "comment.line.double-slash.delta",
-          "begin": "//",
-          "end": "$"
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "Delta",
+    "scopeName": "source.delta",
+    "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#keywords" },
+        { "include": "#types" },
+        { "include": "#functions" }
+    ],
+    "repository": {
+        "comments": {
+            "patterns": [
+                {
+                    "name": "comment.line.double-slash.delta",
+                    "begin": "//",
+                    "end": "$"
+                },
+                {
+                    "name": "comment.block.delta",
+                    "begin": "/\\*",
+                    "end": "\\*/"
+                }
+            ]
         },
-        {
-          "name": "comment.block.delta",
-          "begin": "/\\*",
-          "end": "\\*/"
-        }
-      ]
-    },
-    "strings": {
-      "patterns": [
-        {
-          "name": "constant.character.delta",
-          "match": "'(?:\\\\(?:u\\{[0-9A-Fa-f]{1,6}\\}|x[0-9A-Fa-f]{2}|.)|[^'\\\\])'"
+        "strings": {
+            "patterns": [
+                {
+                    "name": "constant.character.delta",
+                    "match": "'(?:\\\\(?:u\\{[0-9A-Fa-f]{1,6}\\}|x[0-9A-Fa-f]{2}|.)|[^'\\\\])'"
+                },
+                {
+                    "name": "string.quoted.double.delta",
+                    "begin": "\"",
+                    "end": "\"",
+                    "patterns": [{ "include": "#escapes" }]
+                },
+                {
+                    "name": "string.quoted.single.delta",
+                    "begin": "'",
+                    "end": "'",
+                    "patterns": [{ "include": "#escapes" }]
+                }
+            ]
         },
-        {
-          "name": "string.quoted.double.delta",
-          "begin": "\"",
-          "end": "\"",
-          "patterns": [{ "include": "#escapes" }]
+        "escapes": {
+            "patterns": [
+                {
+                    "name": "constant.character.escape.delta",
+                    "match": "\\\\(?:[nrt0\\\\\"']|x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]{1,6}\\})"
+                }
+            ]
         },
-        {
-          "name": "string.quoted.single.delta",
-          "begin": "'",
-          "end": "'",
-          "patterns": [{ "include": "#escapes" }]
-        }
-      ]
-    },
-    "escapes": {
-      "patterns": [
-        {
-          "name": "constant.character.escape.delta",
-          "match": "\\\\(?:[nrt0\\\\\"']|x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]{1,6}\\})"
-        }
-      ]
-    },
-    "numbers": {
-      "patterns": [
-        {
-          "name": "constant.numeric.float.delta",
-          "match": "\\b[0-9](?:[0-9_]*[0-9])?\\.[0-9](?:[0-9_]*[0-9])?(?:[eE][+-]?[0-9](?:[0-9_]*[0-9])?)?\\b|\\b[0-9](?:[0-9_]*[0-9])?[eE][+-]?[0-9](?:[0-9_]*[0-9])?\\b"
+        "numbers": {
+            "patterns": [
+                {
+                    "name": "constant.numeric.float.delta",
+                    "match": "\\b[0-9](?:[0-9_]*[0-9])?\\.[0-9](?:[0-9_]*[0-9])?(?:[eE][+-]?[0-9](?:[0-9_]*[0-9])?)?\\b|\\b[0-9](?:[0-9_]*[0-9])?[eE][+-]?[0-9](?:[0-9_]*[0-9])?\\b"
+                },
+                {
+                    "name": "constant.numeric.integer.delta",
+                    "match": "\\b(?:0[xX][0-9A-Fa-f](?:[0-9A-Fa-f_]*[0-9A-Fa-f])?|0[bB][01](?:[01_]*[01])?|0[oO][0-7](?:[0-7_]*[0-7])?|[0-9](?:[0-9_]*[0-9])?)\\b"
+                },
+                {
+                    "name": "constant.language.boolean.delta",
+                    "match": "\\b(?:true|false)\\b"
+                }
+            ]
         },
-        {
-          "name": "constant.numeric.integer.delta",
-          "match": "\\b(?:0[xX][0-9A-Fa-f](?:[0-9A-Fa-f_]*[0-9A-Fa-f])?|0[bB][01](?:[01_]*[01])?|0[oO][0-7](?:[0-7_]*[0-7])?|[0-9](?:[0-9_]*[0-9])?)\\b"
+        "keywords": {
+            "patterns": [
+                {
+                    "name": "keyword.control.delta",
+                    "match": "\\b(?:if|else|while|for|switch|case|default|break|continue|return|check|forward)\\b"
+                },
+                {
+                    "name": "keyword.declaration.delta",
+                    "match": "\\b(?:function|const|let|type|struct|enum|union|interface|implements|import|export|module|from|error)\\b"
+                },
+                {
+                    "name": "keyword.operator.word.delta",
+                    "match": "\\b(?:as|new|move|clone|edit|unique|heap|owned)\\b"
+                }
+            ]
         },
-        {
-          "name": "constant.language.boolean.delta",
-          "match": "\\b(?:true|false)\\b"
-        }
-      ]
-    },
-    "keywords": {
-      "patterns": [
-        {
-          "name": "keyword.control.delta",
-          "match": "\\b(?:if|else|while|for|switch|case|default|break|continue|return|check|forward)\\b"
+        "types": {
+            "patterns": [
+                {
+                    "name": "storage.type.primitive.delta",
+                    "match": "\\b(?:int8|int16|int32|int64|intsize|uint8|uint16|uint32|uint64|uintsize|float32|float64|bool|char|string|void)\\b"
+                },
+                {
+                    "name": "entity.name.type.interface.delta",
+                    "match": "(?<=\\binterface\\s)[A-Za-z_][A-Za-z0-9_]*"
+                }
+            ]
         },
-        {
-          "name": "keyword.declaration.delta",
-          "match": "\\b(?:function|const|let|type|struct|enum|union|import|export|module|from|error)\\b"
-        },
-        {
-          "name": "keyword.operator.word.delta",
-          "match": "\\b(?:as|new|move|clone|edit|unique|heap|owned)\\b"
+        "functions": {
+            "patterns": [
+                {
+                    "name": "entity.name.function.delta",
+                    "match": "(?<=\\bfunction\\s)[A-Za-z_][A-Za-z0-9_]*"
+                }
+            ]
         }
-      ]
-    },
-    "types": {
-      "patterns": [
-        {
-          "name": "storage.type.primitive.delta",
-          "match": "\\b(?:int8|int16|int32|int64|intsize|uint8|uint16|uint32|uint64|uintsize|float32|float64|bool|char|string|void)\\b"
-        }
-      ]
-    },
-    "functions": {
-      "patterns": [
-        {
-          "name": "entity.name.function.delta",
-          "match": "(?<=\\bfunction\\s)[A-Za-z_][A-Za-z0-9_]*"
-        }
-      ]
     }
-  }
 }

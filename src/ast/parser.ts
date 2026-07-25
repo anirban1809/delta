@@ -3,6 +3,11 @@ import { Error } from "../diagnostics/diagnostics.js";
 import type { Tokenizer } from "./tokenizer.js";
 import { getTokenPosition, string, TokenKind, type Token } from "./tokens.js";
 import {
+    documentationFromComments,
+    isDocumentationComment,
+    tokenEndLine,
+} from "./documentation.js";
+import {
     Position,
     type Project,
     type Module,
@@ -35,6 +40,8 @@ import {
     type MemberAccessExpression,
     type UnionDecl,
     type ImportDeclaration,
+    type InterfaceDeclaration,
+    type InterfaceMethodRequirement,
     type ModuleDeclaration,
     type AsResultBinding,
     type CheckBlockStatement,
@@ -136,6 +143,31 @@ export class Parser {
         }
     }
 
+    /**
+     * Consumes comments at the cursor and returns Markdown from the final
+     * contiguous documentation-comment run when it directly precedes the next
+     * token. Ordinary comments and blank lines break the association.
+     */
+    takeDocumentationComments(): string | undefined {
+        let comments: Token[] = [];
+        while (
+            this.current().kind == TokenKind.Kind_LineComment ||
+            this.current().kind == TokenKind.Kind_BlockComment
+        ) {
+            const comment = this.advance();
+            if (!isDocumentationComment(comment)) {
+                comments = [];
+                continue;
+            }
+            const previous = comments[comments.length - 1];
+            if (previous && comment.line - tokenEndLine(previous) > 1) comments = [];
+            comments.push(comment);
+        }
+        const last = comments[comments.length - 1];
+        if (!last || this.current().line - tokenEndLine(last) > 1) return undefined;
+        return documentationFromComments(comments);
+    }
+
     /** Parses fixed-array extents or the terminal slice suffix following a type name. */
     parseArraySuffixes(): U<{ arrayLengths: number[]; slice: boolean }> {
         const arrayLengths: number[] = [];
@@ -200,7 +232,12 @@ export class Parser {
         }
         if (edit && !reference) {
             this.diagnostics.addError(
-                Error(this.filepath, "parser", this.getCurrentPosition(), "`edit` may only qualify a reference (`edit &T`)"),
+                Error(
+                    this.filepath,
+                    "parser",
+                    this.getCurrentPosition(),
+                    "`edit` may only qualify a reference (`edit &T`)",
+                ),
             );
             return;
         }
@@ -208,7 +245,12 @@ export class Parser {
         const token = this.current();
         if (token.kind != TokenKind.Kind_Identifier && token.kind != TokenKind.Keyword_Heap) {
             this.diagnostics.addError(
-                Error(this.filepath, "parser", this.getCurrentPosition(), "type identifier expected"),
+                Error(
+                    this.filepath,
+                    "parser",
+                    this.getCurrentPosition(),
+                    "type identifier expected",
+                ),
             );
             return;
         }
@@ -236,7 +278,11 @@ export class Parser {
             nameParts.push(member.value);
         }
         const sourceName = nameParts.join(".");
-        let type = CreateType(sourceName, this.resolveTypeValue(sourceName), getTokenPosition(token));
+        let type = CreateType(
+            sourceName,
+            this.resolveTypeValue(sourceName),
+            getTokenPosition(token),
+        );
         const parameter = typeParameters?.find((candidate) => candidate.name.name == sourceName);
         if (parameter) type = { ...parameter, position: getTokenPosition(token) };
 
@@ -248,7 +294,12 @@ export class Parser {
             );
         } else if (token.kind == TokenKind.Keyword_Heap) {
             this.diagnostics.addError(
-                Error(this.filepath, "parser", getTokenPosition(token), "owned type requires one type argument"),
+                Error(
+                    this.filepath,
+                    "parser",
+                    getTokenPosition(token),
+                    "owned type requires one type argument",
+                ),
             );
             return;
         }
@@ -282,23 +333,40 @@ export class Parser {
         }
 
         while (this.current().kind != TokenKind.Symbol_RightParen) {
+            const variadic = this.current().kind == TokenKind.Symbol_Ellipsis;
+            if (variadic) this.advance();
             const p = this.expect(TokenKind.Kind_Identifier, "identifier expected");
             if (!p || !this.expect(TokenKind.Symbol_Colon, ": symbol expected")) return;
             const t = this.parseTypeReference(typeParams);
             if (!t) return;
+            if (variadic) t.slice = true;
             this.objectNonValueDecls.set(p.value, t.name.name);
 
             params.push({
                 position: getTokenPosition(p),
                 name: CreateIdentifier(p.value, getTokenPosition(p)),
                 type: t,
+                variadic: variadic || undefined,
             });
             if (this.current().kind == TokenKind.Symbol_Comma) {
+                if (variadic) {
+                    this.diagnostics.addError(
+                        Error(
+                            this.filepath,
+                            "parser",
+                            getTokenPosition(p),
+                            "a variadic parameter must be the final parameter",
+                        ),
+                    );
+                    return;
+                }
                 this.advance();
                 continue;
             }
             if (this.current().kind != TokenKind.Symbol_RightParen) {
-                this.diagnostics.addError(Error(this.filepath, "parser", this.getCurrentPosition(), ", or ) expected"));
+                this.diagnostics.addError(
+                    Error(this.filepath, "parser", this.getCurrentPosition(), ", or ) expected"),
+                );
                 return;
             }
         }
@@ -318,7 +386,14 @@ export class Parser {
             if (!returnType) return;
             if (returnType.name.name == "void") {
                 if (returns.length) {
-                    this.diagnostics.addError(Error(this.filepath, "parser", returnType.position!, "void cannot be combined with another return type"));
+                    this.diagnostics.addError(
+                        Error(
+                            this.filepath,
+                            "parser",
+                            returnType.position!,
+                            "void cannot be combined with another return type",
+                        ),
+                    );
                     return;
                 }
                 return [];
@@ -349,12 +424,14 @@ export class Parser {
 
     parseTypeParams(decl: boolean): U<Type[]> {
         this.advance(); // consume < symbol
-        let types: Type[] = [];
+        const types: Type[] = [];
 
         while (
             this.current().kind != TokenKind.Symbol_Greater &&
             this.current().kind != TokenKind.Symbol_ShiftRight
         ) {
+            const variadic = decl && this.current().kind == TokenKind.Symbol_Ellipsis;
+            if (variadic) this.advance();
             const tName = this.expect(TokenKind.Kind_Identifier, "type identifier expected");
             if (!tName) {
                 return;
@@ -388,6 +465,18 @@ export class Parser {
                 decl ? TypeValue.TypeGeneric : this.resolveTypeValue(sourceName),
                 getTokenPosition(tName),
             );
+            type.variadic = variadic || undefined;
+            if (decl && this.current().kind == TokenKind.Symbol_Colon) {
+                this.advance();
+                type.interfaceBounds = [];
+                while (true) {
+                    const bound = this.parseTypeReference();
+                    if (!bound) return;
+                    type.interfaceBounds.push(bound);
+                    if (this.current().kind != TokenKind.Symbol_Ampersand) break;
+                    this.advance();
+                }
+            }
             if (!decl && this.current().kind == TokenKind.Symbol_Less) {
                 type.typeParameters = this.parseTypeParams(false);
                 if (!type.typeParameters) {
@@ -407,6 +496,17 @@ export class Parser {
             types.push(type);
 
             if (this.current().kind == TokenKind.Symbol_Comma) {
+                if (variadic) {
+                    this.diagnostics.addError(
+                        Error(
+                            this.filepath,
+                            "parser",
+                            type.position!,
+                            "a variadic type parameter must be the final type parameter",
+                        ),
+                    );
+                    return;
+                }
                 this.advance(); //consume comma
                 continue;
             }
@@ -423,6 +523,17 @@ export class Parser {
         this.advance(); //consume > symbol
 
         if (decl) {
+            if (types.filter((type) => type.variadic).length > 1) {
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        types.find((type) => type.variadic)!.position!,
+                        "a declaration may have only one variadic type parameter",
+                    ),
+                );
+                return;
+            }
             const seenTypeParameters = new Set<string>();
             const duplicateTypeParameter = types.find((type) => {
                 if (seenTypeParameters.has(type.name.name)) {
@@ -476,7 +587,14 @@ export class Parser {
             const parsed = this.parseFuncParams();
             if (!parsed) return;
             if (parsed.length != 1) {
-                this.diagnostics.addError(Error(this.filepath, "parser", fnPos, "a receiver clause must contain exactly one binding"));
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        fnPos,
+                        "a receiver clause must contain exactly one binding",
+                    ),
+                );
                 return;
             }
             receiver = parsed[0];
@@ -766,7 +884,11 @@ export class Parser {
                 const spread = this.advance();
                 const source = this.parseExpression();
                 if (!source) return;
-                elements.push({ position: getTokenPosition(spread), kind: "spread_element", source });
+                elements.push({
+                    position: getTokenPosition(spread),
+                    kind: "spread_element",
+                    source,
+                });
             } else {
                 const field =
                     this.current().kind == TokenKind.Keyword_Error
@@ -788,7 +910,9 @@ export class Parser {
                 this.advance();
                 continue;
             }
-            this.diagnostics.addError(Error(this.filepath, "parser", this.getCurrentPosition(), ", or } expected"));
+            this.diagnostics.addError(
+                Error(this.filepath, "parser", this.getCurrentPosition(), ", or } expected"),
+            );
             return;
         }
         this.advance(); //parse ending right brace symbol
@@ -1402,7 +1526,13 @@ export class Parser {
             const operator = this.advance();
             const right = this.parseBitwiseXorExpression();
             if (!right) return;
-            left = { position: getTokenPosition(operator), kind: "binary_expression", left, right, operator: operator.value };
+            left = {
+                position: getTokenPosition(operator),
+                kind: "binary_expression",
+                left,
+                right,
+                operator: operator.value,
+            };
             this.skipComments();
         }
         return left;
@@ -1416,7 +1546,13 @@ export class Parser {
             const operator = this.advance();
             const right = this.parseBitwiseOrExpression();
             if (!right) return;
-            left = { position: getTokenPosition(operator), kind: "binary_expression", left, right, operator: operator.value };
+            left = {
+                position: getTokenPosition(operator),
+                kind: "binary_expression",
+                left,
+                right,
+                operator: operator.value,
+            };
             this.skipComments();
         }
         return left;
@@ -1430,7 +1566,13 @@ export class Parser {
             const operator = this.advance();
             const right = this.parseLogicalAndExpression();
             if (!right) return;
-            left = { position: getTokenPosition(operator), kind: "binary_expression", left, right, operator: operator.value };
+            left = {
+                position: getTokenPosition(operator),
+                kind: "binary_expression",
+                left,
+                right,
+                operator: operator.value,
+            };
             this.skipComments();
         }
         return left;
@@ -1664,6 +1806,160 @@ export class Parser {
             value,
             asResult,
         };
+    }
+
+    parseInterfaceDeclaration(): U<InterfaceDeclaration> {
+        const keyword = this.advance();
+        const name = this.expect(TokenKind.Kind_Identifier, "interface name expected");
+        if (!name) return;
+        if (!this.expect(TokenKind.Symbol_LeftBrace, "{ expected after interface name")) return;
+
+        const methods: InterfaceMethodRequirement[] = [];
+        const methodNames = new Set<string>();
+        while (
+            this.current().kind != TokenKind.Symbol_RightBrace &&
+            this.current().kind != TokenKind.Kind_EOF
+        ) {
+            const documentation = this.takeDocumentationComments();
+            const fn = this.expect(
+                TokenKind.Keyword_Function,
+                "interface bodies may contain only function requirements",
+            );
+            if (!fn) {
+                this.skipLine();
+                continue;
+            }
+            if (this.current().kind == TokenKind.Symbol_LeftParen) {
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        this.getCurrentPosition(),
+                        "interface method requirements cannot declare a receiver",
+                    ),
+                );
+                this.synchronizeInterfaceMember();
+                continue;
+            }
+            const methodName = this.expect(
+                TokenKind.Kind_Identifier,
+                "interface method name expected",
+            );
+            if (!methodName) {
+                this.synchronizeInterfaceMember();
+                continue;
+            }
+            let typeParameters: Type[] = [];
+            if (this.current().kind == TokenKind.Symbol_Less) {
+                const parsed = this.parseTypeParams(true);
+                if (!parsed) {
+                    this.synchronizeInterfaceMember();
+                    continue;
+                }
+                typeParameters = parsed;
+            }
+            const parameters = this.parseFuncParams(typeParameters);
+            if (!parameters) {
+                this.synchronizeInterfaceMember();
+                continue;
+            }
+            let returnTypes: Type[] = [];
+            let errorTypes: Type[] = [];
+            if (this.current().kind == TokenKind.Symbol_Colon) {
+                this.advance();
+                const parsed = this.parseFuncReturnTypes(typeParameters);
+                if (!parsed) {
+                    this.synchronizeInterfaceMember();
+                    continue;
+                }
+                returnTypes = parsed;
+            }
+            if (this.current().kind == TokenKind.Symbol_Pipe) {
+                this.advance();
+                const parsed = this.parseFuncErrorTypes();
+                if (!parsed) {
+                    this.synchronizeInterfaceMember();
+                    continue;
+                }
+                errorTypes = parsed;
+            }
+            if (this.current().kind == TokenKind.Symbol_LeftBrace) {
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        this.getCurrentPosition(),
+                        "interface method requirements cannot have a body",
+                    ),
+                );
+                this.skipBalancedBlock();
+            } else if (
+                !this.expect(
+                    TokenKind.Symbol_Semicolon,
+                    "interface method requirement must end with ;",
+                )
+            ) {
+                this.synchronizeInterfaceMember();
+            }
+            if (methodNames.has(methodName.value)) {
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        getTokenPosition(methodName),
+                        `duplicate interface method requirement \`${methodName.value}\``,
+                    ),
+                );
+                continue;
+            }
+            methodNames.add(methodName.value);
+            methods.push({
+                kind: "interface_method_requirement",
+                position: getTokenPosition(fn),
+                name: CreateIdentifier(methodName.value, getTokenPosition(methodName)),
+                typeParameters: typeParameters.length ? typeParameters : undefined,
+                parameters,
+                returnTypes,
+                errorTypes,
+                documentation,
+            });
+        }
+        if (!this.expect(TokenKind.Symbol_RightBrace, "} expected after interface body")) return;
+        if (this.current().kind == TokenKind.Symbol_Semicolon) this.advance();
+        return {
+            kind: "interface_declaration",
+            position: getTokenPosition(keyword),
+            name: CreateIdentifier(name.value, getTokenPosition(name)),
+            methods,
+            external: this.filepath.endsWith(".ffi.delta")
+                ? { abi: "delta", moduleName: this.ffiModuleName }
+                : undefined,
+        };
+    }
+
+    private synchronizeInterfaceMember(): void {
+        while (
+            this.current().kind != TokenKind.Kind_EOF &&
+            this.current().kind != TokenKind.Symbol_Semicolon &&
+            this.current().kind != TokenKind.Symbol_RightBrace
+        ) {
+            if (this.current().kind == TokenKind.Symbol_LeftBrace) {
+                this.skipBalancedBlock();
+                return;
+            }
+            this.advance();
+        }
+        if (this.current().kind == TokenKind.Symbol_Semicolon) this.advance();
+    }
+
+    private skipBalancedBlock(): void {
+        if (this.current().kind != TokenKind.Symbol_LeftBrace) return;
+        let depth = 0;
+        do {
+            const token = this.advance();
+            if (token.kind == TokenKind.Symbol_LeftBrace) depth++;
+            if (token.kind == TokenKind.Symbol_RightBrace) depth--;
+        } while (depth > 0 && this.current().kind != TokenKind.Kind_EOF);
     }
 
     parseIfStatement(blockContext?: any): U<Statement> {
@@ -2334,7 +2630,9 @@ export class Parser {
 
         if (this.current().kind == TokenKind.Kind_Identifier) {
             const operand = this.advance();
-            declaration.compositions!.push(CreateType(operand.value, TypeValue.TypeCustom, getTokenPosition(operand)));
+            declaration.compositions!.push(
+                CreateType(operand.value, TypeValue.TypeCustom, getTokenPosition(operand)),
+            );
             if (!this.expect(TokenKind.Symbol_Ampersand, "& symbol expected")) {
                 return;
             }
@@ -2346,10 +2644,19 @@ export class Parser {
 
         if (this.current().kind == TokenKind.Symbol_Ellipsis) {
             this.advance();
-            const spreadName = this.expect(TokenKind.Kind_Identifier, "record type expected after ...");
+            const spreadName = this.expect(
+                TokenKind.Kind_Identifier,
+                "record type expected after ...",
+            );
             if (!spreadName) return;
-            declaration.compositions!.push(CreateType(spreadName.value, TypeValue.TypeCustom, getTokenPosition(spreadName)));
-            if (this.current().kind == TokenKind.Symbol_Comma || this.current().kind == TokenKind.Symbol_Semicolon) this.advance();
+            declaration.compositions!.push(
+                CreateType(spreadName.value, TypeValue.TypeCustom, getTokenPosition(spreadName)),
+            );
+            if (
+                this.current().kind == TokenKind.Symbol_Comma ||
+                this.current().kind == TokenKind.Symbol_Semicolon
+            )
+                this.advance();
         }
 
         while (this.current().kind != TokenKind.Symbol_RightBrace) {
@@ -2388,6 +2695,30 @@ export class Parser {
             }
         }
         this.advance(); //consume ending brace
+        if (this.current().kind == TokenKind.Keyword_Implements) {
+            this.advance();
+            declaration.implementedInterfaces = [];
+            const seen = new Set<string>();
+            while (true) {
+                const implemented = this.parseTypeReference();
+                if (!implemented) return;
+                if (seen.has(implemented.name.name)) {
+                    this.diagnostics.addError(
+                        Error(
+                            this.filepath,
+                            "parser",
+                            implemented.position!,
+                            `type \`${declaration.name.name}\` lists interface \`${implemented.name.name}\` more than once`,
+                        ),
+                    );
+                } else {
+                    seen.add(implemented.name.name);
+                    declaration.implementedInterfaces.push(implemented);
+                }
+                if (this.current().kind != TokenKind.Symbol_Comma) break;
+                this.advance();
+            }
+        }
         if (!this.expect(TokenKind.Symbol_Semicolon, "; symbol expected")) {
             return;
         }
@@ -2567,18 +2898,42 @@ export class Parser {
                 while (this.current().kind != TokenKind.Symbol_RightBrace) {
                     if (this.current().kind == TokenKind.Symbol_Ellipsis) {
                         this.advance();
-                        const spreadName = this.expect(TokenKind.Kind_Identifier, "record type expected after ...");
+                        const spreadName = this.expect(
+                            TokenKind.Kind_Identifier,
+                            "record type expected after ...",
+                        );
                         if (!spreadName) return;
-                        compositions.push(CreateType(spreadName.value, TypeValue.TypeCustom, getTokenPosition(spreadName)));
-                        if (this.current().kind == TokenKind.Symbol_Semicolon || this.current().kind == TokenKind.Symbol_Comma) this.advance();
+                        compositions.push(
+                            CreateType(
+                                spreadName.value,
+                                TypeValue.TypeCustom,
+                                getTokenPosition(spreadName),
+                            ),
+                        );
+                        if (
+                            this.current().kind == TokenKind.Symbol_Semicolon ||
+                            this.current().kind == TokenKind.Symbol_Comma
+                        )
+                            this.advance();
                         continue;
                     }
-                    const fieldName = this.expect(TokenKind.Kind_Identifier, "field identifier expected");
-                    if (!fieldName || !this.expect(TokenKind.Symbol_Colon, ": symbol expected")) return;
+                    const fieldName = this.expect(
+                        TokenKind.Kind_Identifier,
+                        "field identifier expected",
+                    );
+                    if (!fieldName || !this.expect(TokenKind.Symbol_Colon, ": symbol expected"))
+                        return;
                     const fieldType = this.parseTypeReference();
                     if (!fieldType) return;
-                    fields.push({ name: CreateIdentifier(fieldName.value, getTokenPosition(fieldName)), type: fieldType });
-                    if (this.current().kind == TokenKind.Symbol_Comma || this.current().kind == TokenKind.Symbol_Semicolon) this.advance();
+                    fields.push({
+                        name: CreateIdentifier(fieldName.value, getTokenPosition(fieldName)),
+                        type: fieldType,
+                    });
+                    if (
+                        this.current().kind == TokenKind.Symbol_Comma ||
+                        this.current().kind == TokenKind.Symbol_Semicolon
+                    )
+                        this.advance();
                 }
                 this.advance();
                 if (!this.expect(TokenKind.Symbol_Semicolon, "; expected")) return;
@@ -2587,7 +2942,11 @@ export class Parser {
                     kind: "type_declaration",
                     name: CreateIdentifier(declKind.value, getTokenPosition(declKind)),
                     declKind: TypeDeclKind.Struct,
-                    declaration: { name: CreateIdentifier(declKind.value, getTokenPosition(declKind)), fields, compositions },
+                    declaration: {
+                        name: CreateIdentifier(declKind.value, getTokenPosition(declKind)),
+                        fields,
+                        compositions,
+                    },
                     unique,
                 };
                 this.typeDecls.set(declKind.value, declaration);
@@ -2601,18 +2960,32 @@ export class Parser {
 
             if (this.current().kind == TokenKind.Symbol_Ampersand) {
                 const fields: StructDecl["fields"] = [];
-                const compositions: Type[] = [CreateType(target.value, TypeValue.TypeCustom, getTokenPosition(target))];
+                const compositions: Type[] = [
+                    CreateType(target.value, TypeValue.TypeCustom, getTokenPosition(target)),
+                ];
                 while (this.current().kind == TokenKind.Symbol_Ampersand) {
                     this.advance();
-                    const operand = this.expect(TokenKind.Kind_Identifier, "record type expected after &");
+                    const operand = this.expect(
+                        TokenKind.Kind_Identifier,
+                        "record type expected after &",
+                    );
                     if (!operand) return;
-                    compositions.push(CreateType(operand.value, TypeValue.TypeCustom, getTokenPosition(operand)));
+                    compositions.push(
+                        CreateType(operand.value, TypeValue.TypeCustom, getTokenPosition(operand)),
+                    );
                 }
                 if (!this.expect(TokenKind.Symbol_Semicolon, "; expected")) return;
                 const declaration: TypeDeclaration = {
-                    position: getTokenPosition(declKind), kind: "type_declaration",
-                    name: CreateIdentifier(declKind.value, getTokenPosition(declKind)), declKind: TypeDeclKind.Struct,
-                    declaration: { name: CreateIdentifier(declKind.value, getTokenPosition(declKind)), fields, compositions }, unique,
+                    position: getTokenPosition(declKind),
+                    kind: "type_declaration",
+                    name: CreateIdentifier(declKind.value, getTokenPosition(declKind)),
+                    declKind: TypeDeclKind.Struct,
+                    declaration: {
+                        name: CreateIdentifier(declKind.value, getTokenPosition(declKind)),
+                        fields,
+                        compositions,
+                    },
+                    unique,
                 };
                 this.typeDecls.set(declKind.value, declaration);
                 return declaration;
@@ -2628,7 +3001,11 @@ export class Parser {
                 name: CreateIdentifier(declKind.value, getTokenPosition(declKind)),
                 declKind: TypeDeclKind.Alias,
                 declaration: {
-                    target: CreateType(target.value, this.resolveTypeValue(target.value), getTokenPosition(target)),
+                    target: CreateType(
+                        target.value,
+                        this.resolveTypeValue(target.value),
+                        getTokenPosition(target),
+                    ),
                 } as TypeAlias,
                 unique,
             };
@@ -2849,7 +3226,13 @@ export class Parser {
             });
             return;
         }
-        if (!this.expect(TokenKind.Keyword_Header, "header, module, static or dynamic expected after ffi")) return;
+        if (
+            !this.expect(
+                TokenKind.Keyword_Header,
+                "header, module, static or dynamic expected after ffi",
+            )
+        )
+            return;
         const header = this.expect(
             TokenKind.Kind_StringLiteral,
             "C header string expected after ffi header",
@@ -2863,7 +3246,7 @@ export class Parser {
                     this.filepath,
                     "parser",
                     getTokenPosition(header),
-                    "ffi header must use C include spelling such as `<unistd.h>` or `\"library.h\"`",
+                    'ffi header must use C include spelling such as `<unistd.h>` or `"library.h"`',
                 ),
             );
             return;
@@ -2891,7 +3274,7 @@ export class Parser {
             this.current().kind != TokenKind.Symbol_RightBrace &&
             this.current().kind != TokenKind.Kind_EOF
         ) {
-            this.skipComments();
+            const documentation = this.takeDocumentationComments();
             if (this.current().kind == TokenKind.Symbol_RightBrace) break;
             const fnToken = this.expect(
                 TokenKind.Keyword_Function,
@@ -2921,10 +3304,12 @@ export class Parser {
                 }
                 returnTypes = parsedReturns;
             }
-            if (!this.expect(
-                TokenKind.Symbol_Semicolon,
-                "extern function declaration must end with ; and cannot have a body",
-            )) {
+            if (
+                !this.expect(
+                    TokenKind.Symbol_Semicolon,
+                    "extern function declaration must end with ; and cannot have a body",
+                )
+            ) {
                 this.synchronizeTopLevel(this.pos);
                 continue;
             }
@@ -2940,6 +3325,7 @@ export class Parser {
                     position: getTokenPosition(fnToken),
                     statements: [],
                 },
+                documentation,
                 exported,
                 external: { abi: "c", linkName: fnName.value },
             });
@@ -2957,7 +3343,7 @@ export class Parser {
         let sawNonImportDeclaration = false;
         let sawModuleDeclaration = false;
         while (this.current().kind != TokenKind.Kind_EOF) {
-            this.skipComments();
+            let documentation = this.takeDocumentationComments();
 
             if (this.current().kind == TokenKind.Kind_EOF) {
                 break;
@@ -3005,7 +3391,7 @@ export class Parser {
             if (this.current().kind == TokenKind.Keyword_Export) {
                 exported = true;
                 const exportToken = this.advance();
-                this.skipComments();
+                documentation = this.takeDocumentationComments() ?? documentation;
                 if (this.current().kind == TokenKind.Keyword_Module) {
                     const moduleToken = this.advance();
                     const name = this.expect(
@@ -3034,6 +3420,7 @@ export class Parser {
                             kind: "module_declaration",
                             position: getTokenPosition(exportToken),
                             name: CreateIdentifier(name.value, getTokenPosition(name)),
+                            documentation,
                         };
                     }
                     sawModuleDeclaration = true;
@@ -3056,7 +3443,8 @@ export class Parser {
                 const unique = this.current().kind == TokenKind.Keyword_Unique;
                 if (unique) {
                     this.advance();
-                    if (!this.expect(TokenKind.Keyword_Type, "type expected after unique")) continue;
+                    if (!this.expect(TokenKind.Keyword_Type, "type expected after unique"))
+                        continue;
                     // parseTypeDeclaration consumes the `type` token itself.
                     this.pos--;
                 }
@@ -3067,11 +3455,9 @@ export class Parser {
                 }
                 if (decl.kind != "import_declaration") {
                     decl.exported = exported;
+                    decl.documentation = documentation;
                 }
-                if (
-                    decl.kind == "type_declaration" &&
-                    this.filepath.endsWith(".ffi.delta")
-                ) {
+                if (decl.kind == "type_declaration" && this.filepath.endsWith(".ffi.delta")) {
                     decl.external = {
                         abi: "delta",
                         moduleName: this.ffiModuleName,
@@ -3103,6 +3489,20 @@ export class Parser {
                     continue;
                 }
                 decl.exported = exported;
+                decl.documentation = documentation;
+                decls.push(decl);
+                continue;
+            }
+
+            if (this.current().kind == TokenKind.Keyword_Interface) {
+                const declarationStart = this.pos;
+                const decl = this.parseInterfaceDeclaration();
+                if (!decl) {
+                    this.synchronizeTopLevel(declarationStart);
+                    continue;
+                }
+                decl.exported = exported;
+                decl.documentation = documentation;
                 decls.push(decl);
                 continue;
             }
@@ -3115,6 +3515,7 @@ export class Parser {
                     continue;
                 }
                 decl.exported = exported;
+                decl.documentation = documentation;
                 decls.push(decl);
                 continue;
             } else {
@@ -3173,15 +3574,12 @@ export class Parser {
                 TokenKind.Keyword_Function,
                 TokenKind.Keyword_Ffi,
                 TokenKind.Keyword_Extern,
+                TokenKind.Keyword_Interface,
             ].includes(kind);
 
         while (this.current().kind != TokenKind.Kind_EOF) {
             const token = this.current();
-            if (
-                braceDepth == 0 &&
-                this.pos > declarationStart &&
-                startsDeclaration(token.kind)
-            ) {
+            if (braceDepth == 0 && this.pos > declarationStart && startsDeclaration(token.kind)) {
                 return;
             }
             if (token.kind == TokenKind.Symbol_LeftBrace) {

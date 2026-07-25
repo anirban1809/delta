@@ -2,7 +2,7 @@
 type Inner = { value: heap<int32>; };
 type Outer = { inner: Inner; tag: int32; };
 
-function main(): int8 {
+function main(): uint8 {
     const a: Outer = { inner: { value: new 1 }, tag: 2 };
     const b = a;
     return 0;

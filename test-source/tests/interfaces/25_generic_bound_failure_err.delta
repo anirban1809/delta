@@ -1,0 +1,21 @@
+interface Readable {
+    function value(): int32;
+}
+
+type struct number_box = {
+    stored: int32
+};
+
+function (box: &number_box) value(): int32 {
+    return box.stored;
+}
+
+function read_value<R: Readable>(reader: &R): int32 {
+    return reader.value();
+}
+
+function main(): uint8 {
+    const box = number_box { stored: 1 };
+    return uint8(read_value(box));
+}
+

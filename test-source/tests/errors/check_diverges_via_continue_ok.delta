@@ -1,6 +1,6 @@
 type struct OverflowError = { };
 
-function main(): int8 {
+function main(): uint8 {
     let total: int32 = 0;
     for (let i: int32 = 0; i < 5; i++) {
         const s = total + i as result;
@@ -9,5 +9,5 @@ function main(): int8 {
         }
         total = s;
     }
-    return int8(0);
+    return uint8(0);
 }

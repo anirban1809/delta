@@ -9,6 +9,6 @@ function other(n: int32): int32 {   // a different `n`, in a different scope
     return n;
 }
 
-function main(): int8 {
+function main(): uint8 {
     return 0;
 }

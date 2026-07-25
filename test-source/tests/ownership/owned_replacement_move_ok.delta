@@ -1,9 +1,9 @@
 // Replacing a live owner accepts a moved replacement (current = move next). Expects pass.
 unique type Handle = { id: int32; };
 
-function main(): int8 {
+function main(): uint8 {
     let current: Handle = { id: 1 };
     let next: Handle = { id: 2 };
     current = move next;
-    return int8(current.id);
+    return uint8(current.id);
 }

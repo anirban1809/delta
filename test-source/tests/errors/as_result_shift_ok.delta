@@ -8,13 +8,13 @@ function safeShift(a: int32, n: int32): int32 | ShiftCountError {
     return s;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const s = safeShift(1, 4) as result;
     check result {
-        return int8(1);
+        return uint8(1);
     }
     if (s == 16) {
-        return int8(0);
+        return uint8(0);
     }
-    return int8(2);
+    return uint8(2);
 }

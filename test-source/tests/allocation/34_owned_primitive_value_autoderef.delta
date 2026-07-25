@@ -11,7 +11,7 @@ function calculate(): int32 {
     return 0;
 }
 
-function main(): int8 {
+function main(): uint8 {
     if (calculate() == 489) {
         return 0;
     }

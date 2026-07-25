@@ -2,7 +2,7 @@ function first(values: &int32[]): int32 {
     return values[0];
 }
 
-function main(): int8 {
+function main(): uint8 {
     const values: int32[] = [7, 8];
-    return int8(first(values) - 7);
+    return uint8(first(values) - 7);
 }

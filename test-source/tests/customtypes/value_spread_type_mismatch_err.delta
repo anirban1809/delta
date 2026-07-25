@@ -1,7 +1,7 @@
 type struct Vec3  = { x: float64, y: float64, z: float64 };
 type struct Vec3I = { x: int32, y: int32, z: int32 };
 
-function main(): int8 {
+function main(): uint8 {
     const a: Vec3I = Vec3I { x: 1, y: 2, z: 3 };
     // Vec3I has the same field names as Vec3 but different field types
     // (int32 vs float64) — a structural spread is rejected

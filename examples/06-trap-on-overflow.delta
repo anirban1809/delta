@@ -20,7 +20,7 @@
 //   semantics  : classify each op as "can trap" — this set is exactly what
 //                becomes recoverable via `as result` in feature 11.
 
-function main(): int8 {
+function main(): uint8 {
     const a: int32 = 2_000_000_000;
     const b: int32 = 2_000_000_000;
 
@@ -34,7 +34,7 @@ function main(): int8 {
     // for intentional wrapping/clamping, and `a + b as result` to RECOVER from the
     // trap instead of panicking (see feature 11).
 
-    return int8(ok);
+    return uint8(ok);
 }
 
 /* === Generated C (illustrative) ===

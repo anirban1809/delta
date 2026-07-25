@@ -1,4 +1,4 @@
-function main(): int8 {
+function main(): uint8 {
     const values: int32[] = [10, 20, 30];
-    return int8(values[1] - 20);
+    return uint8(values[1] - 20);
 }

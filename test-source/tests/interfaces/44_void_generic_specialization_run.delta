@@ -1,0 +1,47 @@
+type struct ioerror = {
+    code: int32
+};
+
+interface Writer {
+    function write(value: string): void | ioerror;
+}
+
+type struct stdout_writer = {
+    marker: uint8
+} implements Writer;
+
+type struct counting_writer = {
+    writes: int32
+} implements Writer;
+
+function (writer: edit &stdout_writer) write(value: string): void | ioerror {
+    return;
+}
+
+function (writer: edit &counting_writer) write(value: string): void | ioerror {
+    writer.writes = writer.writes + 1;
+    return;
+}
+
+function write_line<W: Writer>(writer: edit &W, value: string): void | ioerror {
+    writer.write(value) as text_result;
+    forward text_result;
+
+    writer.write("\n") as newline_result;
+    forward newline_result;
+    return;
+}
+
+function main(): uint8 {
+    let out = stdout_writer { marker: uint8(1) };
+    let counted = counting_writer { writes: 0 };
+    write_line(out, "hello") as first;
+    check first {
+        return uint8(1);
+    }
+    write_line(counted, "world") as second;
+    check second {
+        return uint8(2);
+    }
+    return uint8(counted.writes);
+}

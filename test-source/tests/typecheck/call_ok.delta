@@ -2,6 +2,6 @@ function add(a: int32, b: int32): int32 {
     return a + b;
 }
 
-function main(): int8 {
-    return int8(add(1, 2));
+function main(): uint8 {
+    return uint8(add(1, 2));
 }

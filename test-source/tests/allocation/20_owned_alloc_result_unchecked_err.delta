@@ -1,7 +1,7 @@
 type struct AllocError = { };
 type struct Payload = { count: int32 };
 
-function main(): int8 {
+function main(): uint8 {
     const payload = new Payload { count: 4 } as result;
     return payload.count;
 }

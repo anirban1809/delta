@@ -5,10 +5,10 @@ function checkValue(n: int32): int32 {
     }
 }
 
-function main(): int8 {
-    if (checkValue(1) != 0) { return int8(1); }
-    if (checkValue(2) != 0) { return int8(2); }
-    if (checkValue(3) != 0) { return int8(3); }
-    if (checkValue(4) != 1) { return int8(4); }
-    return int8(0);
+function main(): uint8 {
+    if (checkValue(1) != 0) { return uint8(1); }
+    if (checkValue(2) != 0) { return uint8(2); }
+    if (checkValue(3) != 0) { return uint8(3); }
+    if (checkValue(4) != 1) { return uint8(4); }
+    return uint8(0);
 }

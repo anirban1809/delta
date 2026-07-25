@@ -1,7 +1,7 @@
 function consume<T>(values: T[5]) {
 }
 
-function main(): int8 {
+function main(): uint8 {
     consume<int32>([1, 2, 3, 4, 5, 6]);
     return 0;
 }

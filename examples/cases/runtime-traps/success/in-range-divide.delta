@@ -1,5 +1,5 @@
 // runtime-traps success — division with a nonzero divisor (no divide-by-zero panic).
-function main(): int8 {
+function main(): uint8 {
     const a: int32 = 100;
     return a / 2;
 }

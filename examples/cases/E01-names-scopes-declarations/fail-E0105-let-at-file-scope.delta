@@ -1,6 +1,6 @@
 // E0105 — `let` is not allowed at file scope; use `const`
 let counter: int32 = 0;   // ERROR[E0105]: `let` is not allowed at file scope; use `const`
 
-function main(): int8 {
+function main(): uint8 {
     return counter;
 }

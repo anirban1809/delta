@@ -137,7 +137,9 @@ Implemented (Phase I):
 - Project-root-relative import mappings declared by `delta.json`'s
   `dependencies` object. Exact dependencies and dependency subpaths are
   supported by project builds and the LSP; `@std` is reserved for the standard
-  library.
+  library and takes its dependency root from the `DELTA_STD_LIB` environment
+  variable. Extensionless imports use the same `.delta`, then `.ffi.delta`,
+  lookup for relative, configured-dependency, and standard-library paths.
 - Import-cycle detection with a diagnostic naming the cycle path.
 - `delta.json` manifest (`name`, `version`, `entry`, `dependencies`, `target`,
   per-mode `build.output`) with `delta init` scaffolding and a `--release`
@@ -922,7 +924,7 @@ Covered codegen surface:
 - Function lowering: forward declarations for every function are emitted
   in source order at the top of the TU; bodies follow with named
   parameters (no unnamed `int32_t f(int32_t)` style).
-- Entry-point wrapper: a user `function main(): int8` is renamed to
+- Entry-point wrapper: a user `function main(): uint8` is renamed to
   `delta_main` at the C level; an `int main()` shim at the bottom of the
   file calls `(int)delta_main()`. The user's Delta source still says
   `main`.

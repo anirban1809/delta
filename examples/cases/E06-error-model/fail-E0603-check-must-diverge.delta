@@ -7,7 +7,7 @@ function safeAdd(a: int64, b: int64): int64 | OverflowError {
     return sum;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const total = safeAdd(1, 2) as result;
     check result {
         const note: int32 = 1;   // ERROR[E0603]: `check` block must diverge on every path

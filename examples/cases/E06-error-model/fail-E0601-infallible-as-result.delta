@@ -1,5 +1,5 @@
 // E0601 — `as result` requires a fallible expression — this expression cannot fail
-function main(): int8 {
+function main(): uint8 {
     const x: int32 = 5;
     const ok = x as result;   // ERROR[E0601]: `as result` requires a fallible expression — this expression cannot fail
     check result {

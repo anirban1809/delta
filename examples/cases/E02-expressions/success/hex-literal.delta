@@ -1,4 +1,4 @@
 // E02 success — hexadecimal integer literal with `_` separators.
-function main(): int8 {
+function main(): uint8 {
     return 0xFF_FF;
 }

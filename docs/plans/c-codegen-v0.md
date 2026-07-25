@@ -188,23 +188,23 @@ A function declared `void` returns `void` in C and is permitted to omit a traili
 
 ## Entry point
 
-The user's `function main(): int8` becomes:
+The user's `function main(): uint8` becomes:
 
 ```c
-int32_t delta_main(void);
+uint8_t delta_main(void);
 
 int main(void) {
     return (int)delta_main();
 }
 
-int32_t delta_main(void) {
+uint8_t delta_main(void) {
     /* user body */
 }
 ```
 
-The wrapper exists because (a) `int` and `int32_t` are not the same type on every platform and (b) it gives the runtime a place to inject startup/teardown later without rewriting user code. The user's `main` is renamed `delta_main` only at the C level — Delta source sees `main`.
+The wrapper converts Delta's `uint8` status to C's required `int` return type and gives the runtime a place to inject startup/teardown later without rewriting user code. The user's `main` is renamed `delta_main` only at the C level — Delta source sees `main`.
 
-If the source has no `main`, or `main` has parameters, or `main` does not return `int8`, codegen emits a diagnostic and stops. The exact validation rules belong in the analyzer eventually ([§1.5](../spec-sections/01-source-file-convention.md)) but v0 codegen enforces them at the codegen boundary.
+If the source has no `main`, or `main` has parameters, or `main` does not return `uint8`, codegen emits a diagnostic and stops. The exact validation rules belong in the analyzer eventually ([§1.5](../spec-sections/01-source-file-convention.md)) but v0 codegen enforces them at the codegen boundary.
 
 ## Source mapping (`#line`)
 
@@ -259,7 +259,7 @@ Initial fixtures to land with the implementation:
 
 | File | Notes |
 |---|---|
-| `return_literal_ok.delta` | `function main(): int8 { return 42; }` → exit 42 |
+| `return_literal_ok.delta` | `function main(): uint8 { return 42; }` → exit 42 |
 | `arith_ok.delta` | `return 10 + 20 * 2 - 5;` → exit 45 |
 | `if_else_ok.delta` | `if (true) { return 1; } else { return 2; }` → exit 1 |
 | `while_sum_ok.delta` | sum 1..10 with a while loop → exit 55 |
@@ -277,7 +277,7 @@ Each test compiles, runs the resulting binary, and asserts on exit code. No stdo
 1. **Toolchain probe.** New file `internal/toolchain/clang.go`: locates `clang` on `PATH`, caches the result, returns a structured error if missing. No tests beyond a smoke test on the host.
 2. **Codegen skeleton.** New package `internal/codegen/`. Entry point `Emit(file ast.File, sig SymbolTable) ([]byte, *ErrorBag)`. First milestone: emit a valid empty TU containing only `#include`s and a `main` stub. Verify it compiles with Clang.
 3. **Function lowering, no statements.** Add forward decls and empty-body functions. Confirm the analyzer's recorded signatures match what the emitter produces.
-4. **Return statements + integer expressions.** Now `function main(): int8 { return 42; }` compiles and runs end-to-end. This is the milestone where the rest of the work is just filling in more node types.
+4. **Return statements + integer expressions.** Now `function main(): uint8 { return 42; }` compiles and runs end-to-end. This is the milestone where the rest of the work is just filling in more node types.
 5. **All remaining expressions and statements** in the order: literals, identifiers, unary, binary, function calls, var decls + assignments, if/else, while.
 6. **File-scope consts.**
 7. **Source mapping (`#line`).** Easy to add once everything else works; deliberately last so debugging earlier stages doesn't get crowded with directive noise.

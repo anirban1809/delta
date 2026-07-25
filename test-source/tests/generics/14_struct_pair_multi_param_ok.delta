@@ -1,8 +1,8 @@
 type struct Pair<T, U> = { first: T, second: U };
 
-function main(): int8 {
+function main(): uint8 {
     const p: Pair<int32, bool> = Pair<int32, bool> { first: 7, second: true };
-    if (p.first != 7) { return int8(1); }
-    if (!p.second)    { return int8(2); }
-    return int8(0);
+    if (p.first != 7) { return uint8(1); }
+    if (!p.second)    { return uint8(2); }
+    return uint8(0);
 }

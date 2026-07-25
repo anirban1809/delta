@@ -11,7 +11,7 @@ function makeBoxedCounter(count: int64, stride: int64): BoxedCounter | AllocErro
     return { payload: p };
 }
 
-function main(): int8 {
+function main(): uint8 {
     const bc = makeBoxedCounter(10, 2) as result;
     check result {
         return 1;

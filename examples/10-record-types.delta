@@ -19,7 +19,7 @@ type Animal = { legs: int32; sound: int32; };
 type Dog = { ...Animal; goodBoy: bool; };               // spread composition
 type Cat = Animal & { indoor: bool; };                  // intersection composition
 
-function main(): int8 {
+function main(): uint8 {
     const origin: Vec3 = { x: 0.0, y: 0.0, z: 0.0 };   // object literal pinned by annotation
     let p: Position = { x: 1.0, y: 2.0, z: 3.0 };
 
@@ -36,7 +36,7 @@ function main(): int8 {
     // type Loop = { self: Loop; }; // ERROR: recursive record requires indirection (`owned<T>`, feature 14)
 
     if (same && rex.goodBoy) {
-        return int8(px);
+        return uint8(px);
     }
     return 0;
 }

@@ -2,7 +2,7 @@ function plain(): int32 {
     return 7;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const x = plain() as result;
     check result {
         return 1;

@@ -5,6 +5,6 @@ function f(x: int32): int32 | OverflowError {
     return error as { divideByZero: true };
 }
 
-function main(): int8 {
+function main(): uint8 {
     return 0;
 }

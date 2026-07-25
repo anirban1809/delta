@@ -1,7 +1,7 @@
 type struct Flags = { bits: bool[3] };
 
-function main(): int8 {
+function main(): uint8 {
     const f: Flags = Flags { bits: [true, false, true] };
-    if (f.bits[1]) { return int8(1); }
-    return int8(0);
+    if (f.bits[1]) { return uint8(1); }
+    return uint8(0);
 }

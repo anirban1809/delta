@@ -6,6 +6,6 @@ function f(): int32 | ErrA, ErrB {
     return error as { a: true }, { b: true };
 }
 
-function main(): int8 {
+function main(): uint8 {
     return 0;
 }

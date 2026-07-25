@@ -5,7 +5,7 @@ function calculate(): int32 | OverflowError, DivideByZeroError {
     return 1;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const value = calculate() as result;
     check result as OverflowError {
         return 1;

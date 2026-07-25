@@ -1,0 +1,18 @@
+interface Readable {
+    function value(): int32;
+}
+
+type struct constant_reader = {
+    stored: int32
+} implements Readable;
+
+function make_reader(value: int32): constant_reader {
+    return constant_reader { stored: value };
+}
+
+function (reader: &constant_reader) value(): int32 {
+    return reader.stored;
+}
+
+export module io;
+

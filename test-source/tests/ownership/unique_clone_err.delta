@@ -1,7 +1,7 @@
 // Unique records cannot be cloned. Expects fail ("unique").
 unique type Handle = { id: int32; };
 
-function main(): int8 {
+function main(): uint8 {
     const value: Handle = { id: 7 };
     const duplicate = clone value as result;
     check result { return 1; }

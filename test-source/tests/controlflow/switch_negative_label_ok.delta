@@ -7,11 +7,11 @@ function classify(n: int32): int32 {
     }
 }
 
-function main(): int8 {
-    if (classify(-2) != 0) { return int8(1); }
-    if (classify(-1) != 0) { return int8(2); }
-    if (classify(0)  != 1) { return int8(3); }
-    if (classify(2)  != 2) { return int8(4); }
-    if (classify(5)  != 3) { return int8(5); }
-    return int8(0);
+function main(): uint8 {
+    if (classify(-2) != 0) { return uint8(1); }
+    if (classify(-1) != 0) { return uint8(2); }
+    if (classify(0)  != 1) { return uint8(3); }
+    if (classify(2)  != 2) { return uint8(4); }
+    if (classify(5)  != 3) { return uint8(5); }
+    return uint8(0);
 }

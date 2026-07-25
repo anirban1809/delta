@@ -5,4 +5,4 @@ function (value: edit &Handle) dispose(): int32 {
     return value.id;
 }
 
-function main(): int8 { return 0; }
+function main(): uint8 { return 0; }

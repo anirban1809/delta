@@ -1,5 +1,5 @@
-function main(): int8 {
+function main(): uint8 {
     let values: int32[] = [];
     values = [8, 9];
-    return int8(values[0] - 8);
+    return uint8(values[0] - 8);
 }

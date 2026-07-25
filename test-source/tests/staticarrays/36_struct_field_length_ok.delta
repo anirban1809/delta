@@ -1,8 +1,8 @@
 type struct Board = { cells: int32[5] };
 
-function main(): int8 {
+function main(): uint8 {
     const b: Board = Board { cells: [1, 2, 3, 4, 5] };
     let n: uintsize = b.cells.length;
-    if (n != 5) { return int8(1); }
-    return int8(0);
+    if (n != 5) { return uint8(1); }
+    return uint8(0);
 }

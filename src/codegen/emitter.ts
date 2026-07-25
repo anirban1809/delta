@@ -1,5 +1,7 @@
 import { string, TokenKind } from "../ast/tokens.js";
+import { decodeStringLiteral } from "../ast/string_literals.js";
 import {
+    CreateType,
     TypeDeclKind,
     TypeValue,
     type ArrayLiteralExpression,
@@ -68,6 +70,11 @@ type OwnedBinding = {
     liveFlag: string;
 };
 
+type FunctionSpecialization = {
+    bindings: Map<string, Type>;
+    variadicTypes: Type[];
+};
+
 /**
  * Lowers a parsed {@link Module} to C source text.
  *
@@ -86,6 +93,8 @@ export class Emitter {
      * `T` used by a local declaration, not just a `T` in the C signature.
      */
     private activeConcreteTypes?: Map<string, Type>;
+    /** Concrete elements in the variadic type pack currently being emitted. */
+    private activeVariadicTypes: Type[] = [];
     guards: {
         conversions: { fromType: string; toType: string }[];
         divisions: { type: string }[];
@@ -113,7 +122,7 @@ export class Emitter {
         { temp: string; resultType: string; commit: string; binding: AsResultBinding }
     >();
     private errorTags = new Map<string, number>();
-    private stringLiteralNames = new Map<StringLiteral, { name: string; length: number }>();
+    private stringLiteralNames = new Map<object, { name: string; length: number }>();
     private stringLiteralBlocks: { name: string; bytes: number[] }[] = [];
     private sliceTypes = new Map<string, Type>();
 
@@ -135,15 +144,13 @@ export class Emitter {
                         declaration.external?.abi == "delta"
                             ? declaration.external.moduleName
                             : (declaration.kind == "variable_declaration_statement" ||
-                                  declaration.kind == "type_declaration") &&
+                                    declaration.kind == "type_declaration") &&
                                 declaration.external?.abi == "delta"
                               ? declaration.external.moduleName
                               : undefined;
                     this.symbolModules.set(
                         declaration.name.name,
-                        externalModule ??
-                            moduleOptions.abiModuleName ??
-                            moduleOptions.moduleName,
+                        externalModule ?? moduleOptions.abiModuleName ?? moduleOptions.moduleName,
                     );
                 }
             });
@@ -555,10 +562,17 @@ ${this.emitStringTypeDefinition()}
     /** Emits a call expression as C: `callee(arg, …)`. */
     emitFunctionCallExpression(e: FunctionCallExpression): string {
         const method = e.callee.kind == "member_access_expression" ? e.callee : undefined;
+        const resolvedReceiver =
+            (e.resolvedReceiverType
+                ? this.activeConcreteTypes?.get(e.resolvedReceiverType)
+                : undefined) ??
+            (e.resolvedReceiverType
+                ? CreateType(e.resolvedReceiverType, TypeValue.TypeCustom)
+                : undefined);
         const callee = method
             ? this.moduleOptions
-                ? `${this.moduleSymbol(e.resolvedReceiverType!)}_${method.member.name}`
-                : `delta__${e.resolvedReceiverType}_${method.member.name}`
+                ? `${this.moduleSymbol(resolvedReceiver!.name.name)}_${method.member.name}`
+                : `delta__${resolvedReceiver!.name.name}_${method.member.name}`
             : e.callee.kind == "identifier"
               ? (e.resolvedExternalLinkName ?? this.emitIdentifier(e.callee.name))
               : "";
@@ -626,6 +640,9 @@ ${this.emitStringTypeDefinition()}
 
     /** Emits a binary expression as C: `left <op> right`. */
     emitBinaryExpression(e: BinaryExpression): string {
+        if (e.constantStringValue !== undefined) {
+            return this.emitStaticString(e, e.constantStringValue);
+        }
         let left = this.emitExpression(e.left);
         let right = this.emitExpression(e.right);
 
@@ -868,6 +885,16 @@ ${this.emitStringTypeDefinition()}
         }
         if (e.receiverType.arrayLengths?.length && e.member.name == "length") {
             return `${e.receiverType.arrayLengths[0]}`;
+        }
+        const variadicReceiverName = e.receiver.kind == "identifier" ? e.receiver.name : undefined;
+        if (
+            e.member.name == "length" &&
+            variadicReceiverName !== undefined &&
+            this.activeFunction?.parameters.some(
+                (parameter) => parameter.variadic && parameter.name.name == variadicReceiverName,
+            )
+        ) {
+            return `${this.activeVariadicTypes.length}`;
         }
         const receiver = this.emitExpression(e.receiver as Expression);
         const member =
@@ -1165,90 +1192,21 @@ ${lines.map((line) => `    ${line}`).join("\n")}
 
     /** Registers one mutable, fixed-size static UTF-8 block per literal occurrence. */
     private emitStringLiteral(literal: StringLiteral): string {
-        const existing = this.stringLiteralNames.get(literal);
+        return this.emitStaticString(literal, decodeStringLiteral(literal.value));
+    }
+
+    /** Emits a literal or folded constant as one statically allocated UTF-8 slice. */
+    private emitStaticString(expression: object, value: string): string {
+        const existing = this.stringLiteralNames.get(expression);
         if (existing) {
             return `(delta_string){ .data = ${existing.name}, .length = ${existing.length} }`;
         }
 
         const name = `__delta_string_${this.stringLiteralBlocks.length}`;
-        const bytes = [...new TextEncoder().encode(this.decodeStringLiteral(literal.value))];
-        this.stringLiteralNames.set(literal, { name, length: bytes.length });
+        const bytes = [...new TextEncoder().encode(value)];
+        this.stringLiteralNames.set(expression, { name, length: bytes.length });
         this.stringLiteralBlocks.push({ name, bytes });
         return `(delta_string){ .data = ${name}, .length = ${bytes.length} }`;
-    }
-
-    /** Decodes the escape subset accepted by ordinary Delta string literals. */
-    private decodeStringLiteral(value: string): string {
-        const body = value.slice(1, -1);
-        let decoded = "";
-        for (let i = 0; i < body.length; i++) {
-            const current = body[i]!;
-            if (current != "\\") {
-                const codePoint = body.codePointAt(i)!;
-                decoded += String.fromCodePoint(codePoint);
-                if (codePoint > 0xffff) i++;
-                continue;
-            }
-
-            const escaped = body[++i];
-            switch (escaped) {
-                case "n":
-                    decoded += "\n";
-                    break;
-                case "r":
-                    decoded += "\r";
-                    break;
-                case "t":
-                    decoded += "\t";
-                    break;
-                case "0":
-                    decoded += "\0";
-                    break;
-                case "\\":
-                    decoded += "\\";
-                    break;
-                case '"':
-                    decoded += '"';
-                    break;
-                case "'":
-                    decoded += "'";
-                    break;
-                case "\n":
-                    break;
-                case "u": {
-                    if (body[i + 1] != "{") {
-                        decoded += "u";
-                        break;
-                    }
-                    const close = body.indexOf("}", i + 2);
-                    if (close < 0) {
-                        decoded += "u";
-                        break;
-                    }
-                    const codePoint = Number.parseInt(body.slice(i + 2, close), 16);
-                    const validScalar =
-                        Number.isInteger(codePoint) &&
-                        codePoint <= 0x10ffff &&
-                        !(codePoint >= 0xd800 && codePoint <= 0xdfff);
-                    decoded += validScalar ? String.fromCodePoint(codePoint) : "\ufffd";
-                    i = close;
-                    break;
-                }
-                case "x": {
-                    const hex = body.slice(i + 1, i + 3);
-                    if (/^[0-9a-fA-F]{2}$/.test(hex)) {
-                        decoded += String.fromCharCode(Number.parseInt(hex, 16));
-                        i += 2;
-                    } else {
-                        decoded += "x";
-                    }
-                    break;
-                }
-                default:
-                    decoded += escaped ?? "\\";
-            }
-        }
-        return decoded;
     }
 
     private emitStringLiteralBlocks(): string {
@@ -1327,8 +1285,9 @@ typedef struct {
             if (declaration.kind != "function_declaration") continue;
             const specializations = declaration.typeParameters?.length
                 ? this.functionSpecializations(declaration)
-                : [new Map<string, Type>()];
-            for (const bindings of specializations) {
+                : [{ bindings: new Map<string, Type>(), variadicTypes: [] }];
+            for (const specialization of specializations) {
+                const bindings = specialization.bindings;
                 if (declaration.errorTypes.length) {
                     add(resolve(declaration.returnTypes[0], bindings));
                 }
@@ -1806,9 +1765,18 @@ typedef struct {
             return "";
         }
 
-        return (specializations.length ? specializations : [new Map<string, Type>()])
-            .map((concreteTypes) =>
-                this.emitConcreteFunctionDeclaration(f, concreteTypes, forwardDecl),
+        return (
+            specializations.length
+                ? specializations
+                : [{ bindings: new Map<string, Type>(), variadicTypes: [] }]
+        )
+            .map((specialization) =>
+                this.emitConcreteFunctionDeclaration(
+                    f,
+                    specialization.bindings,
+                    specialization.variadicTypes,
+                    forwardDecl,
+                ),
             )
             .join("\n");
     }
@@ -1817,10 +1785,13 @@ typedef struct {
     private emitConcreteFunctionDeclaration(
         f: FunctionDeclaration,
         concreteTypes: Map<string, Type>,
+        variadicTypes: Type[],
         forwardDecl: boolean,
     ): string {
         const previousConcreteTypes = this.activeConcreteTypes;
+        const previousVariadicTypes = this.activeVariadicTypes;
         this.activeConcreteTypes = concreteTypes;
+        this.activeVariadicTypes = variadicTypes;
 
         let fnName = f.receiver
             ? this.moduleOptions
@@ -1831,17 +1802,25 @@ typedef struct {
               : f.name.name;
         if (!f.receiver && !this.moduleOptions && fnName == "main") {
             fnName = "delta_main";
-        } else if (concreteTypes.size) {
-            const typeArguments = (f.typeParameters ?? []).map((typeParameter) =>
-                this.typeMangle(concreteTypes.get(typeParameter.name.name)!),
+        } else if (concreteTypes.size || variadicTypes.length) {
+            const typeArguments = (f.typeParameters ?? []).flatMap((typeParameter) =>
+                typeParameter.variadic
+                    ? variadicTypes.map((type) => this.typeMangle(type))
+                    : [this.typeMangle(concreteTypes.get(typeParameter.name.name)!)],
             );
+            if (!(f.typeParameters ?? []).some((typeParameter) => typeParameter.variadic)) {
+                typeArguments.push(...variadicTypes.map((type) => this.typeMangle(type)));
+            }
             fnName += "__" + typeArguments.join("_");
         }
 
         const rT = f.errorTypes.length
             ? this.resultStructName(f.returnTypes[0])
             : this.cType(f.returnTypes[0]!);
-        const sourceParameters = f.receiver ? [f.receiver, ...f.parameters] : f.parameters;
+        const declaredParameters = f.receiver ? [f.receiver, ...f.parameters] : f.parameters;
+        const sourceParameters = declaredParameters.flatMap((parameter) =>
+            this.expandVariadicParameter(parameter, variadicTypes),
+        );
         const params = sourceParameters
             .map((parameter) => this.emitFunctionParameter(parameter, concreteTypes))
             .join(",");
@@ -1851,6 +1830,7 @@ typedef struct {
 
         if (forwardDecl) {
             this.activeConcreteTypes = previousConcreteTypes;
+            this.activeVariadicTypes = previousVariadicTypes;
             return `${signature};`;
         }
 
@@ -1873,7 +1853,34 @@ typedef struct {
             this.localScopes.pop();
         }
         this.activeConcreteTypes = previousConcreteTypes;
+        this.activeVariadicTypes = previousVariadicTypes;
         return signature + body;
+    }
+
+    /**
+     * A Delta type pack has no runtime container. Each argument becomes a
+     * concrete C parameter while the source-level parameter remains array-like
+     * to semantic analysis (notably for its compile-time `length`).
+     */
+    private expandVariadicParameter(
+        parameter: FunctionParameter,
+        variadicTypes: Type[],
+    ): FunctionParameter[] {
+        if (!parameter.variadic) return [parameter];
+        return variadicTypes.map((type, index) => ({
+            ...parameter,
+            variadic: undefined,
+            name: {
+                ...parameter.name,
+                name: `${parameter.name.name}__${index}`,
+            },
+            type: {
+                ...structuredClone(type),
+                slice: false,
+                reference: parameter.type.reference || type.reference,
+                edit: parameter.type.edit || type.edit,
+            },
+        }));
     }
 
     private emitFunctionParameter(
@@ -1895,14 +1902,15 @@ typedef struct {
      * function. `Map<T, [int32, bool]>` becomes two definitions; multiple
      * generic parameters produce their Cartesian product.
      */
-    private functionSpecializations(f: FunctionDeclaration): Map<string, Type>[] {
+    private functionSpecializations(f: FunctionDeclaration): FunctionSpecialization[] {
         const typeParameters = f.typeParameters ?? [];
-        if (!typeParameters.length) {
+        const hasVariadicParameter = f.parameters.some((parameter) => parameter.variadic);
+        if (!typeParameters.length && !hasVariadicParameter) {
             return [];
         }
 
         let combinations: Map<string, Type>[] = [new Map()];
-        for (const typeParameter of typeParameters) {
+        for (const typeParameter of typeParameters.filter((parameter) => !parameter.variadic)) {
             const concreteTypes = f.concreteTypesMap?.get(typeParameter.name.name) ?? [];
             if (!concreteTypes.length) {
                 return [];
@@ -1916,7 +1924,17 @@ typedef struct {
                 }),
             );
         }
-        return combinations;
+        const hasVariadicTypeParameter = typeParameters.some((parameter) => parameter.variadic);
+        const packs = f.concreteVariadicTypePacks ?? [];
+        if ((hasVariadicTypeParameter || hasVariadicParameter) && !packs.length) {
+            return [];
+        }
+        return combinations.flatMap((bindings) =>
+            (packs.length ? packs : [[]]).map((variadicTypes) => ({
+                bindings,
+                variadicTypes,
+            })),
+        );
     }
 
     /** Creates a stable, valid-enough suffix for a monomorphized C symbol. */
@@ -2021,6 +2039,7 @@ typedef struct {
     emitDeclaration(d: Declaration): string {
         switch (d.kind) {
             case "import_declaration":
+            case "interface_declaration":
                 return "";
             case "variable_declaration_statement":
                 return this.emitVariableDeclarationStatement(d as VariableDeclarationStatement);

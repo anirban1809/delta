@@ -1,5 +1,5 @@
 // E0206 — operator `&&` expects `bool` operands, found `int32`
-function main(): int8 {
+function main(): uint8 {
     const a: int32 = 6;
     const b: int32 = 4;
     const both: bool = a && b;   // ERROR[E0206]: operator `&&` expects `bool` operands, found `int32`

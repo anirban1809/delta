@@ -11,16 +11,16 @@ function calculate(value: int32): int32 | OverflowError, DivideByZeroError {
     return value;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const value = calculate(5) as result;
     check result as OverflowError {
-        return int8(1);
+        return uint8(1);
     }
     check result as DivideByZeroError {
-        return int8(2);
+        return uint8(2);
     }
     if (value == 5) {
-        return int8(0);
+        return uint8(0);
     }
-    return int8(3);
+    return uint8(3);
 }

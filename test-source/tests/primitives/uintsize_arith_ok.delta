@@ -1,6 +1,6 @@
-function main(): int8 {
+function main(): uint8 {
     let a: uintsize = 100;
     let b: uintsize = 50;
     let c: uintsize = a + b;
-    return int8(0);
+    return uint8(0);
 }

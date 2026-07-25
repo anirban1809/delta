@@ -83,7 +83,7 @@ function consume(c: Counter): int64 {
     return c.get();
 }
 
-function main(): int8 {
+function main(): uint8 {
     let a = makeCounter(10);
     let b = makeCounter(20);
 

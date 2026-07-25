@@ -15,7 +15,7 @@
 
 import { Vec3, add } from "./geometry";
 
-function main(): int8 {
+function main(): uint8 {
     const a: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
     const b: Vec3 = { x: 4.0, y: 5.0, z: 6.0 };
 

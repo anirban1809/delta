@@ -1,6 +1,6 @@
 // type-inference success — with an annotation, a literal takes the annotated type
 // by binding context (no conversion is inserted).
-function main(): int8 {
+function main(): uint8 {
     let wide: uint64 = 42;   // `42` typed uint64
     return int32(wide);
 }

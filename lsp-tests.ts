@@ -6,8 +6,9 @@ import * as path from "path";
 import { execFileSync } from "child_process";
 import { compileModuleSource, compileSource } from "./src/compiler/pipeline.js";
 import { buildProject } from "./src/compiler/project.js";
+import { resolveImportSpecifier } from "./src/compiler/project_config.js";
 import { Diagnostics, Error as CompilerError } from "./src/diagnostics/diagnostics.js";
-import { SourceIndex } from "./src/lsp/source-index.js";
+import { SourceIndex, symbolMarkdown } from "./src/lsp/source-index.js";
 import { WorkspaceIndex } from "./src/lsp/workspace-index.js";
 
 function testCurrentSignatureIndexing() {
@@ -24,13 +25,90 @@ function testCurrentSignatureIndexing() {
     assert.match(identity.signature ?? "", /ParseError, OverflowError/);
 }
 
+function testDocumentationCommentIndexing() {
+    const source = `/**
+ * A reusable **record**.
+ *
+ * Its value can contain \`inline code\`.
+ */
+export type struct Box = { value: int32 };
+
+/// Adds **one** to a value.
+///
+/// - Preserves Markdown lists.
+export function increment(value: int32): int32 { return value + 1; }
+
+/** The [default value](https://example.com/default). */
+export const defaultValue: int32 = 41;
+
+/// This is detached.
+
+function undocumented(): int32 { return 0; }
+
+/// This is interrupted.
+// An ordinary comment breaks documentation attachment.
+const alsoUndocumented: int32 = 0;
+
+function main(): uint8 { return uint8(increment(defaultValue)); }`;
+    const index = new SourceIndex(source, "file:///documentation.delta");
+
+    const box = index.resolveAt(source.indexOf("Box") + 1);
+    assert.equal(
+        box?.documentation,
+        "A reusable **record**.\n\nIts value can contain `inline code`.",
+    );
+
+    const incrementUse = source.lastIndexOf("increment") + 1;
+    const increment = index.resolveAt(incrementUse);
+    assert.equal(
+        increment?.documentation,
+        "Adds **one** to a value.\n\n- Preserves Markdown lists.",
+    );
+    assert.equal(
+        symbolMarkdown(increment!),
+        `\`\`\`delta
+export function increment(value: int32): int32
+\`\`\`
+
+Adds **one** to a value.
+
+- Preserves Markdown lists.`,
+    );
+
+    const defaultValueUse = source.lastIndexOf("defaultValue") + 1;
+    assert.equal(
+        index.resolveAt(defaultValueUse)?.documentation,
+        "The [default value](https://example.com/default).",
+    );
+    assert.equal(index.resolveAt(source.indexOf("undocumented") + 1)?.documentation, undefined);
+    assert.equal(index.resolveAt(source.indexOf("alsoUndocumented") + 1)?.documentation, undefined);
+
+    const result = compileSource(source, "documentation.delta");
+    assert.deepEqual(result.diagnostics, []);
+    const declarations = (result.ast?.declarations ?? []).filter(
+        (declaration) => declaration.kind !== "import_declaration",
+    );
+    assert.equal(
+        declarations.find((declaration) => declaration.name.name === "Box")?.documentation,
+        "A reusable **record**.\n\nIts value can contain `inline code`.",
+    );
+    assert.equal(
+        declarations.find((declaration) => declaration.name.name === "increment")?.documentation,
+        "Adds **one** to a value.\n\n- Preserves Markdown lists.",
+    );
+    assert.equal(
+        declarations.find((declaration) => declaration.name.name === "defaultValue")?.documentation,
+        "The [default value](https://example.com/default).",
+    );
+}
+
 function testErrorResultIndexing() {
     const source = `type struct ParseError = { };
 function parse<T>(value: T): T | ParseError { return value; }
-function main(): int8 {
+function main(): uint8 {
     const value = parse<int32>(1) as result;
     check result as ParseError { return 1; }
-    return int8(value);
+    return uint8(value);
 }`;
     const index = new SourceIndex(source, "file:///result.delta");
     const resultUse = source.indexOf("result as ParseError") + 1;
@@ -42,7 +120,7 @@ function main(): int8 {
 function testObjectLiteralFieldDefinitions() {
     const source = `type struct Box<T> = { value: T };
 type struct Wrapper = { inner: Box<int32> };
-function main(): int8 {
+function main(): uint8 {
     const named = Box<int32> { value: 1 };
     const anonymous: Wrapper = { inner: { value: 2 } };
     return 0;
@@ -62,9 +140,9 @@ function testReceiverFunctionIndexing() {
     const source = `type struct Counter = { value: int32 };
 type struct Holder = { counter: owned<Counter> };
 function (counter: &Counter) get(): int32 { return counter.value; }
-function main(): int8 {
+function main(): uint8 {
     const holder: Holder = Holder { counter: new Counter { value: 1 } };
-    return int8(holder.counter.get());
+    return uint8(holder.counter.get());
 }`;
     const index = new SourceIndex(source, "file:///receivers.delta");
     const methodUse = source.lastIndexOf("get") + 1;
@@ -79,14 +157,38 @@ function main(): int8 {
     assert(members.some((member) => member.name === "get" && member.kind === "method"));
 }
 
+function testInterfaceIndexing() {
+    const source = `export interface Printable {
+    function print(): uint8;
+}
+
+function invoke<T: Printable>(value: &T): uint8 {
+    return value.print();
+}`;
+    const index = new SourceIndex(source, "file:///interfaces.delta");
+    const printable = index.resolveAt(source.indexOf("Printable") + 1);
+    assert.equal(printable?.kind, "interface");
+    assert(index.exportedSymbols().some((symbol) => symbol.name === "Printable"));
+
+    const declaration = index.resolveAt(source.indexOf("print") + 1);
+    assert.equal(declaration?.kind, "method");
+    assert.match(declaration?.signature ?? "", /function print\(\): uint8;/);
+
+    const use = source.lastIndexOf("print") + 1;
+    assert.equal(index.resolveAt(use)?.token.start, source.indexOf("print"));
+    const completionOffset = source.lastIndexOf("value.") + "value.".length;
+    assert(index.completions(completionOffset).some((symbol) => symbol.name === "print"));
+}
+
 function testStringLiteralIndexing() {
-    const source = `function main(): int8 {
+    const source = `function main(): uint8 {
     const doubleQuoted = "Anirban";
     const singleQuoted = 'Anirban';
     const empty = '';
     const character = 'A';
     const byteLength = singleQuoted.length;
-    return int8(0);
+    const combined = singleQuoted + " value";
+    return uint8(0);
 }`;
     const index = new SourceIndex(source, "file:///strings.delta");
 
@@ -96,6 +198,7 @@ function testStringLiteralIndexing() {
     assert.equal(resolve("empty")?.type, "string");
     assert.equal(resolve("character")?.type, "char");
     assert.equal(resolve("byteLength")?.type, "uintsize");
+    assert.equal(resolve("combined")?.type, "string");
 
     const compiled = compileSource(source, "strings.delta");
     assert.deepEqual(compiled.diagnostics, []);
@@ -107,10 +210,11 @@ function testWorkspaceImports(root: string) {
     fs.writeFileSync(
         mathPath,
         `export type struct Box<T> = { value: T };
+/// Returns the input **unchanged**.
 export function identity<T>(value: T): T { return value; }
 export const answer: int32 = 42;`,
     );
-    fs.writeFileSync(mainPath, "function main(): int8 { return 0; }\n");
+    fs.writeFileSync(mainPath, "function main(): uint8 { return 0; }\n");
 
     const workspace = new WorkspaceIndex([root]);
     workspace.scan();
@@ -127,9 +231,9 @@ export const answer: int32 = 42;`,
     });
 
     const importedSource = `import { Box } from "./math";
-function main(): int8 {
+function main(): uint8 {
     const value = identity<int32>(1);
-    return int8(value);
+    return uint8(value);
 }`;
     const imported = workspace.update(mainPath, importedSource);
     const edit = imported.autoImportEdit("identity", "./math");
@@ -137,16 +241,17 @@ function main(): int8 {
     assert.equal(edit.newText, ", identity");
 
     const linkedSource = `import { identity } from "./math";
-function main(): int8 { return int8(identity<int32>(1)); }`;
+function main(): uint8 { return uint8(identity<int32>(1)); }`;
     const linked = workspace.update(mainPath, linkedSource);
     const useOffset = linkedSource.lastIndexOf("identity") + 1;
     const resolved = linked.resolveAt(useOffset);
     assert.equal(resolved?.name, "identity");
     assert.equal(resolved?.uri, new URL(`file://${mathPath}`).toString());
     assert.match(resolved?.signature ?? "", /identity<T>/);
+    assert.equal(resolved?.documentation, "Returns the input **unchanged**.");
 
     const objectSource = `import { Box } from "./math";
-function main(): int8 {
+function main(): uint8 {
     const box = Box<int32> { value: 1 };
     return 0;
 }`;
@@ -155,6 +260,109 @@ function main(): int8 {
     assert.equal(field?.name, "value");
     assert.equal(field?.uri, new URL(`file://${mathPath}`).toString());
     assert.equal(field?.token.start, fs.readFileSync(mathPath, "utf8").indexOf("value"));
+}
+
+function testImportedDocumentationRefresh(root: string) {
+    const projectRoot = path.join(root, "documentation-refresh");
+    const interfacePath = path.join(projectRoot, "api.ffi.delta");
+    const mainPath = path.join(projectRoot, "main.delta");
+    fs.mkdirSync(projectRoot, { recursive: true });
+    fs.writeFileSync(
+        interfacePath,
+        `ffi module "api";
+/// Original **documentation**.
+function value(): int32;
+export module api;`,
+    );
+    const source = `import api from "./api";
+function main(): uint8 { return uint8(api.value()); }`;
+    fs.writeFileSync(mainPath, source);
+
+    const workspace = new WorkspaceIndex([projectRoot]);
+    workspace.scan();
+    const main = workspace.get(mainPath)!;
+    const valueOffset = source.indexOf("value") + 1;
+    assert.equal(main.resolveAt(valueOffset)?.documentation, "Original **documentation**.");
+
+    fs.writeFileSync(
+        interfacePath,
+        `ffi module "api";
+/// Updated documentation with a [link](https://example.com).
+function value(): int32;
+export module api;`,
+    );
+
+    assert.equal(workspace.refreshImports(mainPath), true);
+    assert.equal(
+        main.resolveAt(valueOffset)?.documentation,
+        "Updated documentation with a [link](https://example.com).",
+    );
+    assert.equal(workspace.refreshImports(mainPath), false);
+
+    const openSource = `ffi module "api";
+/// Unsaved editor documentation.
+function value(): int32;
+export module api;`;
+    workspace.update(interfacePath, openSource);
+    fs.writeFileSync(
+        interfacePath,
+        `ffi module "api";
+/// Newer documentation on disk.
+function value(): int32;
+export module api;`,
+    );
+    assert.equal(
+        workspace.refreshImports(mainPath, (fileName) =>
+            fileName === interfacePath ? openSource : undefined,
+        ),
+        false,
+    );
+    assert.equal(main.resolveAt(valueOffset)?.documentation, "Unsaved editor documentation.");
+}
+
+function testModuleAutoImports(root: string) {
+    const projectRoot = path.join(root, "module-auto-import");
+    const sourceRoot = path.join(projectRoot, "src");
+    const moduleRoot = path.join(projectRoot, "external", "math");
+    const mathPath = path.join(moduleRoot, "math.ffi.delta");
+    const mainPath = path.join(sourceRoot, "main.delta");
+    fs.mkdirSync(sourceRoot, { recursive: true });
+    fs.mkdirSync(moduleRoot, { recursive: true });
+    fs.writeFileSync(
+        mathPath,
+        `function add(left: int32, right: int32): int32 { return left + right; }
+export module math;`,
+    );
+    fs.writeFileSync(mainPath, "function main(): uint8 { return 0; }\n");
+
+    const workspace = new WorkspaceIndex([projectRoot]);
+    workspace.scan();
+    const candidate = workspace
+        .autoImports(mainPath)
+        .find(
+            (item) =>
+                item.symbol.name === "math" &&
+                item.importKind === "module" &&
+                item.importPath === "../external/math/math.ffi",
+        );
+    assert(candidate);
+    assert.equal(candidate.symbol.kind, "module");
+    assert.equal(candidate.symbol.signature, "export module math");
+
+    const main = workspace.get(mainPath)!;
+    assert.deepEqual(
+        main.autoImportEdit(candidate.symbol.name, candidate.importPath, candidate.importKind),
+        {
+            start: 0,
+            end: 0,
+            newText: `import math from "../external/math/math.ffi";\n`,
+        },
+    );
+
+    const aliasedSource = `import math as numbers from "../external/math/math.ffi";
+function main(): uint8 { return uint8(numbers.add(20, 22)); }`;
+    const aliased = workspace.update(mainPath, aliasedSource);
+    assert.equal(aliased.autoImportEdit("math", "../external/math/math.ffi", "module"), undefined);
 }
 
 function testModuleAwareDiagnostics(root: string) {
@@ -171,7 +379,7 @@ function use(): int32 {
     check result as MathError { return 0; }
     return value;
 }
-function main(): int8 { return int8(use()); }`;
+function main(): uint8 { return uint8(use()); }`;
     fs.writeFileSync(mainPath, source);
     const result = compileModuleSource(source, mainPath);
     assert.deepEqual(
@@ -205,9 +413,9 @@ export module calculations;`,
     );
 
     const aliased = `import geometry as shapes from "./geometry-implementation";
-function main(): int8 {
+function main(): uint8 {
     const point: shapes.Point = shapes.Point { x: 20, y: 22 };
-    return int8(shapes.sum(&point));
+    return uint8(shapes.sum(&point));
 }`;
     assert.deepEqual(
         compileModuleSource(aliased, mainPath).diagnostics.map((error) => error.message),
@@ -215,9 +423,9 @@ function main(): int8 {
     );
 
     const direct = `import geometry from "./geometry-implementation";
-function main(): int8 {
+function main(): uint8 {
     const point: geometry.Point = geometry.Point { x: 20, y: 22 };
-    return int8(point.total());
+    return uint8(point.total());
 }`;
     assert.deepEqual(
         compileModuleSource(direct, mainPath).diagnostics.map((error) => error.message),
@@ -225,9 +433,9 @@ function main(): int8 {
     );
 
     const selective = `import { Point, sum } from "./geometry-implementation";
-function main(): int8 {
+function main(): uint8 {
     const point: Point = Point { x: 20, y: 22 };
-    return int8(sum(&point));
+    return uint8(sum(&point));
 }`;
     assert.deepEqual(
         compileModuleSource(selective, mainPath).diagnostics.map((error) => error.message),
@@ -235,9 +443,9 @@ function main(): int8 {
     );
 
     const nested = `import toolkit as tools from "./toolkit-implementation";
-function main(): int8 {
+function main(): uint8 {
     const point: tools.shapes.Point = tools.shapes.Point { x: 20, y: 22 };
-    return int8(tools.shapes.sum(&point));
+    return uint8(tools.shapes.sum(&point));
 }`;
     assert.deepEqual(
         compileModuleSource(nested, mainPath).diagnostics.map((error) => error.message),
@@ -245,9 +453,9 @@ function main(): int8 {
     );
 
     const flat = `import calculations as api from "./flat-toolkit";
-function main(): int8 {
+function main(): uint8 {
     const point: api.Point = api.Point { x: 20, y: 22 };
-    return int8(api.sum(&point));
+    return uint8(api.sum(&point));
 }`;
     assert.deepEqual(
         compileModuleSource(flat, mainPath).diagnostics.map((error) => error.message),
@@ -255,7 +463,7 @@ function main(): int8 {
     );
 
     const mismatch = `import arithmetic from "./geometry-implementation";
-function main(): int8 { return 0; }`;
+function main(): uint8 { return 0; }`;
     assert(
         compileModuleSource(mismatch, mainPath).diagnostics.some((error) =>
             error.message.includes("does not match declared module `geometry`"),
@@ -265,7 +473,7 @@ function main(): int8 { return 0; }`;
     const explicitOnlyPath = path.join(root, "explicit-only.delta");
     fs.writeFileSync(explicitOnlyPath, "export function value(): int32 { return 1; }");
     const missingDeclaration = `import values from "./explicit-only";
-function main(): int8 { return 0; }`;
+function main(): uint8 { return 0; }`;
     assert(
         compileModuleSource(missingDeclaration, mainPath).diagnostics.some((error) =>
             error.message.includes("module namespace import requires"),
@@ -274,13 +482,13 @@ function main(): int8 { return 0; }`;
 
     assert(
         compileSource(
-            "export module misplaced;\nfunction main(): int8 { return 0; }",
+            "export module misplaced;\nfunction main(): uint8 { return 0; }",
             "misplaced-module.delta",
         ).diagnostics.some((error) => error.message.includes("must be the final")),
     );
 
     const unknownMember = `import geometry from "./geometry-implementation";
-function main(): int8 { return int8(geometry.missing()); }`;
+function main(): uint8 { return uint8(geometry.missing()); }`;
     assert(
         compileModuleSource(unknownMember, mainPath).diagnostics.some((error) =>
             error.message.includes("has no exported member `missing`"),
@@ -288,7 +496,7 @@ function main(): int8 { return int8(geometry.missing()); }`;
     );
 
     const moduleValue = `import geometry from "./geometry-implementation";
-function main(): int8 { const value = geometry; return 0; }`;
+function main(): uint8 { const value = geometry; return 0; }`;
     assert(
         compileModuleSource(moduleValue, mainPath).diagnostics.some((error) =>
             error.message.includes("is not a runtime value"),
@@ -316,9 +524,9 @@ export module toolkit;`,
     fs.writeFileSync(
         mainPath,
         `import toolkit from "./toolkit-implementation";
-function main(): int8 {
+function main(): uint8 {
     const point: toolkit.shapes.Point = toolkit.shapes.Point { x: 20, y: 22 };
-    return int8(toolkit.shapes.sum(&point));
+    return uint8(toolkit.shapes.sum(&point));
 }`,
     );
     const result = buildProject(mainPath);
@@ -349,12 +557,12 @@ function (list: &List<T>) at<T>(index: uintsize): T | OutOfRangeError {
     if (index >= list.length) { return error as OutOfRangeError{}; }
     return list.data[index];
 }
-function main(): int8 {
+function main(): uint8 {
     const values: int32[] = [1, 2, 4, 5];
     const list = List<int32>{ data: values, length: values.length };
     const value = list.at(uintsize(3)) as result;
-    check result { return int8(-1); }
-    return int8(value);
+    check result { return 1; }
+    return uint8(value);
 }`,
     );
     const result = buildProject(mainPath);
@@ -388,7 +596,7 @@ export module math;`,
 export module toolkit;`,
     );
     const source = `import math as numbers from "./namespace-math";
-function main(): int8 { return int8(numbers.add(20, 22)); }`;
+function main(): uint8 { return uint8(numbers.add(20, 22)); }`;
     fs.writeFileSync(mainPath, source);
     const workspace = new WorkspaceIndex([root]);
     workspace.scan();
@@ -403,7 +611,7 @@ function main(): int8 { return int8(numbers.add(20, 22)); }`;
     assert(index.completions(completionOffset).some((symbol) => symbol.name === "add"));
 
     const unaliasedSource = `import math from "./namespace-math";
-function main(): int8 { return int8(math.add(20, 22)); }`;
+function main(): uint8 { return uint8(math.add(20, 22)); }`;
     const unaliased = workspace.update(mainPath, unaliasedSource);
     const unaliasedBindingOffset = unaliasedSource.lastIndexOf("math.add") + 1;
     assert.equal(unaliased.resolveAt(unaliasedBindingOffset)?.signature, "export module math");
@@ -414,7 +622,7 @@ function main(): int8 { return int8(math.add(20, 22)); }`;
     );
 
     const nestedSource = `import toolkit as tools from "./namespace-toolkit";
-function main(): int8 { return int8(tools.arithmetic.add(20, 22)); }`;
+function main(): uint8 { return uint8(tools.arithmetic.add(20, 22)); }`;
     const nested = workspace.update(mainPath, nestedSource);
     const nestedMemberOffset = nestedSource.lastIndexOf("add") + 1;
     assert.equal(nested.resolveAt(nestedMemberOffset)?.name, "add");
@@ -449,7 +657,7 @@ function testImportPathAliases(root: string) {
 export module math;`,
     );
     const source = `import math as numbers from "@library/arithmetic";
-function main(): int8 { return int8(numbers.add(20, 22)); }`;
+function main(): uint8 { return uint8(numbers.add(20, 22)); }`;
     fs.writeFileSync(mainPath, source);
 
     const result = buildProject(projectRoot);
@@ -468,7 +676,7 @@ function main(): int8 { return int8(numbers.add(20, 22)); }`;
     assert.equal(exitCode, 42);
 
     const exactAlias = `import math from "@arithmetic";
-function main(): int8 { return int8(math.add(20, 22)); }`;
+function main(): uint8 { return uint8(math.add(20, 22)); }`;
     assert.deepEqual(
         compileModuleSource(exactAlias, mainPath).diagnostics.map(
             (diagnostic) => diagnostic.message,
@@ -476,7 +684,7 @@ function main(): int8 { return int8(math.add(20, 22)); }`;
         [],
     );
     const namedAlias = `import { add } from "@arithmetic";
-function main(): int8 { return int8(add(20, 22)); }`;
+function main(): uint8 { return uint8(add(20, 22)); }`;
     assert.deepEqual(
         compileModuleSource(namedAlias, mainPath).diagnostics.map(
             (diagnostic) => diagnostic.message,
@@ -489,7 +697,7 @@ function main(): int8 { return int8(add(20, 22)); }`;
     const index = workspace.get(mainPath)!;
     assert.equal(index.resolveAt(source.lastIndexOf("add") + 1)?.name, "add");
     const completionPath = path.join(sourceRoot, "completion.delta");
-    fs.writeFileSync(completionPath, "function main(): int8 { return 0; }\n");
+    fs.writeFileSync(completionPath, "function main(): uint8 { return 0; }\n");
     workspace.refresh(completionPath);
     assert(
         workspace
@@ -519,15 +727,24 @@ function main(): int8 { return int8(add(20, 22)); }`;
             ),
     );
 
-    const stdSource = `import { missing } from "@std/missing";
-function main(): int8 { return 0; }`;
-    assert(
-        compileModuleSource(stdSource, mainPath).diagnostics.some((diagnostic) =>
-            diagnostic.message.includes("unknown standard library module `@std/missing`"),
-        ),
-    );
+    const previousStandardLibrary = process.env.DELTA_STD_LIB;
+    delete process.env.DELTA_STD_LIB;
+    try {
+        const stdSource = `import { missing } from "@std/missing";
+function main(): uint8 { return 0; }`;
+        assert(
+            compileModuleSource(stdSource, mainPath).diagnostics.some((diagnostic) =>
+                diagnostic.message.includes(
+                    "cannot resolve standard library import `@std/missing`: DELTA_STD_LIB is not set",
+                ),
+            ),
+        );
+    } finally {
+        if (previousStandardLibrary === undefined) delete process.env.DELTA_STD_LIB;
+        else process.env.DELTA_STD_LIB = previousStandardLibrary;
+    }
     const unknownSource = `import { missing } from "@unknown/missing";
-function main(): int8 { return 0; }`;
+function main(): uint8 { return 0; }`;
     assert(
         compileModuleSource(unknownSource, mainPath).diagnostics.some((diagnostic) =>
             diagnostic.message.includes("unknown import root `@unknown/missing`"),
@@ -545,9 +762,156 @@ function main(): int8 { return 0; }`;
     );
     fs.writeFileSync(
         path.join(reservedRoot, "src", "main.delta"),
-        "function main(): int8 { return 0; }\n",
+        "function main(): uint8 { return 0; }\n",
     );
     assert.match(buildProject(reservedRoot).error ?? "", /dependency `@std` is reserved/);
+}
+
+function testStandardLibraryEnvironment(root: string) {
+    const standardLibraryRoot = path.join(root, "environment-stdlib");
+    const standardLibrarySourceRoot = path.join(root, "environment-stdlib-source");
+    const projectRoot = path.join(root, "stdlib-project");
+    const mainPath = path.join(projectRoot, "src", "main.delta");
+    fs.mkdirSync(standardLibraryRoot, { recursive: true });
+    fs.mkdirSync(standardLibrarySourceRoot, { recursive: true });
+    fs.mkdirSync(path.dirname(mainPath), { recursive: true });
+    fs.writeFileSync(
+        path.join(standardLibrarySourceRoot, "delta.json"),
+        JSON.stringify({
+            name: "stdlib-answer",
+            kind: "dynamic",
+            entry: "answer.delta",
+        }),
+    );
+    fs.writeFileSync(
+        path.join(standardLibrarySourceRoot, "answer.delta"),
+        `function value(): uint8 { return 42; }
+export module answer;`,
+    );
+    const standardLibraryBuild = buildProject(standardLibrarySourceRoot);
+    assert.equal(standardLibraryBuild.error, undefined);
+    assert(standardLibraryBuild.artifactPath);
+    fs.writeFileSync(
+        path.join(standardLibraryRoot, "answer.ffi.delta"),
+        `ffi dynamic "${standardLibraryBuild.artifactPath}";
+ffi module "answer";
+export function value(): uint8;
+export module answer;`,
+    );
+    fs.writeFileSync(
+        path.join(projectRoot, "delta.json"),
+        JSON.stringify({ name: "stdlib-project", entry: "src/main.delta" }),
+    );
+    const source = `import answer from "@std/answer";
+function main(): uint8 { return answer.value(); }`;
+    fs.writeFileSync(mainPath, source);
+
+    const previousStandardLibrary = process.env.DELTA_STD_LIB;
+    process.env.DELTA_STD_LIB = standardLibraryRoot;
+    try {
+        const result = buildProject(projectRoot);
+        assert.deepEqual(
+            result.diagnostics.map((diagnostic) => diagnostic.message),
+            [],
+        );
+        assert.equal(result.error, undefined);
+        assert(result.binaryPath);
+        let exitCode = 0;
+        try {
+            execFileSync(result.binaryPath);
+        } catch (error: any) {
+            exitCode = error.status;
+        }
+        assert.equal(exitCode, 42);
+
+        assert.deepEqual(
+            compileModuleSource(source, mainPath).diagnostics.map(
+                (diagnostic) => diagnostic.message,
+            ),
+            [],
+        );
+        const workspace = new WorkspaceIndex([projectRoot]);
+        workspace.scan();
+        const index = workspace.get(mainPath)!;
+        assert.equal(index.resolveAt(source.lastIndexOf("value") + 1)?.name, "value");
+
+        const completionPath = path.join(projectRoot, "src", "completion.delta");
+        fs.writeFileSync(completionPath, "function main(): uint8 { return 0; }\n");
+        workspace.refresh(completionPath);
+        const standardModule = workspace
+            .autoImports(completionPath)
+            .find(
+                (candidate) =>
+                    candidate.symbol.name === "answer" &&
+                    candidate.importKind === "module" &&
+                    candidate.importPath === "@std/answer",
+            );
+        assert(standardModule);
+        assert.deepEqual(
+            workspace
+                .get(completionPath)!
+                .autoImportEdit(
+                    standardModule.symbol.name,
+                    standardModule.importPath,
+                    standardModule.importKind,
+                ),
+            {
+                start: 0,
+                end: 0,
+                newText: 'import answer from "@std/answer";\n',
+            },
+        );
+
+        const implementationHelperPath = path.join(
+            standardLibrarySourceRoot,
+            "implementation-helper.delta",
+        );
+        fs.writeFileSync(
+            implementationHelperPath,
+            "function implementation_helper(): uint8 { return 0; }\n",
+        );
+        const implementationWorkspace = new WorkspaceIndex([standardLibrarySourceRoot]);
+        implementationWorkspace.scan();
+        assert.equal(
+            implementationWorkspace
+                .autoImports(implementationHelperPath)
+                .some((candidate) => candidate.importPath === "@std/answer"),
+            false,
+        );
+    } finally {
+        if (previousStandardLibrary === undefined) delete process.env.DELTA_STD_LIB;
+        else process.env.DELTA_STD_LIB = previousStandardLibrary;
+    }
+}
+
+function testFfiInterfaceResolutionFallback(root: string) {
+    const importer = path.join(root, "main.delta");
+    const interfacePath = path.join(root, "only-interface.ffi.delta");
+    fs.writeFileSync(interfacePath, 'ffi module "only_interface";\n');
+
+    assert.deepEqual(resolveImportSpecifier(importer, "./only-interface", root, new Map()), {
+        kind: "file",
+        filePath: interfacePath,
+    });
+    assert.deepEqual(
+        resolveImportSpecifier(
+            importer,
+            "@interface",
+            root,
+            new Map([["@interface", "only-interface"]]),
+        ),
+        {
+            kind: "file",
+            filePath: interfacePath,
+        },
+    );
+
+    const sourcePath = path.join(root, "only-interface.delta");
+    fs.writeFileSync(sourcePath, "function local(): uint8 { return 0; }\n");
+    assert.deepEqual(resolveImportSpecifier(importer, "./only-interface", root, new Map()), {
+        kind: "file",
+        filePath: sourcePath,
+    });
 }
 
 function assertDiagnosticSpan(source: string, needle: string, message: RegExp) {
@@ -565,43 +929,43 @@ function assertDiagnosticSpan(source: string, needle: string, message: RegExp) {
 
 function testDiagnosticPositions(root: string) {
     assertDiagnosticSpan(
-        "function main(): int8 { return missing; }",
+        "function main(): uint8 { return missing; }",
         "missing",
         /unknown identifier/,
     );
     assertDiagnosticSpan(
-        "function main(): int8 { const value: int32 = true; return 0; }",
+        "function main(): uint8 { const value: int32 = true; return 0; }",
         "true",
         /type mismatch/,
     );
     assertDiagnosticSpan(
-        "function test(): bool { return 1 && 2; } function main(): int8 { return 0; }",
+        "function test(): bool { return 1 && 2; } function main(): uint8 { return 0; }",
         "&&",
         /expects bool operands/,
     );
     assertDiagnosticSpan(
-        "type Box = { value: int32; }; function main(): int8 { const box: Box = { value: true }; return 0; }",
+        "type Box = { value: int32; }; function main(): uint8 { const box: Box = { value: true }; return 0; }",
         "true",
         /value of member value/,
     );
     assertDiagnosticSpan(
-        "type Box = { value: int32; }; function main(): int8 { const box: Box = { value: 1, extra: 2 }; return 0; }",
+        "type Box = { value: int32; }; function main(): uint8 { const box: Box = { value: 1, extra: 2 }; return 0; }",
         "extra",
         /unknown fields/,
     );
     assertDiagnosticSpan(
-        "type Box = { value: int32; }; function read(box: &Box): int32 { return box.missing; } function main(): int8 { return 0; }",
+        "type Box = { value: int32; }; function read(box: &Box): int32 { return box.missing; } function main(): uint8 { return 0; }",
         "missing",
         /has no member/,
     );
     assertDiagnosticSpan(
-        "function main(): int8 { let value int32 = 1; return 0; }",
+        "function main(): uint8 { let value int32 = 1; return 0; }",
         "int32",
         /: expected/,
     );
 
     const modulePath = path.join(root, "missing-import.delta");
-    const importSource = 'import { value } from "./missing";\nfunction main(): int8 { return 0; }';
+    const importSource = 'import { value } from "./missing";\nfunction main(): uint8 { return 0; }';
     const missingModule = compileModuleSource(importSource, modulePath, () => undefined);
     const importDiagnostic = missingModule.diagnostics.find((diagnostic) =>
         diagnostic.message.includes("cannot find module"),
@@ -625,19 +989,25 @@ function testDiagnosticPositions(root: string) {
 
 function main() {
     testCurrentSignatureIndexing();
+    testDocumentationCommentIndexing();
     testErrorResultIndexing();
     testObjectLiteralFieldDefinitions();
     testReceiverFunctionIndexing();
+    testInterfaceIndexing();
     testStringLiteralIndexing();
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "delta-lsp-"));
     try {
         testWorkspaceImports(root);
+        testImportedDocumentationRefresh(root);
+        testModuleAutoImports(root);
         testModuleAwareDiagnostics(root);
         testExportModuleResolution(root);
         testExportModuleCodegen(root);
         testGenericFallibleMethodProjectCodegen(root);
         testNamespaceImportIndexing(root);
         testImportPathAliases(root);
+        testFfiInterfaceResolutionFallback(root);
+        testStandardLibraryEnvironment(root);
         testDiagnosticPositions(root);
     } finally {
         fs.rmSync(root, { recursive: true, force: true });

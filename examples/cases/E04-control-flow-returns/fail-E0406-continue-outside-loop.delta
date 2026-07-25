@@ -1,5 +1,5 @@
 // E0406 — `continue` outside of a loop
-function main(): int8 {
+function main(): uint8 {
     continue;   // ERROR[E0406]: `continue` outside of a loop
     return 0;
 }

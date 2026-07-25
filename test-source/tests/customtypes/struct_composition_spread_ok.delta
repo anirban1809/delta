@@ -2,10 +2,10 @@ type struct Animal = { species: int32, age: int32 };
 type AnimalAlias   = Animal;
 type struct Dog    = { ...AnimalAlias, goodBoy: bool };
 
-function main(): int8 {
+function main(): uint8 {
     const d: Dog = Dog { species: 1, age: 3, goodBoy: true };
-    if (d.species != 1) { return int8(1); }
-    if (d.age != 3)     { return int8(2); }
-    if (!d.goodBoy)     { return int8(3); }
-    return int8(0);
+    if (d.species != 1) { return uint8(1); }
+    if (d.age != 3)     { return uint8(2); }
+    if (!d.goodBoy)     { return uint8(3); }
+    return uint8(0);
 }

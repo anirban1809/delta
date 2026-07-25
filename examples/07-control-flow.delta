@@ -18,7 +18,7 @@ function classify(n: int32): int32 {
     }
 }
 
-function main(): int8 {
+function main(): uint8 {
     let sum: int32 = 0;
 
     // while loop
@@ -37,7 +37,7 @@ function main(): int8 {
     // while (i + 1) { }     // ERROR: condition must be `bool`, found `int32`
     // if (sum > 0) sum = 0; // ERROR: control-flow body requires braces
 
-    return int8(sum);
+    return uint8(sum);
 }
 
 /* === Generated C (illustrative) ===

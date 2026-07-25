@@ -4,7 +4,7 @@ function productName(): string {
     return product;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const name: string = productName();
-    return int8(0);
+    return uint8(0);
 }

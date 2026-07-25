@@ -8,16 +8,45 @@ function activate(context) {
     const output = vscode.window.createOutputChannel("Delta Language Server");
     context.subscriptions.push(output);
     const configuredPath = vscode.workspace.getConfiguration("delta.languageServer").get("path");
+    const configuredStandardLibrary = vscode.workspace
+        .getConfiguration("delta.standardLibrary")
+        .get("path");
     const serverModule = configuredPath || context.asAbsolutePath(path.join("server", "server.js"));
+    const serverEnvironment = { ...process.env };
+    if (configuredStandardLibrary) {
+        serverEnvironment.DELTA_STD_LIB = configuredStandardLibrary;
+    }
     const projectFiles = vscode.workspace.createFileSystemWatcher("**/{*.delta,delta.json}");
-    context.subscriptions.push(projectFiles);
+    const fileEvents = [projectFiles];
+    const standardLibraryPath = serverEnvironment.DELTA_STD_LIB
+        ? path.resolve(serverEnvironment.DELTA_STD_LIB)
+        : undefined;
+    if (standardLibraryPath) {
+        const standardLibraryFiles = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(standardLibraryPath, "**/*.delta"),
+        );
+        fileEvents.push(standardLibraryFiles);
+    }
+    context.subscriptions.push(...fileEvents);
     output.appendLine(`Starting Delta language server: ${serverModule}`);
+    if (serverEnvironment.DELTA_STD_LIB) {
+        output.appendLine(`Delta standard library: ${serverEnvironment.DELTA_STD_LIB}`);
+        output.appendLine(`Watching Delta standard-library sources: ${standardLibraryPath}`);
+    }
     client = new LanguageClient(
         "deltaLanguageServer",
         "Delta Language Server",
         {
-            run: { module: serverModule, transport: TransportKind.stdio },
-            debug: { module: serverModule, transport: TransportKind.stdio },
+            run: {
+                module: serverModule,
+                transport: TransportKind.stdio,
+                options: { env: serverEnvironment },
+            },
+            debug: {
+                module: serverModule,
+                transport: TransportKind.stdio,
+                options: { env: serverEnvironment },
+            },
         },
         {
             documentSelector: [
@@ -26,7 +55,7 @@ function activate(context) {
             ],
             synchronize: {
                 configurationSection: "delta",
-                fileEvents: projectFiles,
+                fileEvents,
             },
             outputChannel: output,
             traceOutputChannel: output,

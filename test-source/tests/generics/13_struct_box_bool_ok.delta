@@ -1,8 +1,8 @@
 type struct Box<P> = { value: P };
 
-function main(): int8 {
+function main(): uint8 {
     const b: Box<bool> = Box<bool> { value: true };
-    if (!b.value) { return int8(0); }
-    return int8(0);
+    if (!b.value) { return uint8(0); }
+    return uint8(0);
 }
 

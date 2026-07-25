@@ -1,0 +1,18 @@
+interface Incrementable {
+    function increment(): void;
+}
+
+type struct counter = {
+    value: int32
+} implements Incrementable;
+
+function (counter: edit &counter) increment(): void {
+    counter.value = counter.value + 1;
+}
+
+function main(): uint8 {
+    let value = counter { value: 8 };
+    value.increment();
+    return uint8(value.value);
+}
+

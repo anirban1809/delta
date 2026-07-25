@@ -1,6 +1,6 @@
 // Runtime panic: arithmetic overflow in `+`
 // Compiles fine; traps at runtime in every build mode (no silent wrap).
-function main(): int8 {
+function main(): uint8 {
     const a: int32 = 2_000_000_000;
     const b: int32 = 2_000_000_000;
     const overflow: int32 = a + b;   // TRAP: arithmetic overflow in `+`

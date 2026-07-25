@@ -1,7 +1,7 @@
 // No conversion between `bool` and integers (§5). `int32(flag)` is rejected.
 // Phase A: "no implicit bool/int conversion" — use a comparison/ternary instead.
 // (The reverse direction, `bool(n)`, is E0211: `bool` is not a numeric type.)
-function main(): int8 {
+function main(): uint8 {
     const flag: bool = true;
     const n: int32 = int32(flag);   // ERROR: no conversion from `bool` to `int32` — use `flag ? 1 : 0`
     return n;

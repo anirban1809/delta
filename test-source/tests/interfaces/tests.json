@@ -1,0 +1,332 @@
+[
+    {
+        "file": "01_empty_interface_ok.delta",
+        "expect": "pass",
+        "note": "An empty interface is a valid top-level declaration."
+    },
+    {
+        "file": "02_method_signatures_ok.delta",
+        "expect": "pass",
+        "note": "Interface requirements may declare parameters, return values, error sets, and generic parameters without receivers or bodies."
+    },
+    {
+        "file": "03_read_receiver_implementation_run.delta",
+        "expect": "run",
+        "expected_exit": 7,
+        "note": "A read-only concrete receiver method satisfies a receiver-less interface requirement."
+    },
+    {
+        "file": "04_edit_receiver_implementation_run.delta",
+        "expect": "run",
+        "expected_exit": 9,
+        "note": "An editable concrete receiver method satisfies a receiver-less interface requirement."
+    },
+    {
+        "file": "05_multiple_requirements_run.delta",
+        "expect": "run",
+        "expected_exit": 8,
+        "note": "A conforming type supplies every method required by one interface."
+    },
+    {
+        "file": "06_multiple_interfaces_run.delta",
+        "expect": "run",
+        "expected_exit": 6,
+        "note": "A record may explicitly implement multiple interfaces."
+    },
+    {
+        "file": "07_generic_interface_method_run.delta",
+        "expect": "run",
+        "expected_exit": 12,
+        "note": "Generic interface requirements match alpha-equivalent generic concrete methods."
+    },
+    {
+        "file": "08_fallible_requirement_ok.delta",
+        "expect": "pass",
+        "note": "Fallible success and error channels are part of an interface method contract."
+    },
+    {
+        "file": "09_receiver_in_interface_err.delta",
+        "expect": "fail",
+        "contains": "interface method requirements cannot declare a receiver",
+        "note": "The receiver is specified only by implementations and is forbidden in interface declarations."
+    },
+    {
+        "file": "10_interface_method_body_err.delta",
+        "expect": "fail",
+        "contains": "interface method requirements cannot have a body",
+        "note": "Interface method requirements end in semicolons and cannot provide bodies."
+    },
+    {
+        "file": "11_duplicate_requirement_err.delta",
+        "expect": "fail",
+        "contains": "duplicate interface method requirement",
+        "note": "An interface cannot require the same method name twice while receiver-method overloading is unsupported."
+    },
+    {
+        "file": "12_duplicate_interface_err.delta",
+        "expect": "fail",
+        "contains": "interface `Readable` is declared more than once",
+        "note": "Two top-level interfaces cannot share one name."
+    },
+    {
+        "file": "13_missing_method_err.delta",
+        "expect": "fail",
+        "contains": "missing method",
+        "note": "A declared implementation must supply every required receiver method."
+    },
+    {
+        "file": "14_parameter_type_mismatch_err.delta",
+        "expect": "fail",
+        "contains": "parameter 1",
+        "note": "Concrete method parameter types must exactly match the interface requirement."
+    },
+    {
+        "file": "15_parameter_count_mismatch_err.delta",
+        "expect": "fail",
+        "contains": "parameter count",
+        "note": "Concrete method parameter arity must exactly match the interface requirement."
+    },
+    {
+        "file": "16_return_type_mismatch_err.delta",
+        "expect": "fail",
+        "contains": "return type",
+        "note": "Concrete method success types must exactly match the interface requirement."
+    },
+    {
+        "file": "17_error_set_mismatch_err.delta",
+        "expect": "fail",
+        "contains": "error set",
+        "note": "Concrete method error sets must exactly match the interface requirement."
+    },
+    {
+        "file": "18_unknown_interface_err.delta",
+        "expect": "fail",
+        "contains": "unknown interface",
+        "note": "Every name in an implements list must resolve."
+    },
+    {
+        "file": "19_non_interface_implements_err.delta",
+        "expect": "fail",
+        "contains": "interface",
+        "note": "A record type cannot appear in an implements list."
+    },
+    {
+        "file": "20_duplicate_implements_err.delta",
+        "expect": "fail",
+        "contains": "more than once",
+        "note": "One type cannot list the same interface twice."
+    },
+    {
+        "file": "21_free_function_not_implementation_err.delta",
+        "expect": "fail",
+        "contains": "missing method",
+        "note": "A same-named free function does not satisfy a receiver-method requirement."
+    },
+    {
+        "file": "22_conflicting_requirements_err.delta",
+        "expect": "fail",
+        "contains": "incompatible",
+        "note": "Incompatible same-name requirements cannot be implemented until receiver-method overloading exists."
+    },
+    {
+        "file": "23_generic_bound_inferred_run.delta",
+        "expect": "run",
+        "expected_exit": 14,
+        "note": "An inferred concrete type satisfying an interface bound is monomorphized and dispatched statically."
+    },
+    {
+        "file": "24_generic_bound_explicit_run.delta",
+        "expect": "run",
+        "expected_exit": 15,
+        "note": "An explicit concrete type argument is checked against its interface bound."
+    },
+    {
+        "file": "25_generic_bound_failure_err.delta",
+        "expect": "fail",
+        "contains": "does not implement",
+        "note": "A concrete generic argument that lacks declared conformance is rejected."
+    },
+    {
+        "file": "26_unconstrained_method_call_err.delta",
+        "expect": "fail",
+        "contains": "no known method",
+        "note": "A generic parameter exposes no interface methods without a bound."
+    },
+    {
+        "file": "27_readonly_generic_edit_witness_err.delta",
+        "expect": "fail",
+        "contains": "requires `edit",
+        "note": "Receiver capability is checked when a specialization selects an editable witness for a read-only generic receiver."
+    },
+    {
+        "file": "28_editable_generic_read_witness_run.delta",
+        "expect": "run",
+        "expected_exit": 16,
+        "note": "An editable generic receiver may call a concrete witness with a read-only receiver."
+    },
+    {
+        "file": "29_multiple_bounds_run.delta",
+        "expect": "run",
+        "expected_exit": 18,
+        "note": "A type parameter may require and use more than one interface bound."
+    },
+    {
+        "file": "30_interface_as_value_type_err.delta",
+        "expect": "fail",
+        "contains": "compile-time constraint",
+        "note": "Static interfaces cannot be used as runtime value types."
+    },
+    {
+        "file": "31_static_dispatch_codegen.delta",
+        "expect": "codegen_contains",
+        "emits": [
+            "delta__read_box_value",
+            "delta__edit_box_value",
+            "read_value__read_box",
+            "read_value__edit_box"
+        ],
+        "not_contains": "vtable",
+        "note": "Two implementations produce concrete direct-call specializations and no vtable representation."
+    },
+    {
+        "file": "32_variadic_pack_length_run.delta",
+        "expect": "run",
+        "expected_exit": 3,
+        "note": "A heterogeneous variadic type pack lowers to concrete parameters and exposes an array-shaped compile-time length."
+    },
+    {
+        "file": "33_empty_variadic_pack_run.delta",
+        "expect": "run",
+        "expected_exit": 0,
+        "note": "A variadic type pack may be empty."
+    },
+    {
+        "file": "34_constrained_variadic_pack_run.delta",
+        "expect": "run",
+        "expected_exit": 2,
+        "note": "Every element of a variadic type pack is checked against its interface constraint."
+    },
+    {
+        "file": "35_constrained_variadic_pack_failure_err.delta",
+        "expect": "fail",
+        "contains": "does not implement",
+        "note": "A single non-conforming element rejects the constrained variadic type pack."
+    },
+    {
+        "file": "36_explicit_variadic_pack_run.delta",
+        "expect": "run",
+        "expected_exit": 2,
+        "note": "Explicit type arguments following a variadic type parameter form its concrete type pack."
+    },
+    {
+        "file": "37_variadic_type_parameter_must_be_final_err.delta",
+        "expect": "fail",
+        "contains": "variadic type parameter must be the final",
+        "note": "A variadic type parameter must be last."
+    },
+    {
+        "file": "38_variadic_value_parameter_must_be_final_err.delta",
+        "expect": "fail",
+        "contains": "variadic parameter must be the final",
+        "note": "An array-shaped variadic value parameter must be last."
+    },
+    {
+        "file": "39_generic_requirement_bound_mismatch_err.delta",
+        "expect": "fail",
+        "contains": "generic parameter bounds or variadic shape differ",
+        "note": "Generic interface method implementations must preserve the requirement's bounds under alpha-renaming."
+    },
+    {
+        "file": "40_variadic_requirement_shape_mismatch_err.delta",
+        "expect": "fail",
+        "contains": "generic parameter bounds or variadic shape differ",
+        "note": "A non-variadic generic method cannot satisfy a variadic interface requirement."
+    },
+    {
+        "file": "41_unknown_interface_bound_err.delta",
+        "expect": "fail",
+        "contains": "unknown interface bound",
+        "note": "Interface constraints are validated even when the generic function is never instantiated."
+    },
+    {
+        "file": "42_fixed_and_variadic_bounds_run.delta",
+        "expect": "run",
+        "expected_exit": 2,
+        "note": "Fixed constrained parameters and a final constrained type pack may coexist in one generic declaration."
+    },
+    {
+        "file": "43_public_conformance_method_visibility_err.delta",
+        "expect": "fail",
+        "contains": "must be exported because it provides public conformance",
+        "note": "A public type's conformance to a public interface cannot rely on a private witness method."
+    },
+    {
+        "file": "named-import/main.delta",
+        "name": "interface named import",
+        "expect": "project_run",
+        "note": "An exported interface and its conformance survive a named module import."
+    },
+    {
+        "file": "namespace-import/main.delta",
+        "name": "interface namespace import and group export",
+        "expect": "project_run",
+        "note": "A group-exported interface is usable as a namespace-qualified generic bound."
+    },
+    {
+        "file": "package-export/main.delta",
+        "name": "interface package metadata and consumer specialization",
+        "expect": "project_run",
+        "package_project": {
+            "project": "producer",
+            "expected_interface_contains": [
+                "export interface Readable",
+                "function value(): int32;",
+                "implements Readable",
+                "export function (reader: &constant_reader) value(): int32;"
+            ]
+        },
+        "note": "Generated package interfaces preserve exported interfaces, implements clauses, and concrete witness methods."
+    },
+    {
+        "file": "44_void_generic_specialization_run.delta",
+        "expect": "run",
+        "expected_exit": 2,
+        "note": "A generic function with a void success channel is specialized and emitted; both writers dispatch directly."
+    },
+    {
+        "file": "45_void_generic_bound_failure_err.delta",
+        "expect": "fail",
+        "contains": "does not implement required interface",
+        "note": "Interface bounds are enforced for a void-returning generic function, not just for one that returns a value."
+    },
+    {
+        "file": "46_late_generic_edit_witness_err.delta",
+        "expect": "fail",
+        "contains": "requires `edit",
+        "note": "Receiver capability is checked per specialization even when the generic function is declared after its caller."
+    },
+    {
+        "file": "47_interface_field_type_err.delta",
+        "expect": "fail",
+        "contains": "compile-time constraint",
+        "note": "An interface named as a record field type is reported as a constraint misuse, not as an undeclared name."
+    },
+    {
+        "file": "48_record_type_parameter_bound_err.delta",
+        "expect": "fail",
+        "contains": "is not supported on a type declaration's type parameter",
+        "note": "Bounds are honoured only on functions, so a bound on a record type parameter is rejected instead of silently ignored."
+    },
+    {
+        "file": "49_interface_value_parameter_called_err.delta",
+        "expect": "fail",
+        "contains": "compile-time constraint",
+        "note": "An interface named as a by-value parameter type is reported once at the parameter, including when the function is called."
+    },
+    {
+        "file": "50_interface_value_parameter_bound_run.delta",
+        "expect": "run",
+        "expected_exit": 2,
+        "note": "The generic-bound replacement for an interface-typed parameter specializes and mutates through the editable receiver."
+    }
+]

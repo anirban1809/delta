@@ -9,6 +9,6 @@ function classify(n: int32): int32 {
     }
 }
 
-function main(): int8 {
+function main(): uint8 {
     return classify(5);
 }

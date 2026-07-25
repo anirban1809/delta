@@ -8,8 +8,8 @@ function (c: edit &Counter) set(n: int32) {
     c.value = n;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let c: Counter = { value: 7 };
     c.set(10);
-    return int8(c.get());
+    return uint8(c.get());
 }

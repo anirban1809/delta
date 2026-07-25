@@ -8,9 +8,9 @@ function makeTransform(): Transform {
     };
 }
 
-function main(): int8 {
+function main(): uint8 {
     const transform: Transform = makeTransform();
-    if (transform.position.x != 3) { return int8(1); }
-    if (!transform.visible)        { return int8(2); }
-    return int8(0);
+    if (transform.position.x != 3) { return uint8(1); }
+    if (!transform.visible)        { return uint8(2); }
+    return uint8(0);
 }

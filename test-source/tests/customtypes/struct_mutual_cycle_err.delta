@@ -1,6 +1,6 @@
 type struct A = { b: B };
 type struct B = { a: A };
 
-function main(): int8 {
+function main(): uint8 {
     return 0;
 }

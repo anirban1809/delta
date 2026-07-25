@@ -1,6 +1,6 @@
 type struct Board = { cells: int32[4] };
 
-function main(): int8 {
+function main(): uint8 {
     const b: Board = Board { cells: [10, 20, 30, 40] };
     let i: uintsize = 9;
     let x: int32 = b.cells[i];

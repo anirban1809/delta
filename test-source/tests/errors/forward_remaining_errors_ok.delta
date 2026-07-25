@@ -20,13 +20,13 @@ function handleOverflow(x: int32, y: int32): int32 | DivideByZeroError {
     return value;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const value = handleOverflow(5, 1) as result;
     check result {
-        return int8(1);
+        return uint8(1);
     }
     if (value == 5) {
-        return int8(0);
+        return uint8(0);
     }
-    return int8(2);
+    return uint8(2);
 }

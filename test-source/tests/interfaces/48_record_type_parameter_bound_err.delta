@@ -1,0 +1,12 @@
+interface Readable {
+    function value(): int32;
+}
+
+type struct holder<W: Readable> = {
+    stored: W
+};
+
+function main(): uint8 {
+    let held = holder<int32> { stored: 1 };
+    return uint8(0);
+}

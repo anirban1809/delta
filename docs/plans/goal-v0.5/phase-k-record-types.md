@@ -59,7 +59,7 @@ function magnitudeSquared(v: Vec3): float64 {
     return v.x * v.x + v.y * v.y + v.z * v.z;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const a: Vec3 = { x: 1.0, y: 2.0, z: 2.0 };
     const b: Vec3 = { ...a };
     const heading: Facing = Facing.East;

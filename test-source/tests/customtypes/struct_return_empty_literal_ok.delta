@@ -4,7 +4,7 @@ function makeEmpty(): Empty {
     return Empty {};
 }
 
-function main(): int8 {
+function main(): uint8 {
     const value: Empty = makeEmpty();
-    return int8(0);
+    return uint8(0);
 }

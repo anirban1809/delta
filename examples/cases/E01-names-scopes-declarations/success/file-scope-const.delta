@@ -1,7 +1,7 @@
 // E01 success — a file-scope `const` resolves from inside a function.
 const limit: int32 = 100;
 
-function main(): int8 {
+function main(): uint8 {
     const here: int32 = limit;   // resolves the file-scope const `limit`
     return here;
 }

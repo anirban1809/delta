@@ -1,5 +1,5 @@
 type struct Holder = { value: shared<int32> };
 
-function main(): int8 {
+function main(): uint8 {
     return 0;
 }

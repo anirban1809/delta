@@ -8,7 +8,7 @@ function consume(v: Vec3): float64 {     // by-value (owned) parameter
     return v.x;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let p: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
     const r: float64 = consume(&p);   // ERROR[E0801]: cannot pass borrow `&p` where owned `Vec3` is expected
     return int32(r);

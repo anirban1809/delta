@@ -21,7 +21,7 @@ function safeAdd(a: int64, b: int64): int64 | OverflowError {
     return sum;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const x = safeAdd(1_000_000_000_000, 999) as result;
     check result {
         return 1;
@@ -350,7 +350,7 @@ Steps 1–9 are analyzer; steps 10–15 are codegen. The risks are in step 10 (s
 - **Error-typed `void`.** `function f(): void | OverflowError` is sensible. The bound shape is empty success: `f() as result; check result { ... }` or `f() as result; forward result;` — no LHS bindings, just the result-name and its discharge statement.
 - **Forwarding across different success shapes.** Identity propagation applies to the error channel, not the entire C result struct. A callee returning `int64 | OverflowError` can be forwarded by a caller returning `void | OverflowError`; codegen must construct the caller's result shape with the received tag. Returning the callee's C struct directly would be a type error.
 - **Error payload preservation.** Phase C's built-in errors are tag-only, so forwarding copies the discriminant. When user-defined error payloads are represented in C, `forward` must copy the active payload byte-for-byte/field-for-field without invoking object-literal construction or transformation.
-- **What happens if `main` returns a fallible value?** Per the entry-point convention, `main` returns `int8`. It can declare an error set: `function main(): int8 | OverflowError`. If propagation reaches the entry shim, the C-level `main()` wrapper translates the tag into a nonzero exit code and prints `delta: error in main: <ErrorName>` to stderr. Land this as a small extension to the v0 entry shim.
+- **What happens if `main` returns a fallible value?** Per the entry-point convention, `main` returns `uint8`. It can declare an error set: `function main(): uint8 | OverflowError`. If propagation reaches the entry shim, the C-level `main()` wrapper translates the tag into a nonzero exit code and prints `delta: error in main: <ErrorName>` to stderr. Land this as a small extension to the v0 entry shim.
 
 ## Definition of done
 

@@ -8,6 +8,7 @@ import {
     type Declaration,
     type EnumDecl,
     type FunctionDeclaration,
+    type InterfaceDeclaration,
     type Module,
     type StructDecl,
     type Type,
@@ -68,7 +69,26 @@ function typeSource(type: Type): string {
 }
 
 function typeParametersSource(types?: Type[]): string {
-    return types?.length ? `<${types.map((type) => type.name.name).join(", ")}>` : "";
+    return types?.length
+        ? `<${types
+              .map((type) => {
+                  const bounds = type.interfaceBounds?.length
+                      ? `: ${type.interfaceBounds.map(typeSource).join(" & ")}`
+                      : "";
+                  return `${type.variadic ? "..." : ""}${type.name.name}${bounds}`;
+              })
+              .join(", ")}>`
+        : "";
+}
+
+/** Emits Markdown documentation in a form that is safe for generated interfaces. */
+function withDocumentation(documentation: string | undefined, declaration: string): string {
+    if (!documentation) return declaration;
+    const comments = documentation
+        .split(/\r?\n/)
+        .map((line) => (line.length ? `/// ${line}` : "///"))
+        .join("\n");
+    return `${comments}\n${declaration}`;
 }
 
 function functionSource(declaration: FunctionDeclaration): string {
@@ -89,36 +109,88 @@ function functionSource(declaration: FunctionDeclaration): string {
     const errors = declaration.errorTypes.length
         ? ` | ${declaration.errorTypes.map(typeSource).join(", ")}`
         : "";
-    return `export function ${receiver}${declaration.name.name}(${parameters})${returns}${errors};`;
+    return withDocumentation(
+        declaration.documentation,
+        `export function ${receiver}${declaration.name.name}(${parameters})${returns}${errors};`,
+    );
+}
+
+function interfaceSource(declaration: InterfaceDeclaration): string {
+    const methods = declaration.methods
+        .map((method) => {
+            const parameters = method.parameters
+                .map(
+                    (parameter) =>
+                        `${parameter.variadic ? "..." : ""}${parameter.name.name}: ${typeSource(
+                            parameter.variadic
+                                ? { ...parameter.type, slice: false }
+                                : parameter.type,
+                        )}`,
+                )
+                .join(", ");
+            const returns = method.returnTypes.length
+                ? `: ${method.returnTypes.map(typeSource).join(", ")}`
+                : "";
+            const errors = method.errorTypes.length
+                ? ` | ${method.errorTypes.map(typeSource).join(", ")}`
+                : "";
+            return withDocumentation(
+                method.documentation,
+                `    function ${method.name.name}${typeParametersSource(method.typeParameters)}(${parameters})${returns}${errors};`,
+            );
+        })
+        .join("\n");
+    return withDocumentation(
+        declaration.documentation,
+        `export interface ${declaration.name.name} {\n${methods}\n}`,
+    );
 }
 
 function typeDeclarationSource(declaration: TypeDeclaration): string {
     const unique = declaration.unique ? "unique " : "";
     switch (declaration.declKind) {
         case TypeDeclKind.Alias:
-            return `export ${unique}type ${declaration.name.name} = ${typeSource((declaration.declaration as TypeAlias).target)};`;
+            return withDocumentation(
+                declaration.documentation,
+                `export ${unique}type ${declaration.name.name} = ${typeSource((declaration.declaration as TypeAlias).target)};`,
+            );
         case TypeDeclKind.Struct: {
             const record = declaration.declaration as StructDecl;
             const fields = record.fields
                 .map((field) => `${field.name.name}: ${typeSource(field.type)}`)
                 .join(", ");
-            return `export ${unique}type struct ${declaration.name.name}${typeParametersSource(record.typeParameters)} = { ${fields} };`;
+            const implemented = record.implementedInterfaces?.length
+                ? ` implements ${record.implementedInterfaces.map(typeSource).join(", ")}`
+                : "";
+            return withDocumentation(
+                declaration.documentation,
+                `export ${unique}type struct ${declaration.name.name}${typeParametersSource(record.typeParameters)} = { ${fields} }${implemented};`,
+            );
         }
         case TypeDeclKind.Enum: {
             const enumeration = declaration.declaration as EnumDecl;
             const variants = enumeration.variants
                 .map((variant) => `${variant.name.name}: ${variant.value.value}`)
                 .join(", ");
-            return `export type enum ${declaration.name.name} = { ${variants} };`;
+            return withDocumentation(
+                declaration.documentation,
+                `export type enum ${declaration.name.name} = { ${variants} };`,
+            );
         }
         case TypeDeclKind.Union: {
             const union = declaration.declaration as UnionDecl;
-            return `export type union ${declaration.name.name}${typeParametersSource(union.typeParameters)} = ${union.variants.map(typeSource).join(" | ")};`;
+            return withDocumentation(
+                declaration.documentation,
+                `export type union ${declaration.name.name}${typeParametersSource(union.typeParameters)} = ${union.variants.map(typeSource).join(" | ")};`,
+            );
         }
     }
 }
 
 function declarationSource(declaration: Declaration): string | undefined {
+    if (declaration.kind == "interface_declaration") {
+        return interfaceSource(declaration);
+    }
     if (declaration.kind == "function_declaration") {
         if (declaration.external) return;
         return functionSource(declaration);
@@ -126,7 +198,10 @@ function declarationSource(declaration: Declaration): string | undefined {
     if (declaration.kind == "variable_declaration_statement") {
         const variable = declaration as VariableDeclarationStatement;
         if (variable.external) return;
-        return `export const ${variable.name.name}: ${typeSource(variable.type)};`;
+        return withDocumentation(
+            variable.documentation,
+            `export const ${variable.name.name}: ${typeSource(variable.type)};`,
+        );
     }
     if (declaration.kind == "type_declaration") {
         return typeDeclarationSource(declaration);
@@ -159,8 +234,7 @@ function resolveExportedDeclaration(
     for (const imported of ast.declarations) {
         if (imported.kind != "import_declaration") continue;
         if (imported.namespace) {
-            const namespaceName =
-                imported.namespace.alias?.name ?? imported.namespace.module.name;
+            const namespaceName = imported.namespace.alias?.name ?? imported.namespace.module.name;
             if (namespaceName == exportName) {
                 throw new Error(
                     `cannot package re-exported module namespace \`${exportName}\`; namespace interface exports are not supported yet`,
@@ -190,28 +264,24 @@ function collectPackageDeclarations(
     const added = new Set<string>();
     const add = (declaration: Declaration, owner: Module) => {
         if (declaration.kind == "import_declaration") return;
-        if (
-            declaration.kind == "function_declaration" &&
-            declaration.external?.abi == "c"
-        ) {
+        if (declaration.kind == "function_declaration" && declaration.external?.abi == "c") {
             throw new Error(
                 `cannot package re-exported C extern \`${declaration.name.name}\` as a Delta library symbol`,
             );
         }
         const declaredExternalModule =
-            declaration.kind == "function_declaration" &&
-            declaration.external?.abi == "delta"
+            declaration.kind == "function_declaration" && declaration.external?.abi == "delta"
                 ? declaration.external.moduleName
                 : (declaration.kind == "variable_declaration_statement" ||
-                      declaration.kind == "type_declaration") &&
+                        declaration.kind == "type_declaration" ||
+                        declaration.kind == "interface_declaration") &&
                     declaration.external?.abi == "delta"
                   ? declaration.external.moduleName
                   : undefined;
-        const ownerModule =
-            declaredExternalModule ?? moduleName(projectRoot, owner.fileName);
+        const ownerModule = declaredExternalModule ?? moduleName(projectRoot, owner.fileName);
         const receiver =
             declaration.kind == "function_declaration"
-                ? declaration.receiver?.type.name.name ?? ""
+                ? (declaration.receiver?.type.name.name ?? "")
                 : "";
         const key = `${ownerModule}:${receiver}:${declaration.name.name}`;
         if (added.has(key)) return;
@@ -235,8 +305,7 @@ function collectPackageDeclarations(
             if (!exportAll) continue;
             if (declaration.namespace) {
                 const namespaceName =
-                    declaration.namespace.alias?.name ??
-                    declaration.namespace.module.name;
+                    declaration.namespace.alias?.name ?? declaration.namespace.module.name;
                 throw new Error(
                     `cannot package re-exported module namespace \`${namespaceName}\`; namespace interface exports are not supported yet`,
                 );
@@ -244,16 +313,11 @@ function collectPackageDeclarations(
             const dependency = asts.find(
                 (candidate) =>
                     declaration.resolvedPath &&
-                    path.resolve(candidate.fileName) ==
-                        path.resolve(declaration.resolvedPath),
+                    path.resolve(candidate.fileName) == path.resolve(declaration.resolvedPath),
             );
             if (!dependency) continue;
             for (const specifier of declaration.specifiers) {
-                const resolved = resolveExportedDeclaration(
-                    dependency,
-                    specifier.name.name,
-                    asts,
-                );
+                const resolved = resolveExportedDeclaration(dependency, specifier.name.name, asts);
                 if (!resolved) {
                     throw new Error(
                         `cannot resolve re-exported symbol \`${specifier.name.name}\` while generating the package interface`,
@@ -273,6 +337,7 @@ function generateInterface(
     libraryKind: Exclude<ProjectKind, "executable">,
     libraryFileName: string,
     publicModuleName?: string,
+    publicModuleDocumentation?: string,
 ): string {
     const groups = new Map<string, string[]>();
     for (const entry of declarations) {
@@ -289,7 +354,12 @@ function generateInterface(
     for (const [moduleName, moduleDeclarations] of groups) {
         source.push(`ffi module "${moduleName}";`, ...moduleDeclarations, "");
     }
-    if (publicModuleName) source.push(`export module ${publicModuleName};`, "");
+    if (publicModuleName) {
+        source.push(
+            withDocumentation(publicModuleDocumentation, `export module ${publicModuleName};`),
+            "",
+        );
+    }
     return source.join("\n");
 }
 
@@ -317,7 +387,9 @@ export function packageProject(input: string = process.cwd()): PackageResult {
     try {
         const manifest = readDeltaManifest(manifestPath);
         if (!manifest.name || !packageNamePattern.test(manifest.name)) {
-            return { error: "packaged projects require a manifest name containing only letters, numbers, underscores, and hyphens" };
+            return {
+                error: "packaged projects require a manifest name containing only letters, numbers, underscores, and hyphens",
+            };
         }
         if (!manifest.version || !versionPattern.test(manifest.version)) {
             return { error: "packaged projects require a non-empty manifest version" };
@@ -353,6 +425,7 @@ export function packageProject(input: string = process.cwd()): PackageResult {
             manifest.kind,
             libraryFileName,
             entryAst.exportModule?.name.name,
+            entryAst.exportModule?.documentation,
         );
         const interfacePath = path.join(stagedPackage, `${manifest.name}.ffi.delta`);
         validateGeneratedInterface(interfaceSource, interfacePath);
@@ -377,13 +450,7 @@ export function packageProject(input: string = process.cwd()): PackageResult {
 
         const archivePath = path.join(root, "build", `${manifest.name}-${manifest.version}.tar`);
         fs.rmSync(archivePath, { force: true });
-        execFileSync("tar", [
-            "-cf",
-            archivePath,
-            "-C",
-            packageRoot,
-            manifest.name,
-        ]);
+        execFileSync("tar", ["-cf", archivePath, "-C", packageRoot, manifest.name]);
         return {
             archivePath,
             archiveSha256: sha256(archivePath),
@@ -402,11 +469,7 @@ function validateArchiveEntries(archivePath: string): string[] {
     if (!entries.length) throw new Error("package archive is empty");
     for (const entry of entries) {
         const normalized = path.posix.normalize(entry);
-        if (
-            path.posix.isAbsolute(entry) ||
-            normalized == ".." ||
-            normalized.startsWith("../")
-        ) {
+        if (path.posix.isAbsolute(entry) || normalized == ".." || normalized.startsWith("../")) {
             throw new Error(`unsafe path in package archive: ${entry}`);
         }
     }
@@ -417,7 +480,8 @@ function rejectLinks(directory: string): void {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
         const entryPath = path.join(directory, entry.name);
         const stat = fs.lstatSync(entryPath);
-        if (stat.isSymbolicLink()) throw new Error("package archives may not contain symbolic links");
+        if (stat.isSymbolicLink())
+            throw new Error("package archives may not contain symbolic links");
         if (!stat.isDirectory() && !stat.isFile()) {
             throw new Error("package archives may contain only regular files and directories");
         }
@@ -436,7 +500,9 @@ function safePackagePath(packageRoot: string, relativePath: string): string {
 
 function manifestArchivePath(projectRoot: string, archivePath: string): string {
     const relative = path.relative(projectRoot, archivePath);
-    const selected = path.isAbsolute(relative) ? archivePath : relative || path.basename(archivePath);
+    const selected = path.isAbsolute(relative)
+        ? archivePath
+        : relative || path.basename(archivePath);
     return selected.split(path.sep).join("/");
 }
 
@@ -449,9 +515,7 @@ function recordExternalPackage(
     const manifestPath = path.join(projectRoot, "delta.json");
     const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as Record<string, any>;
     const external =
-        parsed.external &&
-        typeof parsed.external == "object" &&
-        !Array.isArray(parsed.external)
+        parsed.external && typeof parsed.external == "object" && !Array.isArray(parsed.external)
             ? parsed.external
             : {};
     external[packageName] = `${version}:${manifestArchivePath(projectRoot, archivePath)}`;
@@ -506,13 +570,13 @@ export function installPackage(
         if (!fs.existsSync(metadataPath)) throw new Error("package is missing delta.json");
         const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf8")) as any;
         readDeltaManifest(metadataPath);
-        if (metadata.name != packageName) throw new Error("package directory and metadata name do not match");
-        if (!versionPattern.test(metadata.version ?? "")) throw new Error("package metadata has an invalid version");
-        if (!["static", "dynamic"].includes(metadata.kind)) throw new Error("package metadata has an invalid library kind");
-        if (
-            options.expectedPackageName &&
-            metadata.name != options.expectedPackageName
-        ) {
+        if (metadata.name != packageName)
+            throw new Error("package directory and metadata name do not match");
+        if (!versionPattern.test(metadata.version ?? ""))
+            throw new Error("package metadata has an invalid version");
+        if (!["static", "dynamic"].includes(metadata.kind))
+            throw new Error("package metadata has an invalid library kind");
+        if (options.expectedPackageName && metadata.name != options.expectedPackageName) {
             throw new Error(
                 `external entry \`${options.expectedPackageName}\` resolved to package \`${metadata.name}\``,
             );
@@ -522,7 +586,8 @@ export function installPackage(
                 `external package \`${metadata.name}\` expected version ${options.expectedVersion}, found ${metadata.version}`,
             );
         }
-        if (metadata.entry != `${packageName}.ffi.delta`) throw new Error("package metadata has an invalid interface entry");
+        if (metadata.entry != `${packageName}.ffi.delta`)
+            throw new Error("package metadata has an invalid interface entry");
         const interfacePath = safePackagePath(extractedPackage, metadata.entry);
         if (!fs.existsSync(interfacePath)) {
             throw new Error("package interface file is missing");
@@ -538,18 +603,12 @@ export function installPackage(
             throw new Error("package interface is missing its Delta ABI module");
         }
         const interfaceLibraries = interfaceAst.ffiLibraries ?? [];
-        if (
-            interfaceLibraries.length != 1 ||
-            interfaceLibraries[0]!.kind != metadata.kind
-        ) {
+        if (interfaceLibraries.length != 1 || interfaceLibraries[0]!.kind != metadata.kind) {
             throw new Error(
                 "package interface must declare exactly one library matching the package kind",
             );
         }
-        const libraryPath = path.resolve(
-            path.dirname(interfacePath),
-            interfaceLibraries[0]!.path,
-        );
+        const libraryPath = path.resolve(path.dirname(interfacePath), interfaceLibraries[0]!.path);
         if (
             libraryPath != extractedPackage &&
             !libraryPath.startsWith(`${extractedPackage}${path.sep}`)
@@ -574,12 +633,7 @@ export function installPackage(
         fs.rmSync(installedPath, { recursive: true, force: true });
         fs.renameSync(stagedInstall, installedPath);
         if (options.record !== false) {
-            recordExternalPackage(
-                projectRoot,
-                packageName,
-                metadata.version,
-                archivePath,
-            );
+            recordExternalPackage(projectRoot, packageName, metadata.version, archivePath);
         }
         return {
             installedPath,
@@ -595,9 +649,7 @@ export function installPackage(
 }
 
 /** Installs every `<version>:<archive-path>` entry from the project's `external` map. */
-export function installExternalPackages(
-    projectInput: string = process.cwd(),
-): InstallAllResult {
+export function installExternalPackages(projectInput: string = process.cwd()): InstallAllResult {
     const projectRoot = path.resolve(projectInput);
     const manifestPath = path.join(projectRoot, "delta.json");
     if (!fs.existsSync(manifestPath)) {

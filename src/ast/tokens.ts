@@ -70,6 +70,8 @@ export enum TokenKind {
     Keyword_Unsafe = "Keyword_Unsafe",
     Keyword_Static = "Keyword_Static",
     Keyword_Dynamic = "Keyword_Dynamic",
+    Keyword_Interface = "Keyword_Interface",
+    Keyword_Implements = "Keyword_Implements",
 
     //symbols
     Symbol_LeftParen = "Symbol_LeftParen",
@@ -219,6 +221,10 @@ export function string(kind: TokenKind): string {
             return "static";
         case TokenKind.Keyword_Dynamic:
             return "dynamic";
+        case TokenKind.Keyword_Interface:
+            return "interface";
+        case TokenKind.Keyword_Implements:
+            return "implements";
 
         case TokenKind.Symbol_LeftParen:
             return "(";
@@ -395,6 +401,10 @@ export function getTokenKind(s: string): TokenKind {
             return TokenKind.Keyword_Static;
         case "dynamic":
             return TokenKind.Keyword_Dynamic;
+        case "interface":
+            return TokenKind.Keyword_Interface;
+        case "implements":
+            return TokenKind.Keyword_Implements;
 
         case "true":
         case "false":

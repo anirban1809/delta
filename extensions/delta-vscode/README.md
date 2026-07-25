@@ -10,7 +10,9 @@ String literals use either double quotes or multi-character/empty single
 quotes. Hover inference reports these values as `string`; one-scalar
 single-quoted literals remain `char`. The bundled grammar highlights both
 forms accordingly. String slices expose their UTF-8 byte length through the
-`uintsize` property `.length`.
+`uintsize` property `.length`. The compiler accepts `+` when both string
+operands are compile-time constants and reports runtime concatenation as
+requiring the future `dynamicstring` standard-library type.
 
 Completion also offers exported functions, types, and constants from other
 workspace modules. Selecting one automatically adds or updates the appropriate
@@ -24,7 +26,22 @@ hover information, diagnostics, and go-to-definition for qualified members.
 
 When a project defines import dependencies in `delta.json`, the language server uses
 them for diagnostics, navigation, and auto-import edits. The `@std` alias is
-reserved for Delta's standard library and cannot be overridden by a project.
+reserved for Delta's standard library, resolves through `DELTA_STD_LIB`, and
+cannot be overridden by a project. Extensionless imports find ordinary
+`.delta` source first and generated `.ffi.delta` interfaces second.
+Standard-library modules and their exported symbols are included in auto-import
+completion using `@std/...` paths.
+
+Set the standard-library location in workspace or user settings:
+
+```json
+{
+    "delta.standardLibrary.path": "/Users/anirban/Documents/Code/delta-std/dist"
+}
+```
+
+This setting is passed directly to the language-server process and takes
+precedence over `DELTA_STD_LIB`. Reload the VS Code window after changing it.
 
 ## Build the bundled extension server
 

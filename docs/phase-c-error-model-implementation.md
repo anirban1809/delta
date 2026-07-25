@@ -17,7 +17,7 @@ function increment(x: int32): int32 | OverflowError {
     return value;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const value = increment(4) as result;
     check result {
         return 1;

@@ -1,8 +1,8 @@
-function main(): int8 {
+function main(): uint8 {
     let value: int32;
     value = 1;
     for (let i: int32 = 0; i < 1; i++) {
         value = value + 1;
     }
-    return int8(value);
+    return uint8(value);
 }

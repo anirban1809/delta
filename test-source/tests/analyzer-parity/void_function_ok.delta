@@ -5,6 +5,6 @@ function noop() {
     const x: int32 = 1;
 }
 
-function main(): int8 {
-    return int8(0);
+function main(): uint8 {
+    return uint8(0);
 }

@@ -37,6 +37,6 @@ function nestedOwnershipTest(): int32 {
     return result;
 }
 
-function main(): int8 {
+function main(): uint8 {
     return nestedOwnershipTest();
 }

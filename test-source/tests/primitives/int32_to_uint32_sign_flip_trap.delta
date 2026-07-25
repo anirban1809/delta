@@ -1,5 +1,5 @@
-function main(): int8 {
+function main(): uint8 {
     let neg: int32 = -1;
     let pos: uint32 = uint32(neg);
-    return int8(0);
+    return uint8(0);
 }

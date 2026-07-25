@@ -1,8 +1,8 @@
 // Copyable values are also Cloneable; explicit clone is legal (and redundant). Expects pass.
 type Point = { x: int32; y: int32; };
 
-function main(): int8 {
+function main(): uint8 {
     const original: Point = { x: 1, y: 2 };
     const duplicate = clone original;
-    return int8(duplicate.x);
+    return uint8(duplicate.x);
 }

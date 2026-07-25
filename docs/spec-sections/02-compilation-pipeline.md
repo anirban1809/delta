@@ -478,7 +478,7 @@ error: src/auth/login.delta:7:14: type mismatch: expected `Session`, found `stri
 error: src/auth/login.delta:15:5: cannot call `validate` on value of type `?error`
 note: `validate` is suppressed because its receiver had a prior error
 error: src/util/array.delta:22:9: unused mutable binding `tmp`
-error: src/main.delta:4:1: function `main` must return `i32`, found `void`
+error: src/main.delta:4:1: function `main` must return `uint8`, found `void`
 
 4 errors reported. compilation aborted.
 ```
@@ -576,7 +576,7 @@ libdelta-math.delta-meta
 // my-app/src/main.delta — full Delta API, generics work
 import { dot, clamp } from "delta-math";
 
-function main(): int8 {
+function main(): uint8 {
   let a: f64[] = [1.0, 2.0, 3.0];
   let b: f64[] = [4.0, 5.0, 6.0];
   print(dot(a, b));

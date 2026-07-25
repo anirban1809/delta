@@ -1,6 +1,6 @@
 import { Box } from "./box";
 
-function main(): int8 {
+function main(): uint8 {
     const box: Box<int32> = Box<int32> { value: 9 };
     return box.value;
 }

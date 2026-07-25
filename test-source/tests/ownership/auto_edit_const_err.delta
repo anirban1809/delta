@@ -5,7 +5,7 @@ function increment(counter: edit &Counter) {
     counter.value = counter.value + 1;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const counter: Counter = { value: 7 };
     increment(counter);
     return 0;

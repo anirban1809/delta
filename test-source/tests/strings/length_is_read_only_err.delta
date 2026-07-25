@@ -1,5 +1,5 @@
-function main(): int8 {
+function main(): uint8 {
     let value = "Delta";
     value.length = uintsize(2);
-    return int8(0);
+    return uint8(0);
 }

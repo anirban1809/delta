@@ -1,0 +1,14 @@
+import io from "./io";
+
+function read_value<R: io.Readable>(reader: &R): int32 {
+    return reader.value();
+}
+
+function main(): uint8 {
+    const reader = io.make_reader(22);
+    if (read_value(reader) != 22) {
+        return 1;
+    }
+    return 0;
+}
+

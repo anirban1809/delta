@@ -4,8 +4,8 @@ function wrap<T>(x: T): Box<T> {
     return Box<T> { value: x };
 }
 
-function main(): int8 {
+function main(): uint8 {
     const b: Box<int32> = wrap(5);
-    if (b.value != 5) { return int8(1); }
-    return int8(0);
+    if (b.value != 5) { return uint8(1); }
+    return uint8(0);
 }

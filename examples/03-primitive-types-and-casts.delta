@@ -17,7 +17,7 @@
 //   codegen    : map int32->int32_t, uint8->uint8_t, float64->double, etc.;
 //                emit checked-narrowing helpers for fallible casts.
 
-function main(): int8 {
+function main(): uint8 {
     const small: int32  = 10;
     const big: int64    = int64(small);    // OK — explicit widening
     const back: int32   = int32(big);      // OK — explicit narrowing (may trap)
@@ -29,7 +29,7 @@ function main(): int8 {
     // const implicitFloat: float64 = small;   // ERROR: no implicit int -> float promotion
     // const overflowCast: uint8 = uint8(300); // (parses) -> runtime trap: value out of range for uint8
 
-    return int8(int32(f) + back + int32(u));
+    return uint8(int32(f) + back + int32(u));
 }
 
 /* === Generated C (illustrative) ===

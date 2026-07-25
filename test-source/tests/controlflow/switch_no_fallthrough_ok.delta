@@ -1,4 +1,4 @@
-function main(): int8 {
+function main(): uint8 {
     let counter: int32 = 0;
     let n: int32 = 1;
     switch (n) {
@@ -6,6 +6,6 @@ function main(): int8 {
         case 2:   counter = counter + 100;
         default:  counter = counter + 1000;
     }
-    if (counter != 10) { return int8(1); }
-    return int8(0);
+    if (counter != 10) { return uint8(1); }
+    return uint8(0);
 }

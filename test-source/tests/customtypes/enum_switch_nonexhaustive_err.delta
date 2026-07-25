@@ -10,6 +10,6 @@ function rank(f: Facing): int32 {
     return 0;
 }
 
-function main(): int8 {
+function main(): uint8 {
     return rank(Facing.North);
 }

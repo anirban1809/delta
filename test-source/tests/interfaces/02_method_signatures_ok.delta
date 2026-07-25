@@ -1,0 +1,11 @@
+type struct ioerror = {
+    code: int32
+};
+
+interface Operations {
+    function reset(): void;
+    function size(): uintsize;
+    function write(value: string): void | ioerror;
+    function identity<T>(value: T): T;
+}
+

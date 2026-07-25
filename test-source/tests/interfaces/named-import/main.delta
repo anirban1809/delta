@@ -1,0 +1,18 @@
+import {
+    Readable,
+    constant_reader,
+    make_reader
+} from "./reader";
+
+function read_value<R: Readable>(reader: &R): int32 {
+    return reader.value();
+}
+
+function main(): uint8 {
+    const reader: constant_reader = make_reader(21);
+    if (read_value(reader) != 21) {
+        return 1;
+    }
+    return 0;
+}
+

@@ -1,7 +1,15 @@
 import { BASE, Pair, sum } from "./constants";
 
+/**
+ * Adds two values.
+ *
+ * ## Returns
+ *
+ * Their arithmetic sum.
+ */
 function add(left: int32, right: int32): int32 {
     return left + right;
 }
 
+/// Public package namespace.
 export module arithmetic;

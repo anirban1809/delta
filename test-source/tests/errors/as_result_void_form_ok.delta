@@ -8,10 +8,10 @@ function ensure(x: int32): void | OverflowError {
     return;
 }
 
-function main(): int8 {
+function main(): uint8 {
     ensure(5) as result;
     check result {
-        return int8(1);
+        return uint8(1);
     }
-    return int8(0);
+    return uint8(0);
 }

@@ -1,0 +1,17 @@
+interface printable {
+    function print();
+}
+
+type struct printer = {} implements printable;
+
+function (s: edit &printer) print() {}
+
+function use_printables(p: printable) {
+    p.print();
+}
+
+function main(): uint8 {
+    const x = printer {};
+    use_printables(x);
+    return 0;
+}

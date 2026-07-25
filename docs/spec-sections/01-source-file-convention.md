@@ -194,7 +194,7 @@ delta build                # errors if no manifest in current dir and no source 
 | `"dynamic"` | `build/lib<name>.dylib` on macOS, `build/lib<name>.so` on Unix-like targets, or `build/<name>.dll` on Windows |
 
 The field defaults to `"executable"` for existing manifests. Executable
-projects require `function main(): int8`; static and dynamic library projects
+projects require `function main(): uint8`; static and dynamic library projects
 do not generate an executable entry shim and do not require `main`. A static
 project archives all project objects. A dynamic project compiles
 position-independent objects and links them into a platform shared library.
@@ -296,8 +296,14 @@ Dependency names must have the form `@name`. A target is resolved relative to
 the directory containing `delta.json`; an exact dependency may target a file,
 while a subpath is appended to the configured target. For example, with
 `"@app": "src"`, `import { parse } from "@app/parser";` resolves
-`src/parser.delta`. `@std` is reserved by the toolchain for standard-library
-imports and a manifest dependency that attempts to redefine it is rejected.
+`src/parser.delta`. Extensionless relative and dependency imports try
+`<path>.delta` first and then `<path>.ffi.delta`, allowing an import such as
+`"@library/math"` to address either source or a generated package interface.
+`@std` is reserved by the toolchain for standard-library imports and a manifest
+dependency that attempts to redefine it is rejected. Its root is supplied by
+`DELTA_STD_LIB`, after which it uses the same extensionless resolution:
+`@std/io` may therefore resolve to `$DELTA_STD_LIB/io.ffi.delta`. The compiler
+reports a configuration error when `DELTA_STD_LIB` is not set.
 
 **Conclusion.** Lock in `delta.json` + JSONC dialect. The manifest is always explicit. `delta init` produces a starter manifest with inline comments so users see the dialect from their first project. Schema is versioned via `schemaVersion` to allow forward evolution (e.g., workspaces in v2).
 
@@ -389,7 +395,7 @@ import { login, Session } from "./auth";     // resolves to ./auth.delta
 
 ### 1.5 Entry Point
 
-**Proposal.** The entry-point symbol is `function main(): int8`, declared at top-level scope in the entry file. The rules:
+**Proposal.** The entry-point symbol is `function main(): uint8`, declared at top-level scope in the entry file. The rules:
 
 - The entry *file* is identified by the manifest's `entry` field or by the `delta build <file>` CLI argument — the filename `main.delta` carries no special meaning; it is a convention.
 - A project may contain multiple files each with their own `main`; the manifest or CLI picks which one is built.
@@ -398,12 +404,12 @@ import { login, Session } from "./auth";     // resolves to ./auth.delta
 
 **Reason.** Separating "what runs" (a symbol) from "where it lives" (a path) is the cleaner design and matches C, Rust, and Zig. Filename-based entry conflates a filesystem name with a semantic role and breaks for projects with multiple binaries.
 
-The `i32` return type pins the function as returning a process exit code, which is what `main` semantically *is*. There is no "top-level code runs as a script" mode — Delta's static typing, ownership analysis, and error-handling rules don't compose cleanly with statement-level top-level execution.
+The `uint8` return type matches the portable 0–255 process exit-status range. There is no "top-level code runs as a script" mode — Delta's static typing, ownership analysis, and error-handling rules don't compose cleanly with statement-level top-level execution.
 
 **Examples.**
 ```ts
 // src/main.delta
-function main(): int8 {
+function main(): uint8 {
   console.writeLine("hello");
   return 0;
 }
@@ -414,8 +420,8 @@ Multiple entry points in one project:
 my-tools/
   delta.json          # "entry": "cmd/server/main.delta" (default)
   cmd/
-    server/main.delta     # has its own `function main(): int8`
-    migrate/main.delta    # has its own `function main(): int8`
+    server/main.delta     # has its own `function main(): uint8`
+    migrate/main.delta    # has its own `function main(): uint8`
 
 # default build:
 delta build
@@ -431,7 +437,7 @@ export function parse(input: StringView): Ast | ParseError { /* ... */ }
 // no function main here
 ```
 
-**Conclusion.** `main` is the magic symbol, top-level, return type `i32`. Entry file is determined by manifest or CLI argument. Libraries are distinguished by absence of `main`, no annotation required.
+**Conclusion.** `main` is the magic symbol, top-level, return type `uint8`. Entry file is determined by manifest or CLI argument. Libraries are distinguished by absence of `main`, no annotation required.
 
 ---
 
@@ -543,7 +549,7 @@ The following are deliberately out of scope, either deferred to later sections o
 - **Auto-generated manifests** — never. Manifest creation is always explicit (`delta init`).
 - **Directory-as-module / `mod.delta` / `index.delta`** — never. One file = one module is a hard rule.
 - **Enforced `src/` directory** — never. `src/` is convention only.
-- **Top-level executable code (script mode)** — never. The entry point is always `function main(): int8`.
+- **Top-level executable code (script mode)** — never. The entry point is always `function main(): uint8`.
 - **Filesystem-dependent import casing** — never. Imports are always case-sensitive.
 
 ---

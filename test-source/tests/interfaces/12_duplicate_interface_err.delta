@@ -1,0 +1,8 @@
+interface Readable {
+    function read(): int32;
+}
+
+interface Readable {
+    function read(): int32;
+}
+

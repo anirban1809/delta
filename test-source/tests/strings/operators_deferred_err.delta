@@ -1,6 +1,6 @@
-function main(): int8 {
+function main(): uint8 {
     const left: string = "left";
     const right: string = "right";
-    if (left == right) { return int8(1); }
-    return int8(0);
+    if (left == right) { return uint8(1); }
+    return uint8(0);
 }

@@ -34,7 +34,7 @@ function is_vowel(c: char): int32 {
     }
 }
 
-function main(): int8 {
+function main(): uint8 {
     // --- free widening: same signedness, wider destination ---
     let s8:  int8  = 100;
     let s16: int16 = int16(s8);

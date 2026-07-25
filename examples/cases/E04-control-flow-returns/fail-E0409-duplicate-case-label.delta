@@ -1,5 +1,5 @@
 // E0409 — duplicate case label `5`
-function main(): int8 {
+function main(): uint8 {
     const n: int32 = 5;
     switch (n) {
         case 5: { return 1; }

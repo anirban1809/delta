@@ -1,0 +1,4 @@
+type struct writer = {
+    marker: uint8
+} implements MissingWriter;
+

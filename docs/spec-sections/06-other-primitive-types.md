@@ -509,7 +509,7 @@ function processAll(ids: Slice<u64>): void {
 }
 
 // process.exit and unreachable
-function main(): int8 {
+function main(): uint8 {
   const config = loadConfig() as result;
   check result {
     process.exit(1);                                           // terminator

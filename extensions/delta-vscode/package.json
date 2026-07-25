@@ -2,7 +2,7 @@
     "name": "delta-vscode",
     "displayName": "Delta",
     "description": "Language support for the Delta programming language.",
-    "version": "0.3.9",
+    "version": "0.3.23",
     "publisher": "delta-lang",
     "engines": {
         "vscode": "^1.85.0"
@@ -42,6 +42,11 @@
                     "type": "string",
                     "default": "",
                     "markdownDescription": "Optional path to the Delta language-server entry point. Leave empty to use this extension's bundled server."
+                },
+                "delta.standardLibrary.path": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "Path to the Delta standard-library distribution directory. Overrides `DELTA_STD_LIB` for the language server. Reload the window after changing it."
                 },
                 "delta.autoImports.enabled": {
                     "type": "boolean",

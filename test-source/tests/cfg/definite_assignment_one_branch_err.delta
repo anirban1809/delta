@@ -1,4 +1,4 @@
-function main(): int8 {
+function main(): uint8 {
     let value: int32;
     if (true) {
         value = 1;

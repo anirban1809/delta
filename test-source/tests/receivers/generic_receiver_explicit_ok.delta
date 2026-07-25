@@ -8,8 +8,8 @@ function (box: &Box<T>) get<T>(): T {
     return box.value;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let box: Box<int32> = Box<int32>{ value: 1 };
     box.set<int32>(9);
-    return int8(box.get<int32>() - 9);
+    return uint8(box.get<int32>() - 9);
 }

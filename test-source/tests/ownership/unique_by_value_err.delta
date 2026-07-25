@@ -3,7 +3,7 @@ unique type Handle = { id: int32; };
 
 function consume(value: Handle) { }
 
-function main(): int8 {
+function main(): uint8 {
     let value: Handle = { id: 7 };
     consume(value);
     return 0;

@@ -1,8 +1,8 @@
-function main(): int8 {
+function main(): uint8 {
     let total: int64 = 0;
     for (let i: int64 = 1; i <= 1_000; i++) {
         total = total + i;
     }
-    if (total != 500_500) { return int8(1); }
-    return int8(0);
+    if (total != 500_500) { return uint8(1); }
+    return uint8(0);
 }

@@ -5,7 +5,7 @@ function steal(c: edit &Counter): Counter {
     return move c;   // ERROR[E0703]: cannot move out of a reference `c`
 }
 
-function main(): int8 {
+function main(): uint8 {
     let a: Counter = { value: new 0 };
     let b = steal(edit &a);
     return 0;

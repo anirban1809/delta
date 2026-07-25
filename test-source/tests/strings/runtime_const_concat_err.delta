@@ -1,0 +1,9 @@
+function source(): string {
+    return "hello";
+}
+
+function main(): uint8 {
+    const hello = source();
+    const message = hello + " world";
+    return uint8(0);
+}

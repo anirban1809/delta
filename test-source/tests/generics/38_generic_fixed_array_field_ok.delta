@@ -10,6 +10,6 @@ function stack_new<T>(init_data: T[5]): Stack<T> {
     };
 }
 
-function main(): int8 {
+function main(): uint8 {
     return 0;
 }

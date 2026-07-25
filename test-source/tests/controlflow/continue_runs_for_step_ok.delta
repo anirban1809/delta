@@ -1,9 +1,9 @@
-function main(): int8 {
+function main(): uint8 {
     let iterations: int32 = 0;
     for (let i: int32 = 0; i < 5; i++) {
         iterations++;
         continue;
     }
-    if (iterations != 5) { return int8(1); }
-    return int8(0);
+    if (iterations != 5) { return uint8(1); }
+    return uint8(0);
 }

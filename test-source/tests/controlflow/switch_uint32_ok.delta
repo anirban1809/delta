@@ -1,8 +1,8 @@
-function main(): int8 {
+function main(): uint8 {
     let n: uint32 = 7;
     switch (n) {
-        case 7:   return int8(0);
-        case 8:   return int8(1);
-        default:  return int8(2);
+        case 7:   return uint8(0);
+        case 8:   return uint8(1);
+        default:  return uint8(2);
     }
 }

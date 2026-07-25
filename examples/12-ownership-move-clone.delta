@@ -20,7 +20,7 @@
 
 type Counter = { value: heap<int64>; };   // owns heap -> cloneable, non-copyable, move-meaningful
 
-function main(): int8 {
+function main(): uint8 {
     let a: Counter = { value: new 0 };     // `new 0` boxes an int64 on the heap (feature 14)
 
     let b = move a;                        // ownership moves to `b`; `a` is now invalid

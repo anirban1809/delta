@@ -1,0 +1,5 @@
+interface Invalid {
+    function read(): int32;
+    function read(): int32;
+}
+

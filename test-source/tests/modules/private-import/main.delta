@@ -1,5 +1,5 @@
 import { secret } from "./util";
 
-function main(): int8 {
+function main(): uint8 {
     return secret();
 }

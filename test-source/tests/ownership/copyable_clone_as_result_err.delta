@@ -1,6 +1,6 @@
 type Point = { x: int32; };
 
-function main(): int8 {
+function main(): uint8 {
     const point: Point = { x: 1 };
     const duplicate = clone point as result;
     check result { return 1; }

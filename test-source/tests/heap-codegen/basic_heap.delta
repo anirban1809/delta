@@ -22,11 +22,11 @@ function (bc: edit &BoxedCounter) step() {
     bc.payload.count += bc.payload.stride;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let bc = makeBoxedCounter(int64(10), int64(3)) as result;
     check result {
-        return int8(1);
+        return uint8(1);
     }
     bc.step();
-    return int8(int32(payloadTotal(bc.payload)));
+    return uint8(int32(payloadTotal(bc.payload)));
 }

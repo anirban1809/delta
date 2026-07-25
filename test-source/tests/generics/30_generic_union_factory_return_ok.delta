@@ -7,7 +7,7 @@ function success<T, E>(value: T): Result<T, E> {
     return Ok<T> { value: value };
 }
 
-function main(): int8 {
+function main(): uint8 {
     const result: Result<int32, char> = success<int32, char>(42);
-    return int8(0);
+    return uint8(0);
 }

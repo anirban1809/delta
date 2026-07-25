@@ -4,6 +4,6 @@ function pick(b: bool): int32 {
     return x;
 }
 
-function main(): int8 {
+function main(): uint8 {
     return pick(true);
 }

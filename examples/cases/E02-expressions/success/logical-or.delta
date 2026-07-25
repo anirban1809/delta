@@ -1,5 +1,5 @@
 // E02 success — logical OR `||` on bool operands.
-function main(): int8 {
+function main(): uint8 {
     const x: bool = true;
     const y: bool = false;
     const result: bool = x || y;

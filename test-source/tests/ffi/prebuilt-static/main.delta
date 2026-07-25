@@ -1,6 +1,6 @@
 import { BASE, add } from "./math.ffi";
 
-function main(): int8 {
+function main(): uint8 {
     if (add(BASE, 2) != 42) {
         return 1;
     }

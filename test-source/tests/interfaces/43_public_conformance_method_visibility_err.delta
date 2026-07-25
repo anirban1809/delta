@@ -1,0 +1,15 @@
+export interface Readable {
+    function value(): uint8;
+}
+
+export type struct readable = {
+    stored: uint8
+} implements Readable;
+
+function (value: &readable) value(): uint8 {
+    return value.stored;
+}
+
+function main(): uint8 {
+    return uint8(0);
+}

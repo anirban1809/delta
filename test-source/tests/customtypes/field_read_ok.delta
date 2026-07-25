@@ -1,8 +1,8 @@
 type struct Vec3 = { x: float64, y: float64, z: float64 };
 
-function main(): int8 {
+function main(): uint8 {
     const v: Vec3 = Vec3 { x: 4.0, y: 5.0, z: 6.0 };
-    if (int32(v.x + v.y) != 9) { return int8(1); }
-    if (int32(v.z) != 6)       { return int8(2); }
-    return int8(0);
+    if (int32(v.x + v.y) != 9) { return uint8(1); }
+    if (int32(v.z) != 6)       { return uint8(2); }
+    return uint8(0);
 }

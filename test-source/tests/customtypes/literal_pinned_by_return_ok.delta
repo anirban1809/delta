@@ -4,8 +4,8 @@ function origin(): Vec3 {
     return Vec3 { x: 0.0, y: 0.0, z: 0.0 };
 }
 
-function main(): int8 {
+function main(): uint8 {
     const o: Vec3 = origin();
-    if (int32(o.x + o.y + o.z) != 0) { return int8(1); }
-    return int8(0);
+    if (int32(o.x + o.y + o.z) != 0) { return uint8(1); }
+    return uint8(0);
 }

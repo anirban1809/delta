@@ -14,6 +14,7 @@ import { SourceIndex, type IndexedSymbol, type StructInfo } from "./source-index
 export type AutoImportCandidate = {
     symbol: IndexedSymbol;
     importPath: string;
+    importKind: "named" | "module";
 };
 
 const ignoredDirectories = new Set([".git", "build", "node_modules", "dist"]);
@@ -23,10 +24,16 @@ function isWithin(root: string, fileName: string): boolean {
     return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
+function configuredStandardLibraryRoot(): string | undefined {
+    const configured = process.env.DELTA_STD_LIB?.trim();
+    return configured ? path.resolve(configured) : undefined;
+}
+
 /** Workspace-wide exported-symbol and module index used by editor features. */
 export class WorkspaceIndex {
     private readonly files = new Map<string, SourceIndex>();
     private readonly manifests = new Map<string, PathAliases>();
+    private readonly standardLibraryRoot = configuredStandardLibraryRoot();
 
     constructor(private roots: string[] = []) {
         this.roots = roots.map((root) => path.resolve(root));
@@ -35,7 +42,9 @@ export class WorkspaceIndex {
     setRoots(roots: string[]) {
         this.roots = roots.map((root) => path.resolve(root));
         for (const fileName of this.files.keys()) {
-            const retained = this.roots.some((root) => isWithin(root, fileName));
+            const retained =
+                this.roots.some((root) => isWithin(root, fileName)) ||
+                (!!this.standardLibraryRoot && isWithin(this.standardLibraryRoot, fileName));
             if (!retained) this.files.delete(fileName);
         }
         for (const root of this.manifests.keys()) {
@@ -48,6 +57,7 @@ export class WorkspaceIndex {
 
     scan() {
         for (const root of this.roots) this.scanDirectory(root);
+        if (this.standardLibraryRoot) this.scanDirectory(this.standardLibraryRoot);
         this.linkAllImports();
     }
 
@@ -106,6 +116,44 @@ export class WorkspaceIndex {
         if (path.basename(fileName) === "delta.json") this.loadManifest(fileName);
         else this.load(fileName);
         this.linkAllImports();
+    }
+
+    /**
+     * Refreshes direct dependencies whose contents changed without a watcher
+     * notification. Generated interfaces and configured libraries may live
+     * outside watched workspace roots, so editor queries use this as a
+     * correctness fallback.
+     */
+    refreshImports(
+        fileName: string,
+        overlaySource?: (fileName: string) => string | undefined,
+    ): boolean {
+        const normalized = path.resolve(fileName);
+        const importer = this.files.get(normalized);
+        if (!importer) return false;
+
+        let changed = false;
+        for (const declaration of importer.imports) {
+            const targetPath = this.resolvePath(normalized, declaration.path);
+            if (!targetPath) continue;
+            let source = overlaySource?.(targetPath);
+            if (source === undefined) {
+                try {
+                    source = fs.readFileSync(targetPath, "utf8");
+                } catch {
+                    continue;
+                }
+            }
+            const current = this.files.get(targetPath);
+            if (current?.source === source) continue;
+            this.files.set(
+                targetPath,
+                new SourceIndex(source, pathToFileURL(targetPath).toString()),
+            );
+            changed = true;
+        }
+        if (changed) this.linkAllImports();
+        return changed;
     }
 
     remove(fileName: string) {
@@ -193,21 +241,66 @@ export class WorkspaceIndex {
         }
     }
 
+    private implementationModule(
+        fileName: string,
+    ): { abiName: string; publicName?: string } | undefined {
+        const manifestPath = findNearestDeltaManifest(path.dirname(fileName));
+        if (!manifestPath) return undefined;
+        try {
+            const manifest = readDeltaManifest(manifestPath);
+            if (!manifest.entry || manifest.kind === "executable") return undefined;
+            const projectRoot = path.dirname(manifestPath);
+            const entryPath = path.resolve(projectRoot, manifest.entry);
+            const relativeEntry = path.relative(projectRoot, entryPath).replace(/\.delta$/i, "");
+            const abiName = relativeEntry
+                .split(path.sep)
+                .map((part) => part.replace(/[^A-Za-z0-9_]/g, "_"))
+                .join("__");
+            return {
+                abiName,
+                publicName: (this.files.get(entryPath) ?? this.load(entryPath))?.exportModuleName,
+            };
+        } catch {
+            return undefined;
+        }
+    }
+
     autoImports(fileName: string): AutoImportCandidate[] {
         const normalized = path.resolve(fileName);
         const current = this.files.get(normalized);
         if (!current) return [];
+        const implementationModule = this.implementationModule(normalized);
         const visible = new Set(
             current.completions(current.source.length).map((symbol) => symbol.name),
         );
         const candidates: AutoImportCandidate[] = [];
         for (const [candidatePath, candidateIndex] of this.files) {
             if (candidatePath === normalized) continue;
+            if (
+                candidatePath.endsWith(".ffi.delta") &&
+                implementationModule &&
+                (candidateIndex.ffiModuleNames.has(implementationModule.abiName) ||
+                    (!!implementationModule.publicName &&
+                        candidateIndex.exportModuleName === implementationModule.publicName))
+            ) {
+                continue;
+            }
+            if (
+                candidateIndex.moduleDeclaration &&
+                !visible.has(candidateIndex.moduleDeclaration.name)
+            ) {
+                candidates.push({
+                    symbol: candidateIndex.moduleDeclaration,
+                    importPath: this.moduleSpecifier(normalized, candidatePath),
+                    importKind: "module",
+                });
+            }
             for (const symbol of candidateIndex.exportedSymbols()) {
                 if (visible.has(symbol.name)) continue;
                 candidates.push({
                     symbol,
                     importPath: this.moduleSpecifier(normalized, candidatePath),
+                    importKind: "named",
                 });
             }
         }
@@ -215,6 +308,13 @@ export class WorkspaceIndex {
     }
 
     private moduleSpecifier(importer: string, target: string): string {
+        if (this.standardLibraryRoot && isWithin(this.standardLibraryRoot, target)) {
+            const modulePath = path
+                .relative(this.standardLibraryRoot, target)
+                .replaceAll(path.sep, "/")
+                .replace(/(?:\.ffi)?\.delta$/i, "");
+            return modulePath ? `@std/${modulePath}` : "@std";
+        }
         const manifest = this.manifestFor(importer);
         const alias = manifest
             ? aliasSpecifierForPath(target, manifest.root, manifest.dependencies)

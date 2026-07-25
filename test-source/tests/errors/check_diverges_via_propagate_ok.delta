@@ -8,6 +8,6 @@ function f(a: int32, b: int32): int32 | OverflowError {
     return s;
 }
 
-function main(): int8 {
-    return int8(0);
+function main(): uint8 {
+    return uint8(0);
 }

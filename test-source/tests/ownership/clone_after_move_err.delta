@@ -3,7 +3,7 @@ type Box = { value: heap<int32>; };
 
 function consume(value: Box) { }
 
-function main(): int8 {
+function main(): uint8 {
     let value: Box = { value: new 7 };
     consume(move value);
     const duplicate = clone value as result;

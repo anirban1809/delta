@@ -275,7 +275,7 @@ function read_line(input: edit &std.stdin): std.buffer | std.io_error, std.alloc
     return result;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let input: std.stdin = std.stdin();
     const line = read_line(input) as result;
     check result { return 1; }

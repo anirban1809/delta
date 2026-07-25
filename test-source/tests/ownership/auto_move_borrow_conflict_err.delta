@@ -3,7 +3,7 @@ unique type Handle = { id: int32; };
 
 function conflict(owner: Handle, reader: &Handle) { }
 
-function main(): int8 {
+function main(): uint8 {
     let value: Handle = { id: 7 };
     conflict(move value, value);
     return 0;

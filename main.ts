@@ -4,11 +4,8 @@ import { Formatter } from "./src/ast/formatter.js";
 import { Diagnostics } from "./src/diagnostics/diagnostics.js";
 import { buildProject, scaffoldProject } from "./src/compiler/project.js";
 import { startLanguageServer } from "./src/lsp/server.js";
-import {
-    installExternalPackages,
-    installPackage,
-    packageProject,
-} from "./src/compiler/package.js";
+import { installExternalPackages, installPackage, packageProject } from "./src/compiler/package.js";
+import { parseBindgenCliArguments, writeFfiBindings } from "./src/compiler/bindgen.js";
 
 /** Builds an entry file or the manifest-backed project in the current directory. */
 function build(entry?: string, debug = false): boolean {
@@ -50,7 +47,7 @@ function scaffold(name: string, parentDirectory: string): boolean {
 
 function usage(): void {
     console.log(
-        "usage:\n  delta build [filename.delta | project-directory]\n  delta build --debug <filename.delta | project-directory>\n  delta package [project-directory]\n  delta install [package.tar]\n  delta init projectname\n  delta lsp",
+        "usage:\n  delta build [filename.delta | project-directory]\n  delta build --debug <filename.delta | project-directory>\n  delta bindgen <header> [symbol list] -o <file.ffi.delta>\n  delta package [project-directory]\n  delta install [package.tar]\n  delta init projectname\n  delta lsp",
     );
 }
 
@@ -76,6 +73,25 @@ function main(): void {
             }
             const resolvedInput = input ? path.resolve(input) : undefined;
             if (!build(resolvedInput, debug)) {
+                process.exitCode = 1;
+            }
+            return;
+        }
+        case "bindgen": {
+            try {
+                const args = parseBindgenCliArguments(process.argv.slice(3));
+                const result = writeFfiBindings(args.header, args.symbols, args.outputPath);
+                console.log(
+                    `Generated ${result.outputPath} (${result.symbols.length} symbol${result.symbols.length == 1 ? "" : "s"})`,
+                );
+                if (result.skippedSymbols.length) {
+                    console.error(
+                        `Skipped ${result.skippedSymbols.length} declaration${result.skippedSymbols.length == 1 ? "" : "s"} with unsupported C signatures`,
+                    );
+                }
+            } catch (error) {
+                console.error(error instanceof Error ? error.message : String(error));
+                console.error("usage: delta bindgen <header> [symbol list] -o <file.ffi.delta>");
                 process.exitCode = 1;
             }
             return;
@@ -118,7 +134,9 @@ function main(): void {
                 process.exitCode = 1;
                 return;
             }
-            console.log(`Installed ${result.packageName}@${result.version} to ${result.installedPath}`);
+            console.log(
+                `Installed ${result.packageName}@${result.version} to ${result.installedPath}`,
+            );
             console.log(`SHA-256 ${result.archiveSha256}`);
             return;
         }

@@ -140,7 +140,9 @@ export function compileModuleSource(
                         normalized,
                         "semantic",
                         declaration.pathPosition,
-                        `unknown standard library module \`${declaration.path}\``,
+                        resolution.reason
+                            ? `cannot resolve standard library import \`${declaration.path}\`: ${resolution.reason}`
+                            : `unknown standard library module \`${declaration.path}\``,
                     ),
                 );
                 continue;

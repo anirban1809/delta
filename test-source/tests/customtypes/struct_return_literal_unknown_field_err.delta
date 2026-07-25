@@ -4,6 +4,6 @@ function invalidVec3(): Vec3 {
     return Vec3 { x: 23, y: 65, z: 55, w: 89 };
 }
 
-function main(): int8 {
+function main(): uint8 {
     return 0;
 }

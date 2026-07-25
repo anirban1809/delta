@@ -1,0 +1,14 @@
+interface Writer {
+    function write(value: string): void;
+}
+
+type struct stdout_writer = {
+    marker: uint8
+} implements Writer;
+
+function (writer: &stdout_writer) write(
+    value: string,
+    repeat: uintsize
+): void {
+}
+

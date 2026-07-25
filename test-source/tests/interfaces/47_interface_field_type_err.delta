@@ -1,0 +1,11 @@
+interface Writer {
+    function write(value: string): int32;
+}
+
+type struct holder = {
+    sink: Writer
+};
+
+function main(): uint8 {
+    return uint8(0);
+}

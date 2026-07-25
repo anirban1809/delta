@@ -1,7 +1,7 @@
 type struct Box<T> = { value: T };
 
 
-function main(): int8 {
+function main(): uint8 {
     const b: Box<int32, bool> = Box<int32, bool> { value: 5 };
     return 0;
 }

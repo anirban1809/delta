@@ -1,15 +1,15 @@
-function main(): int8 {
+function main(): uint8 {
     let outer: int32 = 1;
     let inner: int32 = 2;
     switch (outer) {
         case 1:
             switch (inner) {
                 case 2:
-                    return int8(0);
+                    return uint8(0);
                 default:
-                    return int8(1);
+                    return uint8(1);
             }
         default:
-            return int8(2);
+            return uint8(2);
     }
 }

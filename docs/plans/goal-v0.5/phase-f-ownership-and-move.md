@@ -31,7 +31,7 @@ After Phase F:
 ```delta
 function consume(file: File): void { }
 
-function main(): int8 {
+function main(): uint8 {
     let file = openFile("notes.txt") as result;
     check result { return 1; }
 
@@ -53,7 +53,7 @@ function readSum(a: &Counter, b: &Counter): int64 {
     return a.get() + b.get();
 }
 
-function main(): int8 {
+function main(): uint8 {
     let a = makeCounter(10);
     let b = makeCounter(20);
 

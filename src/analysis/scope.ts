@@ -1,4 +1,5 @@
 import { type FunctionSignature, type Symbol } from "./analyzer.js";
+import type { FunctionDeclaration } from "../ast/types.js";
 /**
  * A lexical scope: a list of symbols plus a link to its enclosing scope.
  *
@@ -10,11 +11,15 @@ export class Scope {
     parent: Scope | undefined; //parent scope can be empty for global scope
     symbols: Map<string, Symbol>;
     methods: Map<string, Map<string, FunctionSignature>>;
+    implementations: Map<string, Set<string>>;
+    activeFunction?: FunctionDeclaration;
 
     constructor(parent?: Scope) {
         this.parent = parent;
         this.symbols = new Map();
         this.methods = parent?.methods ?? new Map();
+        this.implementations = parent?.implementations ?? new Map();
+        this.activeFunction = parent?.activeFunction;
     }
 
     /** Declares a symbol in this scope. */
@@ -44,10 +49,22 @@ export class Scope {
         return this.methods.get(typeName)?.get(name);
     }
 
+    addImplementation(typeName: string, interfaceName: string): void {
+        const interfaces = this.implementations.get(typeName) ?? new Set<string>();
+        interfaces.add(interfaceName);
+        this.implementations.set(typeName, interfaces);
+    }
+
+    implementsInterface(typeName: string, interfaceName: string): boolean {
+        return this.implementations.get(typeName)?.has(interfaceName) ?? false;
+    }
+
     visibleSymbols(): Symbol[] {
         const result = new Map<string, Symbol>();
         for (let scope: Scope | undefined = this; scope; scope = scope.parent) {
-            scope.symbols.forEach((symbol, name) => { if (!result.has(name)) result.set(name, symbol); });
+            scope.symbols.forEach((symbol, name) => {
+                if (!result.has(name)) result.set(name, symbol);
+            });
         }
         return [...result.values()];
     }

@@ -1,5 +1,5 @@
 // E02 success — logical NOT `!` on a bool operand.
-function main(): int8 {
+function main(): uint8 {
     const x: bool = true;
     const result: bool = !x;
     return 0;

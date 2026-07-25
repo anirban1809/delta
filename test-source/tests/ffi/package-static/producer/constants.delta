@@ -1,6 +1,14 @@
+/// The **base value** used by package arithmetic.
 export const BASE: int32 = 40;
+
+/**
+ * A pair of signed integers.
+ *
+ * Use this with `sum`.
+ */
 export type struct Pair = { left: int32, right: int32 };
 
+/// Adds both fields in a [`Pair`](https://example.com/pair).
 export function sum(pair: Pair): int32 {
     return pair.left + pair.right;
 }

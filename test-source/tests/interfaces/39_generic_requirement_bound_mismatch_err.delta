@@ -1,0 +1,16 @@
+interface Printable {
+}
+
+interface Encoder {
+    function encode<T: Printable>(value: &T): void;
+}
+
+type struct encoder = {
+} implements Encoder;
+
+function (value: &encoder) encode<U>(item: &U): void {
+}
+
+function main(): uint8 {
+    return uint8(0);
+}

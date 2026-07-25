@@ -1,0 +1,28 @@
+interface Context {
+}
+
+interface Printable {
+}
+
+type struct output_context = {
+    marker: uint8
+} implements Context;
+
+type struct first_value = {
+    marker: uint8
+} implements Printable;
+
+type struct second_value = {
+    marker: uint8
+} implements Printable;
+
+function count<C: Context, ...T: Printable>(context: C, ...values: T): uint8 {
+    return uint8(values.length);
+}
+
+function main(): uint8 {
+    const context = output_context { marker: uint8(0) };
+    const first = first_value { marker: uint8(1) };
+    const second = second_value { marker: uint8(2) };
+    return count(context, first, second);
+}

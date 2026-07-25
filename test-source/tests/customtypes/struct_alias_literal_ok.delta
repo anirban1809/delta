@@ -28,10 +28,10 @@ function new_str_through_chain(s: string): dynamicstring {
     return str;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let value = new_str("hello");
     let chained = new_str_through_chain("alias");
-    if (value.length != uintsize(5)) { return int8(1); }
-    if (chained.length != uintsize(5)) { return int8(2); }
-    return int8(0);
+    if (value.length != uintsize(5)) { return uint8(1); }
+    if (chained.length != uintsize(5)) { return uint8(2); }
+    return uint8(0);
 }

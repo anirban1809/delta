@@ -13,11 +13,11 @@ import {
     type Diagnostic,
     type Position,
 } from "vscode-languageserver/node.js";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { TextDocuments } from "vscode-languageserver/node.js";
 import { compileModuleSource, compileSource } from "../compiler/pipeline.js";
-import { SourceIndex, type IndexedSymbol } from "./source-index.js";
+import { SourceIndex, symbolMarkdown, type IndexedSymbol } from "./source-index.js";
 import { LSP_VERSION } from "./version.js";
 import { WorkspaceIndex } from "./workspace-index.js";
 
@@ -142,13 +142,16 @@ function update(document: TextDocument) {
 }
 
 function state(uri: string): DocumentState | undefined {
+    if (uri.startsWith("file:")) {
+        try {
+            workspace.refreshImports(fileURLToPath(uri), (fileName) =>
+                documents.get(pathToFileURL(fileName).toString())?.getText(),
+            );
+        } catch {
+            // Keep editor queries available if a dependency disappears mid-request.
+        }
+    }
     return states.get(uri);
-}
-
-function symbolMarkdown(symbol: IndexedSymbol): string {
-    const detail =
-        symbol.signature ?? `${symbol.kind} ${symbol.name}${symbol.type ? `: ${symbol.type}` : ""}`;
-    return `\`\`\`delta\n${detail}\n\`\`\``;
 }
 
 function completionKind(symbol: IndexedSymbol): CompletionItemKind {
@@ -276,7 +279,11 @@ connection.onCompletion((params): CompletionItem[] => {
     if (autoImportsEnabled && fileName) {
         for (const candidate of workspace.autoImports(fileName)) {
             if (visible.has(candidate.symbol.name)) continue;
-            const edit = index.autoImportEdit(candidate.symbol.name, candidate.importPath);
+            const edit = index.autoImportEdit(
+                candidate.symbol.name,
+                candidate.importPath,
+                candidate.importKind,
+            );
             if (!edit) continue;
             autoImportItems.push({
                 label: candidate.symbol.name,

@@ -1,9 +1,9 @@
 type struct Box<T>   = { value: T };
 type struct Wrapper  = { inner: Box<int32>, tag: int32 };
 
-function main(): int8 {
+function main(): uint8 {
     const w: Wrapper = Wrapper { inner: Box<int32> { value: 5 }, tag: 1 };
-    if (w.inner.value != 5) { return int8(1); }
-    if (w.tag != 1)         { return int8(2); }
-    return int8(0);
+    if (w.inner.value != 5) { return uint8(1); }
+    if (w.tag != 1)         { return uint8(2); }
+    return uint8(0);
 }

@@ -1,8 +1,8 @@
 type struct Holder = { value: owned<int32> };
 
-function main(): int8 {
+function main(): uint8 {
     const source: int32 = 12;
     const value = new source;
     const holder: Holder = Holder { value: value };
-    return int8(0);
+    return uint8(0);
 }

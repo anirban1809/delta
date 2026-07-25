@@ -5,7 +5,7 @@ function (n: &Node) total(): int32 {
     return n.id + n.weight;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let n: Node = { id: 2, weight: 5 };
-    return int8(n.total());
+    return uint8(n.total());
 }

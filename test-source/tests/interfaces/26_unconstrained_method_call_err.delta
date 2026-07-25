@@ -1,0 +1,4 @@
+function read_value<R>(reader: &R): int32 {
+    return reader.value();
+}
+

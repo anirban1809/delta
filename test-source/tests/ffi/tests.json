@@ -101,7 +101,14 @@
       "reinstall_from_manifest": true,
       "expected_external": {
         "shared-core": "1.2.0:../shared-core-1.2.0.tar"
-      }
+      },
+      "expected_interface_contains": [
+        "/// The **base value** used by package arithmetic.\nexport const BASE: int32;",
+        "/// A pair of signed integers.\n///\n/// Use this with `sum`.\nexport type struct Pair",
+        "/// Adds both fields in a [`Pair`](https://example.com/pair).\nexport function sum",
+        "/// Adds two values.\n///\n/// ## Returns\n///\n/// Their arithmetic sum.\nexport function add",
+        "/// Public package namespace.\nexport module arithmetic;"
+      ]
     }
   },
   {

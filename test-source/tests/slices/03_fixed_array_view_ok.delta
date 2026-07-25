@@ -1,6 +1,6 @@
-function main(): int8 {
+function main(): uint8 {
     let values: int32[3] = [1, 2, 3];
     let view: int32[] = values;
     view[1] = 9;
-    return int8(values[1] - 9);
+    return uint8(values[1] - 9);
 }

@@ -8,17 +8,17 @@ function step(x: int32): int32 | OverflowError {
     return y;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const a = step(1) as result;
     check result {
-        return int8(1);
+        return uint8(1);
     }
     const b = step(a) as result;
     check result {
-        return int8(2);
+        return uint8(2);
     }
     if (b == 3) {
-        return int8(0);
+        return uint8(0);
     }
-    return int8(3);
+    return uint8(3);
 }

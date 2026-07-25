@@ -1,7 +1,7 @@
-function main(): int8 {
+function main(): uint8 {
     let value: int32 = 1;
     if (value == 1) {
         value = 2;
     }
-    return int8(value);
+    return uint8(value);
 }

@@ -1,6 +1,6 @@
 type enum Facing = { North: 0, East: 90, South: 180, West: 270 };
 
-function main(): int8 {
+function main(): uint8 {
     // 91 names no member of Facing — rejected at compile time
     const f: Facing = 91;
     return 0;

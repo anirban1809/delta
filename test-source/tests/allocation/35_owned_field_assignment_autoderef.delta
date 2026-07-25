@@ -6,7 +6,7 @@ function consume(x: edit &dynamicstring) {
     x.v = 34;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let x = new dynamicstring { v: new 4 };
     consume(x);
     if (x.v == 34) {

@@ -1,5 +1,5 @@
 type struct Node = { next: owned<Node>, value: int32 };
 
-function main(): int8 {
-    return int8(0);
+function main(): uint8 {
+    return uint8(0);
 }

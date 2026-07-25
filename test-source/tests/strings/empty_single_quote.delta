@@ -1,4 +1,4 @@
-function main(): int8 {
+function main(): uint8 {
     const empty: string = '';
-    return int8(0);
+    return uint8(0);
 }

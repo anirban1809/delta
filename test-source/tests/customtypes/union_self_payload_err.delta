@@ -3,6 +3,6 @@ type struct Cons = { head: int32, tail: List };
 
 type union List = Nil | Cons;
 
-function main(): int8 {
-    return int8(0);
+function main(): uint8 {
+    return uint8(0);
 }

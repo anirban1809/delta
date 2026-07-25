@@ -1,0 +1,16 @@
+interface Identity {
+    function identity<T>(value: T): T;
+}
+
+type struct identity_provider = {
+    marker: uint8
+} implements Identity;
+
+function (provider: &identity_provider) identity<U>(value: U): U {
+    return value;
+}
+
+function main(): uint8 {
+    const provider = identity_provider { marker: uint8(0) };
+    return uint8(provider.identity<int32>(12));
+}

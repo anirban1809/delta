@@ -55,6 +55,7 @@ export type TestCase = {
         install_twice?: boolean;
         reinstall_from_manifest?: boolean;
         expected_external?: Record<string, string>;
+        expected_interface_contains?: string[];
     };
     note?: string;
 };
@@ -237,6 +238,21 @@ export function evaluate(tc: TestCase, suiteDir: string): Outcome {
                         reason: "installed package did not preserve its external dependencies",
                     };
                 }
+                if (tc.package_project.expected_interface_contains) {
+                    const installedInterface = fs.readFileSync(
+                        path.join(installed.installedPath, installedMetadata.entry),
+                        "utf8",
+                    );
+                    const missing = tc.package_project.expected_interface_contains.find(
+                        (expected) => !installedInterface.includes(expected),
+                    );
+                    if (missing) {
+                        return {
+                            pass: false,
+                            reason: `installed package interface does not contain ${JSON.stringify(missing)}`,
+                        };
+                    }
+                }
                 const projectMetadata = JSON.parse(
                     fs.readFileSync(path.join(installRoot, "delta.json"), "utf8"),
                 );
@@ -390,6 +406,12 @@ export function evaluate(tc: TestCase, suiteDir: string): Outcome {
             return {
                 pass: false,
                 reason: `emitted C is missing: ${missing.map((fragment) => JSON.stringify(fragment)).join(", ")}`,
+            };
+        }
+        if (tc.not_contains && emitted.includes(tc.not_contains)) {
+            return {
+                pass: false,
+                reason: `emitted C unexpectedly contains ${JSON.stringify(tc.not_contains)}`,
             };
         }
         return { pass: true };

@@ -1,7 +1,7 @@
-function main(): int8 {
+function main(): uint8 {
     let a: int32[3] = [1, 2, 3];
     let b: int32[3] = a;
     b[0] = 9;
-    if (a[0] != 1) { return int8(1); }
-    return int8(0);
+    if (a[0] != 1) { return uint8(1); }
+    return uint8(0);
 }

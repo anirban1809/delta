@@ -1,5 +1,5 @@
-function main(): int8 {
+function main(): uint8 {
     let big: int64 = 5_000_000_000;
     let small: int32 = int32(big);
-    return int8(small);
+    return uint8(small);
 }

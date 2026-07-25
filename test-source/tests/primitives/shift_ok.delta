@@ -1,7 +1,7 @@
-function main(): int8 {
+function main(): uint8 {
     let a: uint32 = 1;
     let s: uint32 = 4;
     let l: uint32 = a << s;
     let r: uint32 = l >> s;
-    return int8(0);
+    return uint8(0);
 }

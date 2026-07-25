@@ -1,5 +1,5 @@
 type struct Tree = { value: int32, left: Tree };
 
-function main(): int8 {
+function main(): uint8 {
     return 0;
 }

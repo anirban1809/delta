@@ -4,8 +4,8 @@ function pick(b: bool): int32 {
     return x;
 }
 
-function main(): int8 {
-    if (pick(true)  != 10) { return int8(1); }
-    if (pick(false) != 20) { return int8(2); }
-    return int8(0);
+function main(): uint8 {
+    if (pick(true)  != 10) { return uint8(1); }
+    if (pick(false) != 20) { return uint8(2); }
+    return uint8(0);
 }

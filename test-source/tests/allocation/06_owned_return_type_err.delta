@@ -3,6 +3,6 @@ function allocate(): owned<int32> {
     return value;
 }
 
-function main(): int8 {
+function main(): uint8 {
     return 0;
 }

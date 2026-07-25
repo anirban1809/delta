@@ -3,7 +3,7 @@ type struct Square = { s: float64 };
 
 type union Shape = Circle | Square;
 
-function main(): int8 {
+function main(): uint8 {
     const sh: Shape = Shape.Square { s: 2.0 };
     return 0;
 }

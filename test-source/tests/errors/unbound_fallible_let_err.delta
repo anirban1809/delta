@@ -4,7 +4,7 @@ function mightFail(x: int32): int32 | OverflowError {
     return x;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let x = mightFail(5);
     return 0;
 }

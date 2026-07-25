@@ -1,0 +1,7 @@
+function join(left: string, right: string): string {
+    return left + right;
+}
+
+function main(): uint8 {
+    return uint8(0);
+}

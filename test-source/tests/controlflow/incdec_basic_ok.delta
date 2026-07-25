@@ -1,9 +1,9 @@
-function main(): int8 {
+function main(): uint8 {
     let i: int32 = 0;
     i++;
     i++;
     i++;
     i--;
-    if (i != 2) { return int8(1); }
-    return int8(0);
+    if (i != 2) { return uint8(1); }
+    return uint8(0);
 }

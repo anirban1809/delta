@@ -4,6 +4,6 @@ function f(x: int32): int32 {
     return error as { };
 }
 
-function main(): int8 {
+function main(): uint8 {
     return 0;
 }

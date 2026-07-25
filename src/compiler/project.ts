@@ -141,7 +141,9 @@ function resolveImportPath(
                 importer.filePath,
                 "semantic",
                 declaration.pathPosition,
-                `unknown standard library module \`${declaration.path}\``,
+                resolution.reason
+                    ? `cannot resolve standard library import \`${declaration.path}\`: ${resolution.reason}`
+                    : `unknown standard library module \`${declaration.path}\``,
             ),
         );
         return;
@@ -408,7 +410,7 @@ export function buildProject(
                 project.entryPath,
                 "semantic",
                 entry.ast.declarations[0]?.position ?? fallbackPosition,
-                "entry module must declare function main(): int8",
+                "entry module must declare function main(): uint8",
             ),
         );
         return result;
@@ -465,9 +467,9 @@ export function buildProject(
     }
     if (ordered.some((node) => node.diagnostics.errors.length > 0)) {
         result.diagnostics.push(
-            ...ordered.flatMap((node) => node.diagnostics.errors).filter(
-                (error) => !result.diagnostics.includes(error),
-            ),
+            ...ordered
+                .flatMap((node) => node.diagnostics.errors)
+                .filter((error) => !result.diagnostics.includes(error)),
         );
         return result;
     }
@@ -586,7 +588,7 @@ export function scaffoldProject(name: string, parentDirectory: string): string {
     fs.writeFileSync(path.join(projectRoot, ".gitignore"), "/build\n");
     fs.writeFileSync(
         path.join(projectRoot, "src", "main.delta"),
-        `function main(): int8 {
+        `function main(): uint8 {
     return 0;
 }
 `,

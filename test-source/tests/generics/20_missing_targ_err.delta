@@ -1,6 +1,6 @@
 type struct Box<T> = { value: T };
 
-function main(): int8 {
+function main(): uint8 {
     const b: Box = Box { value: 5 };
     return 0;
 }

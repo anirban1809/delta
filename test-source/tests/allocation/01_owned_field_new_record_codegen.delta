@@ -1,11 +1,11 @@
 type struct Payload = { count: int32, stride: int32 };
 type struct Holder = { payload: owned<Payload> };
 
-function main(): int8 {
+function main(): uint8 {
     const payload = new Payload { count: 7, stride: 2 };
     const holder: Holder = Holder {
         payload: payload
     };
     const count = holder.payload.count;
-    return int8(count);
+    return uint8(count);
 }

@@ -12,7 +12,7 @@ function list_new<T>(data: T[5]): list<T> {
     };
 }
 
-function main(): int8 {
+function main(): uint8 {
     const numbers = list_new<int32>([1, 2, 3, 4, 5]);
     if (numbers.capacity == uintsize(5) && numbers.length == uintsize(5)) {
         return 0;

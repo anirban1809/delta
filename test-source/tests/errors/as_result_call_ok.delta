@@ -20,13 +20,13 @@ function addThree(a: int64, b: int64, c: int64): int64 | OverflowError {
     return abc;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const total = addThree(1, 2, 3) as result;
     check result {
-        return int8(1);
+        return uint8(1);
     }
     if (total == 6) {
-        return int8(0);
+        return uint8(0);
     }
-    return int8(2);
+    return uint8(2);
 }

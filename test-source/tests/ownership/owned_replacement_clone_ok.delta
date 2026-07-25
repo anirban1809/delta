@@ -1,10 +1,10 @@
 // Fallible clone replacement is legal; the old owner stays live until the check succeeds. Expects pass.
 type Box = { value: heap<int32>; };
 
-function main(): int8 {
+function main(): uint8 {
     let current: Box = { value: new 1 };
     const source: Box = { value: new 2 };
     current = clone source as result;
-    check result { return int8(1); }
-    return int8(0);
+    check result { return uint8(1); }
+    return uint8(0);
 }

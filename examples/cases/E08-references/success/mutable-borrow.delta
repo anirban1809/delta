@@ -7,7 +7,7 @@ function scale(v: edit &Vec3, factor: float64): void {
     v.z = v.z * factor;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let p: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
     scale(edit &p, 2.0);
     return int32(p.x + p.y + p.z);

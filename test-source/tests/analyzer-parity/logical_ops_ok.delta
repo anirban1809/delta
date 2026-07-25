@@ -4,6 +4,6 @@ function f(a: bool, b: bool): bool {
     return a && b || !a;
 }
 
-function main(): int8 {
-    return int8(0);
+function main(): uint8 {
+    return uint8(0);
 }

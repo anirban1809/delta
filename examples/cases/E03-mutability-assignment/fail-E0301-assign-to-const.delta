@@ -1,5 +1,5 @@
 // E0301 — cannot assign to `const` binding `step`
-function main(): int8 {
+function main(): uint8 {
     const step: int32 = 5;
     step = 10;   // ERROR[E0301]: cannot assign to `const` binding `step`
     return step;

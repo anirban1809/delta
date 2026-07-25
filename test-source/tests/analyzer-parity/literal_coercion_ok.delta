@@ -5,6 +5,6 @@ function f(x: int64): int64 {
     return x + 1;
 }
 
-function main(): int8 {
-    return int8(0);
+function main(): uint8 {
+    return uint8(0);
 }

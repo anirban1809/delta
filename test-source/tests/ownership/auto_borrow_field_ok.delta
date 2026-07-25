@@ -4,10 +4,10 @@ type Pair = { left: Counter; right: Counter; };
 
 function inspect(counter: &Counter): int32 { return counter.value; }
 
-function main(): int8 {
+function main(): uint8 {
     const pair: Pair = {
         left: { value: 3 },
         right: { value: 4 },
     };
-    return int8(inspect(pair.left));
+    return uint8(inspect(pair.left));
 }

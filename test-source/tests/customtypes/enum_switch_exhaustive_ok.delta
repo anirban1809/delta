@@ -13,7 +13,7 @@ function rank(f: Facing): int32 {
     }
 }
 
-function main(): int8 {
-    if (rank(Facing.South) != 3) { return int8(1); }
-    return int8(0);
+function main(): uint8 {
+    if (rank(Facing.South) != 3) { return uint8(1); }
+    return uint8(0);
 }

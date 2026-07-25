@@ -1,6 +1,6 @@
-function main(): int8 {
+function main(): uint8 {
     let a: uint32 = 0xFF_FF;
     let b: uint32 = 0b1010_1010;
     let c: uint32 = 1_000_000;
-    return int8(0);
+    return uint8(0);
 }

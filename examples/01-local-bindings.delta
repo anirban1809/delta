@@ -10,7 +10,7 @@
 //   diagnostics: "undeclared variable", "type mismatch in initializer".
 //   lsp        : hover + go-to-definition on a LOCAL (scoped lookup).
 
-function main(): int8 {
+function main(): uint8 {
     const max: int32 = 100;     // OK — const requires an initializer
     let total: int32 = 0;       // OK — mutable binding
     total = max;                // (assignment lands in feature 05)
@@ -19,7 +19,7 @@ function main(): int8 {
     // return missing;          // ERROR: use of undeclared name `missing`
     // const bad: int32 = true; // ERROR: type mismatch: expected `int32`, found `bool`
 
-    return int8(total);
+    return uint8(total);
 }
 
 /* === Generated C (illustrative) ===

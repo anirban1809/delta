@@ -15,13 +15,13 @@ function caller(x: int32): int32 | OverflowError {
     return v;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const r = caller(5) as result;
     check result {
-        return int8(1);
+        return uint8(1);
     }
     if (r == 5) {
-        return int8(0);
+        return uint8(0);
     }
-    return int8(2);
+    return uint8(2);
 }

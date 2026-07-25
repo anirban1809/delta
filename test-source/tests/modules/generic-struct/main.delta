@@ -1,6 +1,6 @@
 type struct owned<T> = { value: T };
 
-function main(): int8 {
+function main(): uint8 {
     const x: owned<int32> = owned<int32> { value: 5 };
     const enabled: owned<bool> = owned<bool> { value: true };
     if (enabled.value) {

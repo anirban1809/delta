@@ -15,16 +15,16 @@ function classify(x: int32, y: int32): int32 | OverflowError, DivideByZeroError 
     return q;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const r = classify(10, 2) as result;
     check result as OverflowError {
-        return int8(1);
+        return uint8(1);
     }
     check result as DivideByZeroError {
-        return int8(1);
+        return uint8(1);
     }
     if (r == 5) {
-        return int8(0);
+        return uint8(0);
     }
-    return int8(2);
+    return uint8(2);
 }

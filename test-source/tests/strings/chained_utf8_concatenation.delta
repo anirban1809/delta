@@ -1,0 +1,12 @@
+function greeting(): string {
+    const first = "caf\u{e9}";
+    const second = first + " ";
+    const third = second + "\u{1f600}";
+    return third + "!";
+}
+
+function main(): uint8 {
+    const value = greeting();
+    if (value.length != uintsize(11)) { return uint8(1); }
+    return uint8(0);
+}

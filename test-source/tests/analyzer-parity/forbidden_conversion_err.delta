@@ -1,5 +1,5 @@
 // Task 16: a forbidden numeric conversion (bool is not numeric) must be
 // rejected. Currently T(x) returns the target type without validating x.
-function main(): int8 {
+function main(): uint8 {
     return int32(true);
 }

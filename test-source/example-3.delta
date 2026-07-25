@@ -10,7 +10,7 @@ function consume(e: &Handle): int32{
     return 0;
 }
 
-function main(): int8{
+function main(): uint8{
     let c = new Handle{value: 23};
     const e = c.Extend();
     return consume(c);

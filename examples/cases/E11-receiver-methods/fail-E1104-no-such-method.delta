@@ -5,7 +5,7 @@ function (c: &Counter) get(): int64 {
     return c.value;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let c: Counter = { value: new 0 };
     c.reset();   // ERROR[E1104]: `Counter` has no method `reset`
     return 0;

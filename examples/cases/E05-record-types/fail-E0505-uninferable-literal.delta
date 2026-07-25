@@ -1,6 +1,6 @@
 // E0505 — cannot infer the type of this object literal
 // hint: annotate the binding or use it in a typed position
-function main(): int8 {
+function main(): uint8 {
     const mystery = { x: 0.0, y: 0.0, z: 0.0 };   // ERROR[E0505]: cannot infer the type of this object literal
     return int32(mystery.x);
 }

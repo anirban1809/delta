@@ -38,7 +38,7 @@ function emit(out: edit &std.stdout): void | std.io_error {
     return;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let out: std.stdout = std.stdout();
     emit(out) as result;
     check result { return 1; }

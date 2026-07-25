@@ -1,5 +1,5 @@
-function main(): int8 {
+function main(): uint8 {
     let f: float32 = 42.5;
     let n: int32 = int32(f);
-    return int8(0);
+    return uint8(0);
 }

@@ -29,7 +29,7 @@ function allocTest(): Payload{
     return p;
 }
 
-function main(): int8 {
+function main(): uint8 {
   allocTest();
   return 0;
 }

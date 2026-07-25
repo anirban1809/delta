@@ -9,6 +9,6 @@ type struct linkedList = {
     start: listNode,
 };
 
-function main(): int8 {
+function main(): uint8 {
     return 0;
 }

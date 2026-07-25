@@ -1,0 +1,20 @@
+type struct ioerror = {
+    code: int32
+};
+
+type struct network_error = {
+    code: int32
+};
+
+interface Writer {
+    function write(value: string): void | ioerror;
+}
+
+type struct writer = {
+    marker: uint8
+} implements Writer;
+
+function (writer: &writer) write(value: string): void | network_error {
+    return;
+}
+

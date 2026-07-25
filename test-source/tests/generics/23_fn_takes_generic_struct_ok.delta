@@ -4,9 +4,9 @@ function unwrap<T>(b: Box<T>): T {
     return b.value;
 }
 
-function main(): int8 {
+function main(): uint8 {
     const b: Box<int32> = Box<int32> { value: 8 };
     let v: int32 = unwrap(b);
-    if (v != 8) { return int8(1); }
-    return int8(0);
+    if (v != 8) { return uint8(1); }
+    return uint8(0);
 }

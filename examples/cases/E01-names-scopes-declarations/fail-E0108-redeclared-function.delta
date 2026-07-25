@@ -7,6 +7,6 @@ function f(n: int32, m: int32): int32 {   // ERROR[E0108]: `f` is declared more 
     return m;
 }
 
-function main(): int8 {
+function main(): uint8 {
     return 0;
 }

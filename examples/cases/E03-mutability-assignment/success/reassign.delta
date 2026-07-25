@@ -1,5 +1,5 @@
 // E03 success — reassign a `let` binding with `=`.
-function main(): int8 {
+function main(): uint8 {
     let total: int32 = 0;
     total = 10;
     return total;

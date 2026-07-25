@@ -7,7 +7,8 @@
         "doc": "docs"
     },
     "scripts": {
-        "test": "npm run build && node ./dist/run-tests.js",
+        "test": "npm run build && node ./dist/bindgen-tests.js && node ./dist/run-tests.js",
+        "test:bindgen": "npm run build && node ./dist/bindgen-tests.js",
         "test:lsp": "npm run build && node ./dist/lsp-tests.js",
         "build": "tsc",
         "build:lsp": "npm run build",

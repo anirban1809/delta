@@ -1,6 +1,6 @@
 import unsafe { write } from "./unistd.ffi";
 
-function main(): int8 {
+function main(): uint8 {
     const message = "Hello from Delta\n";
     const written = write(1, message, message.length);
     if (written < 0) {

@@ -1,5 +1,5 @@
-function main(): int8 {
+function main(): uint8 {
     let i: int32 = 2_147_483_647;
     i++;
-    return int8(0);
+    return uint8(0);
 }

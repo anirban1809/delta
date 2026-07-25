@@ -6,7 +6,7 @@ function inspect(counter: &Counter): int32 {
     return counter.value;
 }
 
-function main(): int8 {
+function main(): uint8 {
     let counter: Counter = { value: 7 };
-    return int8(inspect(counter));
+    return uint8(inspect(counter));
 }

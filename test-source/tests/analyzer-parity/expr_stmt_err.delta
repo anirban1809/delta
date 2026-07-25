@@ -1,6 +1,6 @@
 // Task 7: bare expression statements must be analyzed. A call to an unknown
 // function used as a statement is currently never checked (no diagnostic).
-function main(): int8 {
+function main(): uint8 {
     doesNotExist();
     return 0;
 }

@@ -9168,6 +9168,8 @@ var TokenKind;
   TokenKind2["Keyword_Unsafe"] = "Keyword_Unsafe";
   TokenKind2["Keyword_Static"] = "Keyword_Static";
   TokenKind2["Keyword_Dynamic"] = "Keyword_Dynamic";
+  TokenKind2["Keyword_Interface"] = "Keyword_Interface";
+  TokenKind2["Keyword_Implements"] = "Keyword_Implements";
   TokenKind2["Symbol_LeftParen"] = "Symbol_LeftParen";
   TokenKind2["Symbol_RightParen"] = "Symbol_RightParen";
   TokenKind2["Symbol_LeftBrace"] = "Symbol_LeftBrace";
@@ -9310,6 +9312,10 @@ function string(kind) {
       return "static";
     case TokenKind.Keyword_Dynamic:
       return "dynamic";
+    case TokenKind.Keyword_Interface:
+      return "interface";
+    case TokenKind.Keyword_Implements:
+      return "implements";
     case TokenKind.Symbol_LeftParen:
       return "(";
     case TokenKind.Symbol_RightParen:
@@ -9480,6 +9486,10 @@ function getTokenKind(s) {
       return TokenKind.Keyword_Static;
     case "dynamic":
       return TokenKind.Keyword_Dynamic;
+    case "interface":
+      return TokenKind.Keyword_Interface;
+    case "implements":
+      return TokenKind.Keyword_Implements;
     case "true":
     case "false":
       return TokenKind.Kind_BooleanLiteral;
@@ -9667,16 +9677,17 @@ at ${e.filepath}:${e.position.line}:${e.position.column}
 // dist/src/analysis/analyzer.js
 var SymbolKind;
 (function(SymbolKind2) {
-  SymbolKind2[SymbolKind2["SymbolTypeStructDecl"] = 0] = "SymbolTypeStructDecl";
-  SymbolKind2[SymbolKind2["SymbolTypeEnumDecl"] = 1] = "SymbolTypeEnumDecl";
-  SymbolKind2[SymbolKind2["SymbolTypeUnionDecl"] = 2] = "SymbolTypeUnionDecl";
-  SymbolKind2[SymbolKind2["SymbolTypsAliasDecl"] = 3] = "SymbolTypsAliasDecl";
-  SymbolKind2[SymbolKind2["SymbolFuncDecl"] = 4] = "SymbolFuncDecl";
-  SymbolKind2[SymbolKind2["SymbolFileConst"] = 5] = "SymbolFileConst";
-  SymbolKind2[SymbolKind2["SymbolLocalConst"] = 6] = "SymbolLocalConst";
-  SymbolKind2[SymbolKind2["SymbolLocalLet"] = 7] = "SymbolLocalLet";
-  SymbolKind2[SymbolKind2["SymbolParameter"] = 8] = "SymbolParameter";
-  SymbolKind2[SymbolKind2["SymbolModule"] = 9] = "SymbolModule";
+  SymbolKind2[SymbolKind2["SymbolInterfaceDecl"] = 0] = "SymbolInterfaceDecl";
+  SymbolKind2[SymbolKind2["SymbolTypeStructDecl"] = 1] = "SymbolTypeStructDecl";
+  SymbolKind2[SymbolKind2["SymbolTypeEnumDecl"] = 2] = "SymbolTypeEnumDecl";
+  SymbolKind2[SymbolKind2["SymbolTypeUnionDecl"] = 3] = "SymbolTypeUnionDecl";
+  SymbolKind2[SymbolKind2["SymbolTypsAliasDecl"] = 4] = "SymbolTypsAliasDecl";
+  SymbolKind2[SymbolKind2["SymbolFuncDecl"] = 5] = "SymbolFuncDecl";
+  SymbolKind2[SymbolKind2["SymbolFileConst"] = 6] = "SymbolFileConst";
+  SymbolKind2[SymbolKind2["SymbolLocalConst"] = 7] = "SymbolLocalConst";
+  SymbolKind2[SymbolKind2["SymbolLocalLet"] = 8] = "SymbolLocalLet";
+  SymbolKind2[SymbolKind2["SymbolParameter"] = 9] = "SymbolParameter";
+  SymbolKind2[SymbolKind2["SymbolModule"] = 10] = "SymbolModule";
 })(SymbolKind || (SymbolKind = {}));
 var Flow;
 (function(Flow2) {
@@ -9701,10 +9712,14 @@ var Scope = class {
   //parent scope can be empty for global scope
   symbols;
   methods;
+  implementations;
+  activeFunction;
   constructor(parent) {
     this.parent = parent;
     this.symbols = /* @__PURE__ */ new Map();
     this.methods = parent?.methods ?? /* @__PURE__ */ new Map();
+    this.implementations = parent?.implementations ?? /* @__PURE__ */ new Map();
+    this.activeFunction = parent?.activeFunction;
   }
   /** Declares a symbol in this scope. */
   addSymbol(s) {
@@ -9730,6 +9745,14 @@ var Scope = class {
   getMethod(typeName, name) {
     return this.methods.get(typeName)?.get(name);
   }
+  addImplementation(typeName, interfaceName) {
+    const interfaces = this.implementations.get(typeName) ?? /* @__PURE__ */ new Set();
+    interfaces.add(interfaceName);
+    this.implementations.set(typeName, interfaces);
+  }
+  implementsInterface(typeName, interfaceName) {
+    return this.implementations.get(typeName)?.has(interfaceName) ?? false;
+  }
   visibleSymbols() {
     const result = /* @__PURE__ */ new Map();
     for (let scope = this; scope; scope = scope.parent) {
@@ -9741,6 +9764,77 @@ var Scope = class {
     return [...result.values()];
   }
 };
+
+// dist/src/ast/string_literals.js
+function decodeStringLiteral(value) {
+  const body = value.slice(1, -1);
+  let decoded = "";
+  for (let i = 0; i < body.length; i++) {
+    const current = body[i];
+    if (current != "\\") {
+      const codePoint = body.codePointAt(i);
+      decoded += String.fromCodePoint(codePoint);
+      if (codePoint > 65535)
+        i++;
+      continue;
+    }
+    const escaped = body[++i];
+    switch (escaped) {
+      case "n":
+        decoded += "\n";
+        break;
+      case "r":
+        decoded += "\r";
+        break;
+      case "t":
+        decoded += "	";
+        break;
+      case "0":
+        decoded += "\0";
+        break;
+      case "\\":
+        decoded += "\\";
+        break;
+      case '"':
+        decoded += '"';
+        break;
+      case "'":
+        decoded += "'";
+        break;
+      case "\n":
+        break;
+      case "u": {
+        if (body[i + 1] != "{") {
+          decoded += "u";
+          break;
+        }
+        const close = body.indexOf("}", i + 2);
+        if (close < 0) {
+          decoded += "u";
+          break;
+        }
+        const codePoint = Number.parseInt(body.slice(i + 2, close), 16);
+        const validScalar = Number.isInteger(codePoint) && codePoint <= 1114111 && !(codePoint >= 55296 && codePoint <= 57343);
+        decoded += validScalar ? String.fromCodePoint(codePoint) : "\uFFFD";
+        i = close;
+        break;
+      }
+      case "x": {
+        const hex = body.slice(i + 1, i + 3);
+        if (/^[0-9a-fA-F]{2}$/.test(hex)) {
+          decoded += String.fromCharCode(Number.parseInt(hex, 16));
+          i += 2;
+        } else {
+          decoded += "x";
+        }
+        break;
+      }
+      default:
+        decoded += escaped ?? "\\";
+    }
+  }
+  return decoded;
+}
 
 // dist/src/analysis/type_analyzer.js
 var TypeAnalyzer = class {
@@ -10737,6 +10831,29 @@ var ExpressionAnalyzer = class {
   isFloatLiteral(x) {
     return x.kind == "float_literal";
   }
+  /** Resolves a string expression whose complete value is known during analysis. */
+  constantStringValue(expression, scope, seen = /* @__PURE__ */ new Set()) {
+    if (expression.kind == "string_literal") {
+      return decodeStringLiteral(expression.value);
+    }
+    if (expression.kind == "binary_expression" && expression.operator == "+") {
+      if (expression.constantStringValue !== void 0) {
+        return expression.constantStringValue;
+      }
+      const left = this.constantStringValue(expression.left, scope, new Set(seen));
+      const right = this.constantStringValue(expression.right, scope, new Set(seen));
+      return left !== void 0 && right !== void 0 ? left + right : void 0;
+    }
+    if (expression.kind != "identifier" || seen.has(expression.name)) {
+      return;
+    }
+    const symbol = scope.getSymbol(expression.name);
+    if (!symbol?.value || ![SymbolKind.SymbolLocalConst, SymbolKind.SymbolFileConst].includes(symbol.kind)) {
+      return;
+    }
+    seen.add(expression.name);
+    return this.constantStringValue(symbol.value, scope, seen);
+  }
   /**
    * Validates a binary expression. Comparisons produce `bool`; other
    * operators produce the shared operand type when their operands match.
@@ -10763,6 +10880,15 @@ var ExpressionAnalyzer = class {
       this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", e.position, message));
       return;
     };
+    if (operator == "+" && leftT.value == TypeValue.Type_String && rightT.value == TypeValue.Type_String) {
+      const left = this.constantStringValue(binaryExpr.left, scope);
+      const right = this.constantStringValue(binaryExpr.right, scope);
+      if (left === void 0 || right === void 0) {
+        return fail("runtime string concatenation requires owned storage; use dynamicstring.concat(...) instead");
+      }
+      binaryExpr.constantStringValue = left + right;
+      return CreateType("string", TypeValue.Type_String);
+    }
     if (logical) {
       if (leftT.value != TypeValue.Type_Bool || rightT.value != TypeValue.Type_Bool) {
         return fail(`binary operation \`${operator}\` expects bool operands, found \`${leftT.name.name}\`, and \`${rightT.name.name}\``);
@@ -10829,6 +10955,9 @@ var ExpressionAnalyzer = class {
       if (!sym.signature) {
         this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", e.position, sym.name + " is not callable"));
         return CreateType("invalid", TypeValue.TypeInvalid);
+      }
+      if (sym.signature.parameters.some((parameter) => parameter.variadic)) {
+        return this.analyzeVariadicFunctionCall(e, sym.signature, scope);
       }
       const paramCount = sym.signature.parameters.length;
       const argCount = e.arguments.length;
@@ -10974,9 +11103,6 @@ var ExpressionAnalyzer = class {
         this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", x.position, `argument ${i + 1} of function ${calleeName} has type \`${this.typeAnalyzer.displayName(argT2)}\`, want \`${this.typeAnalyzer.displayName(wantT2)}\``));
       });
       let returnType = sym.signature.returnTypes[0];
-      if (!returnType) {
-        return CreateType("void", TypeValue.TypeInvalid, e.position);
-      }
       if (returnType?.value == TypeValue.TypeGeneric) {
         const typeIndex = typeParameters.findIndex((x) => x.name.name == returnType?.name.name);
         returnType = genericTypes[typeIndex];
@@ -10986,12 +11112,17 @@ var ExpressionAnalyzer = class {
         this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", e.position, `mismatched type parameter count, want ${typeParameters.length}, got ${genericTypes.length}`));
         return CreateType("invalid", TypeValue.TypeInvalid);
       }
+      if (!this.validateInterfaceBounds(typeParameters, genericTypes, scope, e.position, sym.signature.declaration)) {
+        return CreateType("invalid", TypeValue.TypeInvalid);
+      }
       const returnTypeBindings = /* @__PURE__ */ new Map();
       typeParameters.forEach((typeParameter, index) => {
         returnTypeBindings.set(typeParameter.name.name, genericTypes[index]);
       });
-      returnType = this.typeAnalyzer.substituteType(returnType, returnTypeBindings);
-      this.recordConcreteStructInstantiation(returnType, scope);
+      if (returnType) {
+        returnType = this.typeAnalyzer.substituteType(returnType, returnTypeBindings);
+        this.recordConcreteStructInstantiation(returnType, scope);
+      }
       const declaration = sym.signature.declaration;
       declaration.concreteTypesMap ??= /* @__PURE__ */ new Map();
       for (const [genericName, concreteTypes] of concreteTypesMap) {
@@ -11003,7 +11134,7 @@ var ExpressionAnalyzer = class {
         }
         declaration.concreteTypesMap.set(genericName, recordedTypes);
       }
-      return returnType;
+      return returnType ?? CreateType("void", TypeValue.TypeInvalid, e.position);
     }
     const convSig = this.getConverterFunction(calleeName);
     if (!convSig) {
@@ -11027,6 +11158,126 @@ var ExpressionAnalyzer = class {
     }
     return convSig.returnTypes[0];
   }
+  analyzeVariadicFunctionCall(call, signature, scope) {
+    const declaration = signature.declaration;
+    const parameters = signature.parameters;
+    const variadicParameterIndex = parameters.findIndex((parameter) => parameter.variadic);
+    const variadicParameter = parameters[variadicParameterIndex];
+    const typeParameters = signature.typeParameters ?? [];
+    const variadicTypeParameter = typeParameters.find((parameter) => parameter.variadic);
+    const fixedTypeParameters = typeParameters.filter((parameter) => !parameter.variadic);
+    if (variadicParameterIndex != parameters.length - 1) {
+      this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", variadicParameter.position, "a variadic parameter must be the final parameter"));
+      return CreateType("invalid", TypeValue.TypeInvalid);
+    }
+    if (call.arguments.length < variadicParameterIndex) {
+      this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", call.position, `function ${signature.name} expects at least ${variadicParameterIndex} arguments, found ${call.arguments.length}`));
+      return CreateType("invalid", TypeValue.TypeInvalid);
+    }
+    const explicit = call.genericTypes ?? [];
+    if (explicit.length && explicit.length < fixedTypeParameters.length) {
+      this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", call.position, `mismatched type parameter count, want at least ${fixedTypeParameters.length}, got ${explicit.length}`));
+      return CreateType("invalid", TypeValue.TypeInvalid);
+    }
+    const fixedBindings = /* @__PURE__ */ new Map();
+    fixedTypeParameters.forEach((parameter, index) => {
+      const concrete = explicit[index];
+      if (concrete)
+        fixedBindings.set(parameter.name.name, concrete);
+    });
+    let invalid = false;
+    const resolvedParameterTypes = [];
+    for (let index = 0; index < variadicParameterIndex; index++) {
+      const parameter = parameters[index];
+      let expected = this.typeAnalyzer.substituteType(parameter.type, fixedBindings);
+      const actual = this.analyze(call.arguments[index], scope, expected);
+      if (actual.value == TypeValue.TypeInvalid) {
+        invalid = true;
+        continue;
+      }
+      if (parameter.type.value == TypeValue.TypeGeneric) {
+        const existing = fixedBindings.get(parameter.type.name.name);
+        if (!existing) {
+          fixedBindings.set(parameter.type.name.name, this.inferGenericArgument(parameter.type, actual) ?? actual);
+          expected = this.typeAnalyzer.substituteType(parameter.type, fixedBindings);
+        }
+      }
+      if (!this.referenceCompatible(expected, actual, scope)) {
+        this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", call.arguments[index].position, `argument ${index + 1} of function ${signature.name} has type \`${this.typeAnalyzer.displayName(actual)}\`, want \`${this.typeAnalyzer.displayName(expected)}\``));
+        invalid = true;
+      }
+      resolvedParameterTypes.push(expected);
+    }
+    const packArguments = call.arguments.slice(variadicParameterIndex);
+    const explicitPack = explicit.slice(fixedTypeParameters.length);
+    if (explicitPack.length && explicitPack.length != packArguments.length) {
+      this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", call.position, `variadic type pack for ${signature.name} has ${explicitPack.length} type argument(s), but ${packArguments.length} value argument(s) were provided`));
+      return CreateType("invalid", TypeValue.TypeInvalid);
+    }
+    const pack = [];
+    const elementTemplate = { ...variadicParameter.type, slice: false };
+    packArguments.forEach((argument, index) => {
+      const explicitType = explicitPack[index];
+      const expected = variadicTypeParameter && elementTemplate.value == TypeValue.TypeGeneric && elementTemplate.name.name == variadicTypeParameter.name.name ? explicitType : this.typeAnalyzer.substituteType(elementTemplate, fixedBindings);
+      const actual = this.analyze(argument, scope, expected);
+      if (actual.value == TypeValue.TypeInvalid) {
+        invalid = true;
+        return;
+      }
+      const concrete = explicitType ?? actual;
+      if (expected && !this.referenceCompatible(expected, actual, scope)) {
+        this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", argument.position, `variadic argument ${index + 1} of function ${signature.name} has type \`${this.typeAnalyzer.displayName(actual)}\`, want \`${this.typeAnalyzer.displayName(expected)}\``));
+        invalid = true;
+      }
+      pack.push(concrete);
+      resolvedParameterTypes.push(concrete);
+    });
+    if (invalid)
+      return CreateType("invalid", TypeValue.TypeInvalid);
+    const fixedConcrete = fixedTypeParameters.map((parameter) => fixedBindings.get(parameter.name.name));
+    if (fixedConcrete.some((type) => !type)) {
+      this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", call.position, "cannot infer all fixed type arguments for variadic function " + signature.name));
+      return CreateType("invalid", TypeValue.TypeInvalid);
+    }
+    if (!this.validateInterfaceBounds(fixedTypeParameters, fixedConcrete, scope, call.position, declaration)) {
+      return CreateType("invalid", TypeValue.TypeInvalid);
+    }
+    if (variadicTypeParameter) {
+      for (const concrete of pack) {
+        if (!this.validateInterfaceBounds([variadicTypeParameter], [concrete], scope, call.position, declaration)) {
+          invalid = true;
+        }
+      }
+    }
+    if (invalid)
+      return CreateType("invalid", TypeValue.TypeInvalid);
+    call.genericTypes = [...fixedConcrete, ...pack];
+    call.resolvedParameterTypes = resolvedParameterTypes;
+    call.resolvedErrorTypes = signature.errorTypes.map((type) => this.typeAnalyzer.substituteType(type, fixedBindings));
+    if (declaration) {
+      declaration.concreteTypesMap ??= /* @__PURE__ */ new Map();
+      fixedTypeParameters.forEach((parameter, index) => {
+        const recorded = declaration.concreteTypesMap.get(parameter.name.name) ?? [];
+        const concrete = fixedConcrete[index];
+        if (!recorded.some((candidate) => this.typeAnalyzer.typesMatch(candidate, concrete))) {
+          recorded.push(concrete);
+        }
+        declaration.concreteTypesMap.set(parameter.name.name, recorded);
+      });
+      declaration.concreteVariadicTypePacks ??= [];
+      if (!declaration.concreteVariadicTypePacks.some((candidate) => candidate.length == pack.length && candidate.every((type, index) => this.typeAnalyzer.typesMatch(type, pack[index])))) {
+        declaration.concreteVariadicTypePacks.push(pack);
+      }
+    }
+    const returnType = signature.returnTypes[0];
+    if (!returnType)
+      return CreateType("void", TypeValue.TypeInvalid, call.position);
+    if (returnType.value == TypeValue.TypeGeneric && returnType.variadic) {
+      this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", returnType.position ?? call.position, "a variadic type parameter cannot be used as a single return type"));
+      return CreateType("invalid", TypeValue.TypeInvalid);
+    }
+    return this.typeAnalyzer.substituteType(returnType, fixedBindings);
+  }
   analyzeMethodCall(scope, call, member) {
     const receiverType = this.analyze(member.receiver, scope);
     if (receiverType.value == TypeValue.TypeInvalid)
@@ -11037,12 +11288,58 @@ var ExpressionAnalyzer = class {
     const typeSymbol = scope.getSymbol(recordType.name.name);
     if (typeSymbol?.kind == SymbolKind.SymbolTypsAliasDecl && typeSymbol.type)
       recordType = typeSymbol.type;
-    const signature = scope.getMethod(recordType.name.name, member.member.name);
+    let signature = scope.getMethod(recordType.name.name, member.member.name);
+    if (!signature && recordType.value == TypeValue.TypeGeneric) {
+      const matches = [];
+      for (const bound of recordType.interfaceBounds ?? []) {
+        const interfaceSymbol = scope.getSymbol(bound.name.name);
+        const declaration2 = interfaceSymbol?.kind == SymbolKind.SymbolInterfaceDecl && interfaceSymbol.declaration?.kind == "interface_declaration" ? interfaceSymbol.declaration : void 0;
+        const requirement = declaration2?.methods.find((method) => method.name.name == member.member.name);
+        if (!requirement)
+          continue;
+        matches.push({
+          interfaceName: bound.name.name,
+          signature: {
+            name: requirement.name.name,
+            parameters: requirement.parameters,
+            returnTypes: requirement.returnTypes,
+            errorTypes: requirement.errorTypes,
+            typeParameters: requirement.typeParameters,
+            receiverType: {
+              ...structuredClone(recordType),
+              reference: true
+            },
+            receiverEdit: false,
+            interfaceName: bound.name.name
+          }
+        });
+      }
+      if (matches.length > 1) {
+        this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", member.position, `interface method \`${member.member.name}\` is ambiguous across bounds`));
+        return CreateType("invalid", TypeValue.TypeInvalid);
+      }
+      signature = matches[0]?.signature;
+    }
     if (!signature) {
-      this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", member.position, `type ${recordType.name.name} has no method \`${member.member.name}\``));
+      this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", member.position, recordType.value == TypeValue.TypeGeneric ? `type parameter ${recordType.name.name} has no known method \`${member.member.name}\`` : `type ${recordType.name.name} has no method \`${member.member.name}\``));
       return CreateType("invalid", TypeValue.TypeInvalid);
     }
     this.recordConcreteStructInstantiation(recordType, scope);
+    if (signature.interfaceName && recordType.value == TypeValue.TypeGeneric) {
+      const declaration2 = scope.activeFunction;
+      if (declaration2) {
+        declaration2.interfaceCalls ??= [];
+        if (!declaration2.interfaceCalls.some((entry) => entry.typeParameter == recordType.name.name && entry.interfaceName == signature.interfaceName && entry.methodName == member.member.name && entry.position.start == call.position.start)) {
+          declaration2.interfaceCalls.push({
+            typeParameter: recordType.name.name,
+            interfaceName: signature.interfaceName,
+            methodName: member.member.name,
+            receiverEdit: !!receiverType.edit,
+            position: call.position
+          });
+        }
+      }
+    }
     if (member.member.name == "dispose") {
       this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", member.position, `dispose method on ${recordType.name.name} cannot be called manually`));
       return CreateType("invalid", TypeValue.TypeInvalid);
@@ -11143,6 +11440,42 @@ var ExpressionAnalyzer = class {
     this.recordConcreteStructInstantiation(returnType, scope);
     return returnType;
   }
+  validateInterfaceBounds(typeParameters, concreteTypes, scope, position2, declaration) {
+    let valid = true;
+    typeParameters.forEach((parameter, index) => {
+      const concrete = concreteTypes[index];
+      if (!concrete)
+        return;
+      for (const bound of parameter.interfaceBounds ?? []) {
+        const symbol = scope.getSymbol(bound.name.name);
+        if (symbol?.kind != SymbolKind.SymbolInterfaceDecl) {
+          this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", bound.position ?? position2, `unknown interface \`${bound.name.name}\``));
+          valid = false;
+          continue;
+        }
+        if (!scope.implementsInterface(concrete.name.name, bound.name.name)) {
+          this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", position2, `type argument \`${concrete.name.name}\` does not implement required interface \`${bound.name.name}\``));
+          valid = false;
+        }
+      }
+      if (!declaration)
+        return;
+      if (declaration.bodyAnalyzed) {
+        if (!validateSpecializationCapability(declaration, parameter.name.name, concrete, scope, this.diagnostics, this.diagnostics.fileName, position2)) {
+          valid = false;
+        }
+        return;
+      }
+      declaration.deferredSpecializations ??= [];
+      declaration.deferredSpecializations.push({
+        typeParameter: parameter.name.name,
+        concrete,
+        fileName: this.diagnostics.fileName,
+        position: position2
+      });
+    });
+    return valid;
+  }
   recordConcreteStructInstantiation(type, scope) {
     if (type.value != TypeValue.TypeCustom || !type.typeParameters?.length)
       return;
@@ -11215,6 +11548,25 @@ var ExpressionAnalyzer = class {
     };
   }
 };
+function validateSpecializationCapability(declaration, typeParameter, concrete, scope, diagnostics, fileName, position2) {
+  let valid = true;
+  const reported = /* @__PURE__ */ new Set();
+  for (const interfaceCall of declaration.interfaceCalls ?? []) {
+    if (interfaceCall.typeParameter != typeParameter)
+      continue;
+    const witness = scope.getMethod(concrete.name.name, interfaceCall.methodName);
+    if (!witness)
+      continue;
+    if (!interfaceCall.receiverEdit && witness.receiverEdit) {
+      valid = false;
+      if (reported.has(interfaceCall.methodName))
+        continue;
+      reported.add(interfaceCall.methodName);
+      diagnostics.addError(Error2(fileName, "semantic", position2, `cannot specialize \`${declaration.name.name}<${concrete.name.name}>\`: \`${concrete.name.name}.${interfaceCall.methodName}\` requires \`edit &${concrete.name.name}\`, but the generic call receiver is read-only`));
+    }
+  }
+  return valid;
+}
 
 // dist/src/analysis/statements/assignment_statement.js
 var AssignmentStatementAnalyzer = class {
@@ -12055,6 +12407,8 @@ var StatementAnalyzer = class {
       return [];
     }
     if (expression.kind == "binary_expression") {
+      if (expression.constantStringValue !== void 0)
+        return [];
       const name = ["/", "%"].includes(expression.operator) ? "DivideByZeroError" : ["<<", ">>"].includes(expression.operator) ? "ShiftCountError" : ["+", "-", "*"].includes(expression.operator) ? "OverflowError" : void 0;
       return name ? [CreateType(name, TypeValue.TypeCustom, expression.position)] : [];
     }
@@ -12239,6 +12593,29 @@ var DeclarationAnalyzer = class {
     this.variableAnalyzer = new VariableDeclarationStatementAnalyzer(diagnostics);
   }
   /** Registers every named type before signatures and bodies are resolved. */
+  registerInterfaces() {
+    for (const declaration of this.ast.declarations) {
+      if (declaration.kind != "interface_declaration")
+        continue;
+      if (this.globalScope.getSymbol(declaration.name.name)) {
+        this.diagnostics.addError(Error2(this.ast.fileName, "semantic", declaration.name.position ?? declaration.position, `interface \`${declaration.name.name}\` is declared more than once`));
+        continue;
+      }
+      this.globalScope.addSymbol({
+        name: declaration.name.name,
+        kind: SymbolKind.SymbolInterfaceDecl,
+        declaration
+      });
+    }
+    for (const declaration of this.ast.declarations) {
+      if (declaration.kind != "interface_declaration")
+        continue;
+      for (const method of declaration.methods) {
+        this.validateTypeParameterBounds(method.typeParameters, method.position);
+      }
+    }
+  }
+  /** Registers every named type before signatures and bodies are resolved. */
   registerTypes() {
     this.ast.declarations.forEach((decl) => {
       if (decl.kind == "type_declaration")
@@ -12334,10 +12711,159 @@ var DeclarationAnalyzer = class {
       }
     }
   }
+  /** Validates every explicit `implements` clause after methods are registered. */
+  validateImplementations() {
+    for (const declaration of this.ast.declarations) {
+      if (declaration.kind != "type_declaration" || declaration.declKind != TypeDeclKind.Struct) {
+        continue;
+      }
+      const record = declaration.declaration;
+      const implemented = record.implementedInterfaces ?? [];
+      const requirementsByName = /* @__PURE__ */ new Map();
+      for (const interfaceType of implemented) {
+        const symbol = this.globalScope.getSymbol(interfaceType.name.name);
+        if (!symbol) {
+          this.diagnostics.addError(Error2(this.ast.fileName, "semantic", interfaceType.position ?? declaration.position, `unknown interface \`${interfaceType.name.name}\``));
+          continue;
+        }
+        if (symbol.kind != SymbolKind.SymbolInterfaceDecl || symbol.declaration?.kind != "interface_declaration") {
+          this.diagnostics.addError(Error2(this.ast.fileName, "semantic", interfaceType.position ?? declaration.position, `\`${interfaceType.name.name}\` is not an interface`));
+          continue;
+        }
+        const interfaceDeclaration = symbol.declaration;
+        let valid = true;
+        for (const requirement of interfaceDeclaration.methods) {
+          const previous2 = requirementsByName.get(requirement.name.name);
+          if (previous2 && !this.interfaceRequirementsMatch(previous2.requirement, requirement)) {
+            this.diagnostics.addError(Error2(this.ast.fileName, "semantic", requirement.name.position ?? requirement.position, `interfaces \`${previous2.interfaceName}\` and \`${interfaceType.name.name}\` require incompatible overloads of \`${requirement.name.name}\``));
+            valid = false;
+            continue;
+          }
+          requirementsByName.set(requirement.name.name, {
+            requirement,
+            interfaceName: interfaceType.name.name
+          });
+          const method = this.globalScope.getMethod(declaration.name.name, requirement.name.name);
+          if (!method) {
+            this.diagnostics.addError(Error2(this.ast.fileName, "semantic", interfaceType.position ?? declaration.position, `type \`${declaration.name.name}\` declares that it implements \`${interfaceType.name.name}\` but is missing method \`${requirement.name.name}\``));
+            valid = false;
+            continue;
+          }
+          if (!this.methodSatisfiesRequirement(declaration.name.name, interfaceType.name.name, method, requirement)) {
+            valid = false;
+          }
+          const publicConformance = (declaration.exported || !!this.ast.exportModule) && (interfaceDeclaration.exported || !!interfaceDeclaration.external || !!this.ast.exportModule);
+          if (publicConformance && !method.declaration?.exported && !method.declaration?.external && !this.ast.exportModule) {
+            this.diagnostics.addError(Error2(this.ast.fileName, "semantic", method.declaration?.name.position ?? method.declaration?.position ?? requirement.position, `method \`${declaration.name.name}.${requirement.name.name}\` must be exported because it provides public conformance to \`${interfaceType.name.name}\``));
+            valid = false;
+          }
+        }
+        if (valid) {
+          this.globalScope.addImplementation(declaration.name.name, interfaceType.name.name);
+        }
+      }
+    }
+  }
+  /**
+   * Checks the specializations that were requested before their callee's body
+   * had been analyzed. Running these after every body in the module keeps
+   * receiver-capability validation independent of declaration order.
+   */
+  validateDeferredSpecializations() {
+    for (const declaration of this.ast.declarations) {
+      if (declaration.kind != "function_declaration")
+        continue;
+      const pending = declaration.deferredSpecializations ?? [];
+      declaration.deferredSpecializations = void 0;
+      for (const request of pending) {
+        validateSpecializationCapability(declaration, request.typeParameter, request.concrete, this.globalScope, this.diagnostics, request.fileName, request.position);
+      }
+    }
+  }
+  interfaceRequirementsMatch(left, right) {
+    if (left.parameters.length != right.parameters.length || left.returnTypes.length != right.returnTypes.length || left.errorTypes.length != right.errorTypes.length || !this.typeParametersMatch(left.typeParameters, right.typeParameters)) {
+      return false;
+    }
+    const bindings = /* @__PURE__ */ new Map();
+    (left.typeParameters ?? []).forEach((parameter, index) => {
+      const target = right.typeParameters?.[index];
+      if (target)
+        bindings.set(parameter.name.name, target);
+    });
+    const matches = (a, b) => this.typeAnalyzer.arrayTypesMatch(this.typeAnalyzer.substituteType(a, bindings), b);
+    return left.parameters.every((parameter, index) => !!parameter.variadic == !!right.parameters[index].variadic && matches(parameter.type, right.parameters[index].type)) && left.returnTypes.every((type, index) => matches(type, right.returnTypes[index])) && left.errorTypes.every((type) => right.errorTypes.some((candidate) => matches(type, candidate)));
+  }
+  methodSatisfiesRequirement(concreteName, interfaceName, method, requirement) {
+    if (method.parameters.length != requirement.parameters.length) {
+      this.diagnostics.addError(Error2(this.ast.fileName, "semantic", requirement.position, `method \`${concreteName}.${requirement.name.name}\` does not satisfy \`${interfaceName}.${requirement.name.name}\`: parameter count must be ${requirement.parameters.length}, got ${method.parameters.length}`));
+      return false;
+    }
+    if (!this.typeParametersMatch(requirement.typeParameters, method.typeParameters)) {
+      this.diagnostics.addError(Error2(this.ast.fileName, "semantic", requirement.position, `method \`${concreteName}.${requirement.name.name}\` does not satisfy \`${interfaceName}.${requirement.name.name}\`: generic parameter bounds or variadic shape differ`));
+      return false;
+    }
+    const bindings = /* @__PURE__ */ new Map();
+    (requirement.typeParameters ?? []).forEach((parameter, index) => {
+      const target = method.typeParameters?.[index];
+      if (target)
+        bindings.set(parameter.name.name, target);
+    });
+    const required = (type) => this.typeAnalyzer.substituteType(type, bindings);
+    for (let index = 0; index < requirement.parameters.length; index++) {
+      const want = required(requirement.parameters[index].type);
+      const have = method.parameters[index].type;
+      if (!!requirement.parameters[index].variadic != !!method.parameters[index].variadic || !this.typeAnalyzer.arrayTypesMatch(want, have)) {
+        this.diagnostics.addError(Error2(this.ast.fileName, "semantic", method.parameters[index].position, `method \`${concreteName}.${requirement.name.name}\` does not satisfy \`${interfaceName}.${requirement.name.name}\`: parameter ${index + 1} must be \`${this.typeAnalyzer.displayName(want)}\`, got \`${this.typeAnalyzer.displayName(have)}\``));
+        return false;
+      }
+    }
+    if (method.returnTypes.length != requirement.returnTypes.length) {
+      this.addRequirementReturnError(concreteName, interfaceName, method, requirement);
+      return false;
+    }
+    for (let index = 0; index < requirement.returnTypes.length; index++) {
+      if (!this.typeAnalyzer.arrayTypesMatch(required(requirement.returnTypes[index]), method.returnTypes[index])) {
+        this.addRequirementReturnError(concreteName, interfaceName, method, requirement);
+        return false;
+      }
+    }
+    const requiredErrors = requirement.errorTypes.map(required);
+    if (method.errorTypes.length != requiredErrors.length || !requiredErrors.every((type) => method.errorTypes.some((candidate) => this.typeAnalyzer.arrayTypesMatch(type, candidate)))) {
+      this.diagnostics.addError(Error2(this.ast.fileName, "semantic", method.declaration?.position ?? requirement.position, `method \`${concreteName}.${requirement.name.name}\` does not satisfy \`${interfaceName}.${requirement.name.name}\`: error set differs`));
+      return false;
+    }
+    return true;
+  }
+  typeParametersMatch(left, right) {
+    if ((left?.length ?? 0) != (right?.length ?? 0))
+      return false;
+    return (left ?? []).every((parameter, index) => {
+      const candidate = right[index];
+      const bounds = parameter.interfaceBounds ?? [];
+      const candidateBounds = candidate.interfaceBounds ?? [];
+      return !!parameter.variadic == !!candidate.variadic && bounds.length == candidateBounds.length && bounds.every((bound) => candidateBounds.some((candidateBound) => candidateBound.name.name == bound.name.name));
+    });
+  }
+  validateTypeParameterBounds(typeParameters, position2) {
+    for (const parameter of typeParameters ?? []) {
+      for (const bound of parameter.interfaceBounds ?? []) {
+        const symbol = this.globalScope.getSymbol(bound.name.name);
+        if (symbol?.kind == SymbolKind.SymbolInterfaceDecl)
+          continue;
+        this.diagnostics.addError(Error2(this.ast.fileName, "semantic", bound.position ?? position2, symbol ? `generic bound \`${bound.name.name}\` is not an interface` : `unknown interface bound \`${bound.name.name}\``));
+      }
+    }
+  }
+  addRequirementReturnError(concreteName, interfaceName, method, requirement) {
+    const want = requirement.returnTypes.length ? requirement.returnTypes.map((type) => this.typeAnalyzer.displayName(type)).join(", ") : "void";
+    const have = method.returnTypes.length ? method.returnTypes.map((type) => this.typeAnalyzer.displayName(type)).join(", ") : "void";
+    this.diagnostics.addError(Error2(this.ast.fileName, "semantic", method.declaration?.position ?? requirement.position, `method \`${concreteName}.${requirement.name.name}\` does not satisfy \`${interfaceName}.${requirement.name.name}\`: return type must be \`${want}\`, got \`${have}\``));
+  }
   /** Second pass: analyze a top-level type, variable, or function declaration. */
   analyze(decl) {
     switch (decl.kind) {
       case "import_declaration":
+      case "interface_declaration":
         return;
       case "type_declaration":
         return;
@@ -12349,10 +12875,12 @@ var DeclarationAnalyzer = class {
         return;
       case "function_declaration":
         this.analyzeFunctionDeclaration(decl);
+        decl.bodyAnalyzed = true;
     }
   }
   /** Validates a function signature and delegates its body to the statement layer. */
   analyzeFunctionDeclaration(decl) {
+    this.validateTypeParameterBounds(decl.typeParameters, decl.position);
     if (decl.external?.abi == "delta" && !decl.external.moduleName) {
       this.diagnostics.addError(Error2(this.ast.fileName, "semantic", decl.position, 'a `.ffi.delta` file declaring prebuilt Delta functions must specify `ffi module "<abi-name>";`'));
     }
@@ -12360,6 +12888,7 @@ var DeclarationAnalyzer = class {
       this.diagnostics.addError(Error2(this.ast.fileName, "semantic", decl.position, "prebuilt Delta generic functions require explicit ABI specializations and are not supported yet"));
     }
     const functionScope = new Scope(this.globalScope);
+    functionScope.activeFunction = decl;
     let methodSignature;
     if (decl.receiver) {
       const receiverSymbol = this.globalScope.getSymbol(decl.receiver.type.name.name);
@@ -12400,7 +12929,12 @@ var DeclarationAnalyzer = class {
         moved: "active"
       });
     });
-    decl.returnTypes.forEach((type) => this.isValidFunctionSignatureType(type, decl, type.position ?? decl.position, "return"));
+    decl.returnTypes.forEach((type, index) => {
+      if (this.isValidFunctionSignatureType(type, decl, type.position ?? decl.position, "return")) {
+        return;
+      }
+      decl.returnTypes[index] = { ...type, value: TypeValue.TypeInvalid };
+    });
     const normalizedErrors = [];
     decl.errorTypes.forEach((type) => {
       if (this.typeAnalyzer.isValidPrimitiveType(type)) {
@@ -12427,7 +12961,7 @@ var DeclarationAnalyzer = class {
     if (symbol?.signature)
       symbol.signature.errorTypes = normalizedErrors;
     if (!decl.receiver && decl.name.name == "main" && !this.verifyMainFunctionSignature(symbol?.signature)) {
-      this.diagnostics.addError(Error2(this.ast.fileName, "semantic", decl.name.position ?? decl.position, "`main` must be declared at top level as `function main(): int8`"));
+      this.diagnostics.addError(Error2(this.ast.fileName, "semantic", decl.name.position ?? decl.position, "`main` must be declared at top level as `function main(): uint8`"));
       return;
     }
     const context = {
@@ -12485,6 +13019,9 @@ var DeclarationAnalyzer = class {
     }
     if (type.value == TypeValue.TypeCustom) {
       const symbol = this.globalScope.getSymbol(type.name.name);
+      if (this.reportInterfaceAsValueType(type, position2)) {
+        return false;
+      }
       const isTypeDeclaration = symbol !== void 0 && [
         SymbolKind.SymbolTypeStructDecl,
         SymbolKind.SymbolTypeEnumDecl,
@@ -12500,9 +13037,9 @@ var DeclarationAnalyzer = class {
     this.diagnostics.addError(Error2(this.ast.fileName, "semantic", position2, `invalid ${usage} type: ` + type.name.name));
     return false;
   }
-  /** Checks the required zero-argument, non-error `int8` main signature. */
+  /** Checks the required zero-argument, non-error `uint8` main signature. */
   verifyMainFunctionSignature(signature) {
-    return signature.parameters.length == 0 && signature.errorTypes.length == 0 && signature.returnTypes.length == 1 && signature.returnTypes[0]?.value == TypeValue.Type_Int8;
+    return signature.parameters.length == 0 && signature.errorTypes.length == 0 && signature.returnTypes.length == 1 && signature.returnTypes[0]?.value == TypeValue.Type_UInt8;
   }
   /** Registers union, enum, struct, and alias declarations in the global scope. */
   analyzeTypeDeclaration(decl) {
@@ -12510,6 +13047,7 @@ var DeclarationAnalyzer = class {
       this.diagnostics.addError(Error2(this.ast.fileName, "semantic", decl.name.position ?? decl.position, "duplicate type declaration: " + decl.name.name));
       return;
     }
+    this.rejectDeclarationTypeParameterBounds(decl);
     if (decl.declKind == TypeDeclKind.Union) {
       const value2 = decl.declaration;
       for (const variant of value2.variants) {
@@ -12560,7 +13098,10 @@ var DeclarationAnalyzer = class {
           return;
         }
         if (!this.isDeclaredFieldType(field.type, value2.typeParameters)) {
-          this.diagnostics.addError(Error2(this.ast.fileName, "semantic", field.type.position ?? field.name.position ?? decl.position, "unknown type identifier: " + field.type.name.name));
+          const position2 = field.type.position ?? field.name.position ?? decl.position;
+          if (!this.reportInterfaceAsValueType(field.type, position2)) {
+            this.diagnostics.addError(Error2(this.ast.fileName, "semantic", position2, "unknown type identifier: " + field.type.name.name));
+          }
           return;
         }
         if (field.type.arrayLengths?.some((length) => length == 0)) {
@@ -12617,6 +13158,32 @@ var DeclarationAnalyzer = class {
         return unknownType;
     }
     return void 0;
+  }
+  /**
+   * Rejects an interface bound written on a type declaration's own type
+   * parameter. Bounds are only honoured on functions and receiver functions,
+   * so accepting one here would silently promise a constraint that is never
+   * checked at instantiation.
+   */
+  rejectDeclarationTypeParameterBounds(decl) {
+    const declaration = decl.declaration;
+    for (const parameter of declaration.typeParameters ?? []) {
+      for (const bound of parameter.interfaceBounds ?? []) {
+        this.diagnostics.addError(Error2(this.ast.fileName, "semantic", bound.position ?? parameter.position ?? decl.position, `interface bound \`${bound.name.name}\` is not supported on a type declaration's type parameter \`${parameter.name.name}\`; place the bound on the function that requires it`));
+      }
+    }
+  }
+  /**
+   * Reports a named interface used where a value type is expected, and says
+   * so in those terms rather than claiming the name is undeclared. Returns
+   * whether the diagnostic was emitted.
+   */
+  reportInterfaceAsValueType(type, position2) {
+    if (this.globalScope.getSymbol(type.name.name)?.kind != SymbolKind.SymbolInterfaceDecl) {
+      return false;
+    }
+    this.diagnostics.addError(Error2(this.ast.fileName, "semantic", position2, `interface \`${type.name.name}\` is a compile-time constraint and cannot be used as a value type`));
+    return true;
   }
   isDeclaredFieldType(type, typeParameters) {
     if (this.typeAnalyzer.isIndirection(type))
@@ -12758,14 +13325,68 @@ var AnalyzerCore = class {
   }
   /** Registers functions first, then analyzes every declaration. */
   analyze() {
+    this.declarationAnalyzer.registerInterfaces();
     this.declarationAnalyzer.registerTypes();
     this.declarationAnalyzer.finish();
     this.declarationAnalyzer.registerMethods();
+    this.declarationAnalyzer.validateImplementations();
     this.declarationAnalyzer.registerFunctions();
     this.ast.declarations.forEach((declaration) => this.declarationAnalyzer.analyze(declaration));
+    this.declarationAnalyzer.validateDeferredSpecializations();
     return this.globalScope;
   }
 };
+
+// dist/src/ast/documentation.js
+function isDocumentationComment(token) {
+  return token.kind === TokenKind.Kind_LineComment && token.value.startsWith("///") || token.kind === TokenKind.Kind_BlockComment && token.value.startsWith("/**");
+}
+function tokenEndLine(token) {
+  return token.line + (token.value.match(/\n/g)?.length ?? 0);
+}
+function documentationCommentText(token) {
+  if (token.kind === TokenKind.Kind_LineComment) {
+    return token.value.slice(3).replace(/^ /, "");
+  }
+  const body = token.value.slice(3, token.value.endsWith("*/") ? -2 : void 0);
+  let lines = body.replace(/\r\n?/g, "\n").split("\n");
+  lines = lines.map((line) => {
+    const starred = line.match(/^[ \t]*\*(?: ?)(.*)$/);
+    return starred ? starred[1] : line;
+  });
+  while (lines.length && lines[0].trim() === "")
+    lines.shift();
+  while (lines.length && lines[lines.length - 1].trim() === "")
+    lines.pop();
+  const indents = lines.filter((line) => line.trim().length > 0).map((line) => line.match(/^[ \t]*/)?.[0].length ?? 0);
+  const commonIndent = indents.length ? Math.min(...indents) : 0;
+  if (commonIndent)
+    lines = lines.map((line) => line.slice(commonIndent));
+  if (lines.length) {
+    lines[0] = lines[0].replace(/^[ \t]+/, "");
+    lines[lines.length - 1] = lines[lines.length - 1].replace(/[ \t]+$/, "");
+  }
+  return lines.join("\n");
+}
+function documentationFromComments(tokens) {
+  const documentation = tokens.map(documentationCommentText).join("\n");
+  return documentation.length ? documentation : void 0;
+}
+function documentationBefore(tokens, declarationIndex) {
+  const declaration = tokens[declarationIndex];
+  if (!declaration)
+    return void 0;
+  const comments = [];
+  let laterLine = declaration.line;
+  for (let index = declarationIndex - 1; index >= 0; index--) {
+    const token = tokens[index];
+    if (!isDocumentationComment(token) || laterLine - tokenEndLine(token) > 1)
+      break;
+    comments.unshift(token);
+    laterLine = token.line;
+  }
+  return documentationFromComments(comments);
+}
 
 // dist/src/ast/parser.js
 var Parser = class {
@@ -12838,6 +13459,29 @@ var Parser = class {
     while (this.current().kind == TokenKind.Kind_LineComment || this.current().kind == TokenKind.Kind_BlockComment) {
       this.advance();
     }
+  }
+  /**
+   * Consumes comments at the cursor and returns Markdown from the final
+   * contiguous documentation-comment run when it directly precedes the next
+   * token. Ordinary comments and blank lines break the association.
+   */
+  takeDocumentationComments() {
+    let comments = [];
+    while (this.current().kind == TokenKind.Kind_LineComment || this.current().kind == TokenKind.Kind_BlockComment) {
+      const comment = this.advance();
+      if (!isDocumentationComment(comment)) {
+        comments = [];
+        continue;
+      }
+      const previous2 = comments[comments.length - 1];
+      if (previous2 && comment.line - tokenEndLine(previous2) > 1)
+        comments = [];
+      comments.push(comment);
+    }
+    const last = comments[comments.length - 1];
+    if (!last || this.current().line - tokenEndLine(last) > 1)
+      return void 0;
+    return documentationFromComments(comments);
   }
   /** Parses fixed-array extents or the terminal slice suffix following a type name. */
   parseArraySuffixes() {
@@ -12940,19 +13584,29 @@ var Parser = class {
       return params;
     }
     while (this.current().kind != TokenKind.Symbol_RightParen) {
+      const variadic = this.current().kind == TokenKind.Symbol_Ellipsis;
+      if (variadic)
+        this.advance();
       const p = this.expect(TokenKind.Kind_Identifier, "identifier expected");
       if (!p || !this.expect(TokenKind.Symbol_Colon, ": symbol expected"))
         return;
       const t = this.parseTypeReference(typeParams);
       if (!t)
         return;
+      if (variadic)
+        t.slice = true;
       this.objectNonValueDecls.set(p.value, t.name.name);
       params.push({
         position: getTokenPosition(p),
         name: CreateIdentifier(p.value, getTokenPosition(p)),
-        type: t
+        type: t,
+        variadic: variadic || void 0
       });
       if (this.current().kind == TokenKind.Symbol_Comma) {
+        if (variadic) {
+          this.diagnostics.addError(Error2(this.filepath, "parser", getTokenPosition(p), "a variadic parameter must be the final parameter"));
+          return;
+        }
         this.advance();
         continue;
       }
@@ -13008,8 +13662,11 @@ var Parser = class {
   }
   parseTypeParams(decl) {
     this.advance();
-    let types = [];
+    const types = [];
     while (this.current().kind != TokenKind.Symbol_Greater && this.current().kind != TokenKind.Symbol_ShiftRight) {
+      const variadic = decl && this.current().kind == TokenKind.Symbol_Ellipsis;
+      if (variadic)
+        this.advance();
       const tName = this.expect(TokenKind.Kind_Identifier, "type identifier expected");
       if (!tName) {
         return;
@@ -13027,6 +13684,20 @@ var Parser = class {
       }
       const sourceName = nameParts.join(".");
       const type = CreateType(sourceName, decl ? TypeValue.TypeGeneric : this.resolveTypeValue(sourceName), getTokenPosition(tName));
+      type.variadic = variadic || void 0;
+      if (decl && this.current().kind == TokenKind.Symbol_Colon) {
+        this.advance();
+        type.interfaceBounds = [];
+        while (true) {
+          const bound = this.parseTypeReference();
+          if (!bound)
+            return;
+          type.interfaceBounds.push(bound);
+          if (this.current().kind != TokenKind.Symbol_Ampersand)
+            break;
+          this.advance();
+        }
+      }
       if (!decl && this.current().kind == TokenKind.Symbol_Less) {
         type.typeParameters = this.parseTypeParams(false);
         if (!type.typeParameters) {
@@ -13043,6 +13714,10 @@ var Parser = class {
       }
       types.push(type);
       if (this.current().kind == TokenKind.Symbol_Comma) {
+        if (variadic) {
+          this.diagnostics.addError(Error2(this.filepath, "parser", type.position, "a variadic type parameter must be the final type parameter"));
+          return;
+        }
         this.advance();
         continue;
       }
@@ -13055,6 +13730,10 @@ var Parser = class {
     }
     this.advance();
     if (decl) {
+      if (types.filter((type) => type.variadic).length > 1) {
+        this.diagnostics.addError(Error2(this.filepath, "parser", types.find((type) => type.variadic).position, "a declaration may have only one variadic type parameter"));
+        return;
+      }
       const seenTypeParameters = /* @__PURE__ */ new Set();
       const duplicateTypeParameter = types.find((type) => {
         if (seenTypeParameters.has(type.name.name)) {
@@ -13346,7 +14025,11 @@ var Parser = class {
         const source = this.parseExpression();
         if (!source)
           return;
-        elements.push({ position: getTokenPosition(spread), kind: "spread_element", source });
+        elements.push({
+          position: getTokenPosition(spread),
+          kind: "spread_element",
+          source
+        });
       } else {
         const field = this.current().kind == TokenKind.Keyword_Error ? this.advance() : this.expect(TokenKind.Kind_Identifier, "identifier expected");
         if (!field || !this.expect(TokenKind.Symbol_Colon, ": expected"))
@@ -13878,7 +14561,13 @@ var Parser = class {
       const right = this.parseBitwiseXorExpression();
       if (!right)
         return;
-      left = { position: getTokenPosition(operator), kind: "binary_expression", left, right, operator: operator.value };
+      left = {
+        position: getTokenPosition(operator),
+        kind: "binary_expression",
+        left,
+        right,
+        operator: operator.value
+      };
       this.skipComments();
     }
     return left;
@@ -13893,7 +14582,13 @@ var Parser = class {
       const right = this.parseBitwiseOrExpression();
       if (!right)
         return;
-      left = { position: getTokenPosition(operator), kind: "binary_expression", left, right, operator: operator.value };
+      left = {
+        position: getTokenPosition(operator),
+        kind: "binary_expression",
+        left,
+        right,
+        operator: operator.value
+      };
       this.skipComments();
     }
     return left;
@@ -13908,7 +14603,13 @@ var Parser = class {
       const right = this.parseLogicalAndExpression();
       if (!right)
         return;
-      left = { position: getTokenPosition(operator), kind: "binary_expression", left, right, operator: operator.value };
+      left = {
+        position: getTokenPosition(operator),
+        kind: "binary_expression",
+        left,
+        right,
+        operator: operator.value
+      };
       this.skipComments();
     }
     return left;
@@ -14079,6 +14780,123 @@ var Parser = class {
       value,
       asResult
     };
+  }
+  parseInterfaceDeclaration() {
+    const keyword = this.advance();
+    const name = this.expect(TokenKind.Kind_Identifier, "interface name expected");
+    if (!name)
+      return;
+    if (!this.expect(TokenKind.Symbol_LeftBrace, "{ expected after interface name"))
+      return;
+    const methods = [];
+    const methodNames = /* @__PURE__ */ new Set();
+    while (this.current().kind != TokenKind.Symbol_RightBrace && this.current().kind != TokenKind.Kind_EOF) {
+      const documentation = this.takeDocumentationComments();
+      const fn = this.expect(TokenKind.Keyword_Function, "interface bodies may contain only function requirements");
+      if (!fn) {
+        this.skipLine();
+        continue;
+      }
+      if (this.current().kind == TokenKind.Symbol_LeftParen) {
+        this.diagnostics.addError(Error2(this.filepath, "parser", this.getCurrentPosition(), "interface method requirements cannot declare a receiver"));
+        this.synchronizeInterfaceMember();
+        continue;
+      }
+      const methodName = this.expect(TokenKind.Kind_Identifier, "interface method name expected");
+      if (!methodName) {
+        this.synchronizeInterfaceMember();
+        continue;
+      }
+      let typeParameters = [];
+      if (this.current().kind == TokenKind.Symbol_Less) {
+        const parsed = this.parseTypeParams(true);
+        if (!parsed) {
+          this.synchronizeInterfaceMember();
+          continue;
+        }
+        typeParameters = parsed;
+      }
+      const parameters = this.parseFuncParams(typeParameters);
+      if (!parameters) {
+        this.synchronizeInterfaceMember();
+        continue;
+      }
+      let returnTypes = [];
+      let errorTypes = [];
+      if (this.current().kind == TokenKind.Symbol_Colon) {
+        this.advance();
+        const parsed = this.parseFuncReturnTypes(typeParameters);
+        if (!parsed) {
+          this.synchronizeInterfaceMember();
+          continue;
+        }
+        returnTypes = parsed;
+      }
+      if (this.current().kind == TokenKind.Symbol_Pipe) {
+        this.advance();
+        const parsed = this.parseFuncErrorTypes();
+        if (!parsed) {
+          this.synchronizeInterfaceMember();
+          continue;
+        }
+        errorTypes = parsed;
+      }
+      if (this.current().kind == TokenKind.Symbol_LeftBrace) {
+        this.diagnostics.addError(Error2(this.filepath, "parser", this.getCurrentPosition(), "interface method requirements cannot have a body"));
+        this.skipBalancedBlock();
+      } else if (!this.expect(TokenKind.Symbol_Semicolon, "interface method requirement must end with ;")) {
+        this.synchronizeInterfaceMember();
+      }
+      if (methodNames.has(methodName.value)) {
+        this.diagnostics.addError(Error2(this.filepath, "parser", getTokenPosition(methodName), `duplicate interface method requirement \`${methodName.value}\``));
+        continue;
+      }
+      methodNames.add(methodName.value);
+      methods.push({
+        kind: "interface_method_requirement",
+        position: getTokenPosition(fn),
+        name: CreateIdentifier(methodName.value, getTokenPosition(methodName)),
+        typeParameters: typeParameters.length ? typeParameters : void 0,
+        parameters,
+        returnTypes,
+        errorTypes,
+        documentation
+      });
+    }
+    if (!this.expect(TokenKind.Symbol_RightBrace, "} expected after interface body"))
+      return;
+    if (this.current().kind == TokenKind.Symbol_Semicolon)
+      this.advance();
+    return {
+      kind: "interface_declaration",
+      position: getTokenPosition(keyword),
+      name: CreateIdentifier(name.value, getTokenPosition(name)),
+      methods,
+      external: this.filepath.endsWith(".ffi.delta") ? { abi: "delta", moduleName: this.ffiModuleName } : void 0
+    };
+  }
+  synchronizeInterfaceMember() {
+    while (this.current().kind != TokenKind.Kind_EOF && this.current().kind != TokenKind.Symbol_Semicolon && this.current().kind != TokenKind.Symbol_RightBrace) {
+      if (this.current().kind == TokenKind.Symbol_LeftBrace) {
+        this.skipBalancedBlock();
+        return;
+      }
+      this.advance();
+    }
+    if (this.current().kind == TokenKind.Symbol_Semicolon)
+      this.advance();
+  }
+  skipBalancedBlock() {
+    if (this.current().kind != TokenKind.Symbol_LeftBrace)
+      return;
+    let depth = 0;
+    do {
+      const token = this.advance();
+      if (token.kind == TokenKind.Symbol_LeftBrace)
+        depth++;
+      if (token.kind == TokenKind.Symbol_RightBrace)
+        depth--;
+    } while (depth > 0 && this.current().kind != TokenKind.Kind_EOF);
   }
   parseIfStatement(blockContext) {
     const keyword = this.advance();
@@ -14626,6 +15444,25 @@ var Parser = class {
       }
     }
     this.advance();
+    if (this.current().kind == TokenKind.Keyword_Implements) {
+      this.advance();
+      declaration.implementedInterfaces = [];
+      const seen = /* @__PURE__ */ new Set();
+      while (true) {
+        const implemented = this.parseTypeReference();
+        if (!implemented)
+          return;
+        if (seen.has(implemented.name.name)) {
+          this.diagnostics.addError(Error2(this.filepath, "parser", implemented.position, `type \`${declaration.name.name}\` lists interface \`${implemented.name.name}\` more than once`));
+        } else {
+          seen.add(implemented.name.name);
+          declaration.implementedInterfaces.push(implemented);
+        }
+        if (this.current().kind != TokenKind.Symbol_Comma)
+          break;
+        this.advance();
+      }
+    }
     if (!this.expect(TokenKind.Symbol_Semicolon, "; symbol expected")) {
       return;
     }
@@ -14781,7 +15618,10 @@ var Parser = class {
           const fieldType = this.parseTypeReference();
           if (!fieldType)
             return;
-          fields.push({ name: CreateIdentifier(fieldName.value, getTokenPosition(fieldName)), type: fieldType });
+          fields.push({
+            name: CreateIdentifier(fieldName.value, getTokenPosition(fieldName)),
+            type: fieldType
+          });
           if (this.current().kind == TokenKind.Symbol_Comma || this.current().kind == TokenKind.Symbol_Semicolon)
             this.advance();
         }
@@ -14793,7 +15633,11 @@ var Parser = class {
           kind: "type_declaration",
           name: CreateIdentifier(declKind.value, getTokenPosition(declKind)),
           declKind: TypeDeclKind.Struct,
-          declaration: { name: CreateIdentifier(declKind.value, getTokenPosition(declKind)), fields, compositions },
+          declaration: {
+            name: CreateIdentifier(declKind.value, getTokenPosition(declKind)),
+            fields,
+            compositions
+          },
           unique
         };
         this.typeDecls.set(declKind.value, declaration2);
@@ -14805,7 +15649,9 @@ var Parser = class {
       }
       if (this.current().kind == TokenKind.Symbol_Ampersand) {
         const fields = [];
-        const compositions = [CreateType(target.value, TypeValue.TypeCustom, getTokenPosition(target))];
+        const compositions = [
+          CreateType(target.value, TypeValue.TypeCustom, getTokenPosition(target))
+        ];
         while (this.current().kind == TokenKind.Symbol_Ampersand) {
           this.advance();
           const operand = this.expect(TokenKind.Kind_Identifier, "record type expected after &");
@@ -14820,7 +15666,11 @@ var Parser = class {
           kind: "type_declaration",
           name: CreateIdentifier(declKind.value, getTokenPosition(declKind)),
           declKind: TypeDeclKind.Struct,
-          declaration: { name: CreateIdentifier(declKind.value, getTokenPosition(declKind)), fields, compositions },
+          declaration: {
+            name: CreateIdentifier(declKind.value, getTokenPosition(declKind)),
+            fields,
+            compositions
+          },
           unique
         };
         this.typeDecls.set(declKind.value, declaration2);
@@ -15024,7 +15874,7 @@ var Parser = class {
       return [];
     const declarations = [];
     while (this.current().kind != TokenKind.Symbol_RightBrace && this.current().kind != TokenKind.Kind_EOF) {
-      this.skipComments();
+      const documentation = this.takeDocumentationComments();
       if (this.current().kind == TokenKind.Symbol_RightBrace)
         break;
       const fnToken = this.expect(TokenKind.Keyword_Function, "extern block may contain only function declarations");
@@ -15068,6 +15918,7 @@ var Parser = class {
           position: getTokenPosition(fnToken),
           statements: []
         },
+        documentation,
         exported,
         external: { abi: "c", linkName: fnName.value }
       });
@@ -15084,7 +15935,7 @@ var Parser = class {
     let sawNonImportDeclaration = false;
     let sawModuleDeclaration = false;
     while (this.current().kind != TokenKind.Kind_EOF) {
-      this.skipComments();
+      let documentation = this.takeDocumentationComments();
       if (this.current().kind == TokenKind.Kind_EOF) {
         break;
       }
@@ -15113,7 +15964,7 @@ var Parser = class {
       if (this.current().kind == TokenKind.Keyword_Export) {
         exported = true;
         const exportToken = this.advance();
-        this.skipComments();
+        documentation = this.takeDocumentationComments() ?? documentation;
         if (this.current().kind == TokenKind.Keyword_Module) {
           const moduleToken = this.advance();
           const name = this.expect(TokenKind.Kind_Identifier, "module identifier expected after export module");
@@ -15131,7 +15982,8 @@ var Parser = class {
             this.exportModule = {
               kind: "module_declaration",
               position: getTokenPosition(exportToken),
-              name: CreateIdentifier(name.value, getTokenPosition(name))
+              name: CreateIdentifier(name.value, getTokenPosition(name)),
+              documentation
             };
           }
           sawModuleDeclaration = true;
@@ -15160,6 +16012,7 @@ var Parser = class {
         }
         if (decl.kind != "import_declaration") {
           decl.exported = exported;
+          decl.documentation = documentation;
         }
         if (decl.kind == "type_declaration" && this.filepath.endsWith(".ffi.delta")) {
           decl.external = {
@@ -15184,6 +16037,19 @@ var Parser = class {
           continue;
         }
         decl.exported = exported;
+        decl.documentation = documentation;
+        decls.push(decl);
+        continue;
+      }
+      if (this.current().kind == TokenKind.Keyword_Interface) {
+        const declarationStart = this.pos;
+        const decl = this.parseInterfaceDeclaration();
+        if (!decl) {
+          this.synchronizeTopLevel(declarationStart);
+          continue;
+        }
+        decl.exported = exported;
+        decl.documentation = documentation;
         decls.push(decl);
         continue;
       }
@@ -15195,6 +16061,7 @@ var Parser = class {
           continue;
         }
         decl.exported = exported;
+        decl.documentation = documentation;
         decls.push(decl);
         continue;
       } else {
@@ -15239,7 +16106,8 @@ var Parser = class {
       TokenKind.Keyword_Const,
       TokenKind.Keyword_Function,
       TokenKind.Keyword_Ffi,
-      TokenKind.Keyword_Extern
+      TokenKind.Keyword_Extern,
+      TokenKind.Keyword_Interface
     ].includes(kind);
     while (this.current().kind != TokenKind.Kind_EOF) {
       const token = this.current();
@@ -15707,6 +16575,7 @@ function rewriteType(type, names) {
     rewritten.name.name = replacement;
   }
   rewritten.typeParameters = rewritten.typeParameters?.map((argument) => rewriteType(argument, names));
+  rewritten.interfaceBounds = rewritten.interfaceBounds?.map((bound) => rewriteType(bound, names));
   rewritten.fields = rewritten.fields?.map((field) => ({
     name: field.name,
     type: rewriteType(field.type, names)
@@ -15732,7 +16601,13 @@ function rewriteSignature(signature, names) {
 function namespaceTypeNames(prefix, exports2) {
   const names = /* @__PURE__ */ new Map();
   for (const [exportName, binding] of exports2) {
-    if (binding.kind != "symbol" || !binding.symbol.type)
+    if (binding.kind != "symbol")
+      continue;
+    if (binding.symbol.kind == SymbolKind.SymbolInterfaceDecl) {
+      names.set(binding.sourceName, `${prefix}.${exportName}`);
+      continue;
+    }
+    if (!binding.symbol.type)
       continue;
     if (![
       SymbolKind.SymbolTypeStructDecl,
@@ -15747,12 +16622,32 @@ function namespaceTypeNames(prefix, exports2) {
   return names;
 }
 function cloneSymbol(symbol, name, typeNames) {
+  const declaration = symbol.declaration?.kind == "interface_declaration" ? {
+    ...symbol.declaration,
+    name: { ...symbol.declaration.name, name },
+    methods: symbol.declaration.methods.map((method) => ({
+      ...method,
+      parameters: method.parameters.map((parameter) => ({
+        ...parameter,
+        type: rewriteType(parameter.type, typeNames)
+      })),
+      returnTypes: method.returnTypes.map((type) => rewriteType(type, typeNames)),
+      errorTypes: method.errorTypes.map((type) => rewriteType(type, typeNames)),
+      typeParameters: method.typeParameters?.map((type) => rewriteType(type, typeNames))
+    }))
+  } : symbol.declaration;
   return {
     ...symbol,
     name,
+    declaration,
     type: rewriteType(symbol.type, typeNames),
     signature: rewriteSignature(symbol.signature, typeNames)
   };
+}
+function copyImplementations(target, targetTypeName, binding, typeNames) {
+  for (const interfaceName of binding.scope.implementations.get(binding.sourceName) ?? []) {
+    target.addImplementation(targetTypeName, typeNames.get(interfaceName) ?? interfaceName);
+  }
 }
 function copyMethods(target, targetTypeName, binding, typeNames) {
   const methods = binding.scope.methods.get(binding.sourceName);
@@ -15788,6 +16683,7 @@ function bindExport(target, localName, binding, importedSymbols, position2, diag
         linkName: member.symbol.signature?.external?.abi == "c" ? member.symbol.signature.external.linkName : void 0
       });
       copyMethods(target, qualifiedName, member, typeNames2);
+      copyImplementations(target, qualifiedName, member, typeNames2);
     }
     return true;
   }
@@ -15799,6 +16695,7 @@ function bindExport(target, localName, binding, importedSymbols, position2, diag
     linkName: binding.symbol.signature?.external?.abi == "c" ? binding.symbol.signature.external.linkName : void 0
   });
   copyMethods(target, localName, binding, typeNames);
+  copyImplementations(target, localName, binding, typeNames);
   return true;
 }
 function buildExportTable(ast, scope, moduleName, importedBindings) {
@@ -15812,7 +16709,7 @@ function buildExportTable(ast, scope, moduleName, importedBindings) {
     const symbol = scope.symbols.get(declaration.name.name);
     if (!symbol)
       continue;
-    const externalModule = symbol.signature?.external?.abi == "delta" ? symbol.signature.external.moduleName : symbol.declaration?.kind == "variable_declaration_statement" || symbol.declaration?.kind == "type_declaration" ? symbol.declaration.external?.moduleName : void 0;
+    const externalModule = symbol.signature?.external?.abi == "delta" ? symbol.signature.external.moduleName : symbol.declaration?.kind == "variable_declaration_statement" || symbol.declaration?.kind == "type_declaration" || symbol.declaration?.kind == "interface_declaration" ? symbol.declaration.external?.moduleName : void 0;
     exports2.set(declaration.name.name, {
       kind: "symbol",
       name: declaration.name.name,
@@ -15904,23 +16801,36 @@ function findNearestDeltaManifest(startDirectory) {
     directory = parent;
   }
 }
-function withDeltaExtension(filePath) {
-  return filePath.endsWith(".delta") ? filePath : `${filePath}.delta`;
+function resolveDeltaFile(filePath) {
+  if (filePath.endsWith(".delta"))
+    return filePath;
+  const sourcePath = `${filePath}.delta`;
+  if (fs.existsSync(sourcePath))
+    return sourcePath;
+  const interfacePath = `${filePath}.ffi.delta`;
+  return fs.existsSync(interfacePath) ? interfacePath : sourcePath;
 }
 function resolveImportSpecifier(importer, importPath, projectRoot, aliases) {
   if (importPath === "std" || importPath.startsWith("std/")) {
     return { kind: "standard", modulePath: importPath };
   }
   if (importPath === STANDARD_LIBRARY_ALIAS || importPath.startsWith(`${STANDARD_LIBRARY_ALIAS}/`)) {
+    const configuredRoot = process.env.DELTA_STD_LIB?.trim();
+    if (configuredRoot) {
+      const suffix2 = importPath.slice(STANDARD_LIBRARY_ALIAS.length).replace(/^\//, "");
+      const resolved2 = suffix2 ? path.resolve(configuredRoot, suffix2) : path.resolve(configuredRoot);
+      return { kind: "file", filePath: resolveDeltaFile(resolved2) };
+    }
     return {
       kind: "standard",
-      modulePath: `std${importPath.slice(STANDARD_LIBRARY_ALIAS.length)}`
+      modulePath: `std${importPath.slice(STANDARD_LIBRARY_ALIAS.length)}`,
+      reason: "DELTA_STD_LIB is not set"
     };
   }
   if (importPath.startsWith("./") || importPath.startsWith("../")) {
     return {
       kind: "file",
-      filePath: withDeltaExtension(path.resolve(path.dirname(importer), importPath))
+      filePath: resolveDeltaFile(path.resolve(path.dirname(importer), importPath))
     };
   }
   const separator = importPath.indexOf("/");
@@ -15930,21 +16840,21 @@ function resolveImportSpecifier(importer, importPath, projectRoot, aliases) {
     return { kind: "unknown" };
   const suffix = separator < 0 ? "" : importPath.slice(separator + 1);
   const resolved = suffix ? path.resolve(projectRoot, target, suffix) : path.resolve(projectRoot, target);
-  return { kind: "file", filePath: withDeltaExtension(resolved) };
+  return { kind: "file", filePath: resolveDeltaFile(resolved) };
 }
 function aliasSpecifierForPath(targetPath, projectRoot, aliases) {
   const normalizedTarget = path.resolve(targetPath);
   const candidates = [];
   for (const [alias, configuredTarget] of aliases) {
     const aliasTarget = path.resolve(projectRoot, configuredTarget);
-    if (withDeltaExtension(aliasTarget) === normalizedTarget) {
+    if (resolveDeltaFile(aliasTarget) === normalizedTarget) {
       candidates.push(alias);
       continue;
     }
     const relative3 = path.relative(aliasTarget, normalizedTarget);
     if (!relative3 || relative3.startsWith("..") || path.isAbsolute(relative3))
       continue;
-    candidates.push(`${alias}/${relative3.replaceAll(path.sep, "/").replace(/\.delta$/i, "")}`);
+    candidates.push(`${alias}/${relative3.replaceAll(path.sep, "/").replace(/(?:\.ffi)?\.delta$/i, "")}`);
   }
   return candidates.sort((left, right) => left.length - right.length)[0];
 }
@@ -16012,7 +16922,7 @@ function compileModuleSource(source, fileName, readSource = defaultSourceReader,
     for (const declaration of node.imports) {
       const resolution = resolveImport(normalized, declaration.path);
       if (resolution.kind === "standard") {
-        diagnostics.addError(Error2(normalized, "semantic", declaration.pathPosition, `unknown standard library module \`${declaration.path}\``));
+        diagnostics.addError(Error2(normalized, "semantic", declaration.pathPosition, resolution.reason ? `cannot resolve standard library import \`${declaration.path}\`: ${resolution.reason}` : `unknown standard library module \`${declaration.path}\``));
         continue;
       }
       if (resolution.kind === "unknown") {
@@ -16094,6 +17004,15 @@ function compileModuleSource(source, fileName, readSource = defaultSourceReader,
 }
 
 // dist/src/lsp/source-index.js
+function symbolMarkdown(symbol) {
+  const detail = symbol.signature ?? `${symbol.kind} ${symbol.name}${symbol.type ? `: ${symbol.type}` : ""}`;
+  const signature = `\`\`\`delta
+${detail}
+\`\`\``;
+  return symbol.documentation ? `${signature}
+
+${symbol.documentation}` : signature;
+}
 var LexicalScope = class {
   start;
   end;
@@ -16137,8 +17056,11 @@ var SourceIndex = class {
   tokens;
   root;
   structs = /* @__PURE__ */ new Map();
+  genericBounds = /* @__PURE__ */ new Map();
   namespaces = /* @__PURE__ */ new Map();
   imports = [];
+  ffiModuleNames = /* @__PURE__ */ new Set();
+  interfaceRanges = [];
   exportModuleName;
   moduleDeclaration;
   constructor(source, uri) {
@@ -16166,8 +17088,31 @@ var SourceIndex = class {
   add(symbol) {
     symbol.scope.symbols.set(symbol.name, symbol);
   }
+  /**
+   * Finds documentation before a declaration, including comments placed
+   * before `export`/`unique` modifiers or immediately after `export`.
+   */
+  documentationAt(index) {
+    const direct = documentationBefore(this.tokens, index);
+    if (direct)
+      return direct;
+    let cursor = previous(this.tokens, index);
+    while (cursor >= 0 && (this.tokens[cursor].kind === TokenKind.Keyword_Export || this.tokens[cursor].kind === TokenKind.Keyword_Unique)) {
+      const documentation = documentationBefore(this.tokens, cursor);
+      if (documentation)
+        return documentation;
+      cursor = previous(this.tokens, cursor);
+    }
+    return void 0;
+  }
   indexDeclarations() {
     for (let i = 0; i < this.tokens.length; i++) {
+      if (this.tokens[i].kind === TokenKind.Keyword_Ffi && this.tokens[next(this.tokens, i)]?.kind === TokenKind.Keyword_Module) {
+        const name = this.tokens[next(this.tokens, next(this.tokens, i))];
+        if (name?.kind === TokenKind.Kind_StringLiteral) {
+          this.ffiModuleNames.add(name.value.slice(1, -1));
+        }
+      }
       if (this.tokens[i].kind === TokenKind.Keyword_Export && this.tokens[next(this.tokens, i)]?.kind === TokenKind.Keyword_Module) {
         const name = this.tokens[next(this.tokens, next(this.tokens, i))];
         if (name?.kind === TokenKind.Kind_Identifier) {
@@ -16176,6 +17121,7 @@ var SourceIndex = class {
             name: name.value,
             kind: "module",
             signature: `export module ${name.value}`,
+            documentation: this.documentationAt(i),
             exported: true,
             uri: this.uri,
             token: name,
@@ -16187,10 +17133,12 @@ var SourceIndex = class {
     for (let i = 0; i < this.tokens.length; i++) {
       if (this.tokens[i].kind === TokenKind.Keyword_Type)
         this.indexType(i);
+      if (this.tokens[i].kind === TokenKind.Keyword_Interface)
+        this.indexInterface(i);
     }
     for (let i = 0; i < this.tokens.length; i++) {
       const token = this.tokens[i];
-      if (token.kind === TokenKind.Keyword_Function)
+      if (token.kind === TokenKind.Keyword_Function && !this.interfaceRanges.some((range) => range.open < i && i < range.close))
         this.indexFunction(i);
       if (token.kind === TokenKind.Keyword_Const || token.kind === TokenKind.Keyword_Let)
         this.indexVariable(i);
@@ -16235,7 +17183,59 @@ var SourceIndex = class {
   matchingAngle(open) {
     return this.match(open, TokenKind.Symbol_Less, TokenKind.Symbol_Greater);
   }
-  indexFunction(index) {
+  typeParameterNames(open, close) {
+    const names = [];
+    let expectName = true;
+    let nested = 0;
+    for (let i = open + 1; i < close; i++) {
+      const token = this.tokens[i];
+      if (token.kind === TokenKind.Symbol_Less)
+        nested++;
+      else if (token.kind === TokenKind.Symbol_Greater && nested > 0)
+        nested--;
+      else if (nested === 0 && token.kind === TokenKind.Symbol_Comma)
+        expectName = true;
+      else if (expectName && token.kind === TokenKind.Kind_Identifier) {
+        names.push(token.value);
+        expectName = false;
+      }
+    }
+    return names;
+  }
+  indexTypeParameterBounds(open, close) {
+    let parameterName;
+    let inBounds = false;
+    let nested = 0;
+    for (let i = open + 1; i < close; i++) {
+      const token = this.tokens[i];
+      if (token.kind === TokenKind.Symbol_Less)
+        nested++;
+      else if (token.kind === TokenKind.Symbol_Greater && nested > 0)
+        nested--;
+      if (nested > 0)
+        continue;
+      if (token.kind === TokenKind.Symbol_Comma) {
+        parameterName = void 0;
+        inBounds = false;
+        continue;
+      }
+      if (!parameterName && token.kind === TokenKind.Kind_Identifier) {
+        parameterName = token.value;
+        continue;
+      }
+      if (token.kind === TokenKind.Symbol_Colon) {
+        inBounds = true;
+        continue;
+      }
+      if (inBounds && parameterName && token.kind === TokenKind.Kind_Identifier) {
+        const bounds = this.genericBounds.get(parameterName) ?? [];
+        if (!bounds.includes(token.value))
+          bounds.push(token.value);
+        this.genericBounds.set(parameterName, bounds);
+      }
+    }
+  }
+  indexFunction(index, interfaceName, boundary) {
     let nameIndex = next(this.tokens, index);
     let receiverName;
     let receiverType;
@@ -16261,7 +17261,8 @@ var SourceIndex = class {
       const closeTypes = this.matchingAngle(open);
       if (closeTypes < 0)
         return;
-      typeParameters = this.tokens.slice(open + 1, closeTypes).filter((token) => token.kind === TokenKind.Kind_Identifier).map((token) => token.value);
+      typeParameters = this.typeParameterNames(open, closeTypes);
+      this.indexTypeParameterBounds(open, closeTypes);
       open = next(this.tokens, closeTypes);
     }
     if (this.tokens[open]?.kind !== TokenKind.Symbol_LeftParen)
@@ -16309,14 +17310,21 @@ var SourceIndex = class {
         continue;
       parameters.push(`${parameter.value}: ${type}`);
     }
-    const bodyOpen = this.tokens.findIndex((token, i) => i > close && token.kind === TokenKind.Symbol_LeftBrace);
+    let terminator = close + 1;
+    const limit = boundary ?? this.tokens.length;
+    while (terminator < limit && ![TokenKind.Symbol_LeftBrace, TokenKind.Symbol_Semicolon].includes(this.tokens[terminator].kind)) {
+      terminator++;
+    }
+    const bodyOpen = this.tokens[terminator]?.kind === TokenKind.Symbol_LeftBrace ? terminator : -1;
+    const requirementEnd = this.tokens[terminator]?.kind === TokenKind.Symbol_Semicolon ? terminator : -1;
     const previousIndex = previous(this.tokens, index);
     const signatureStart = this.tokens[previousIndex]?.kind === TokenKind.Keyword_Export ? previousIndex : index;
     const symbol = {
       name: name.value,
-      kind: receiverType ? "method" : "function",
+      kind: receiverType || interfaceName ? "method" : "function",
       type: returnType,
-      signature: bodyOpen >= 0 ? this.source.slice(this.tokens[signatureStart].start, this.tokens[bodyOpen].start).trim() : `function ${name.value}${typeParameters?.length ? `<${typeParameters.join(", ")}>` : ""}(${parameters.join(", ")})${returnType ? `: ${returnType}` : ""}`,
+      signature: bodyOpen >= 0 ? this.source.slice(this.tokens[signatureStart].start, this.tokens[bodyOpen].start).trim() : requirementEnd >= 0 ? this.source.slice(this.tokens[signatureStart].start, this.tokens[requirementEnd].end).trim() : `function ${name.value}${typeParameters?.length ? `<${typeParameters.join(", ")}>` : ""}(${parameters.join(", ")})${returnType ? `: ${returnType}` : ""}`,
+      documentation: this.documentationAt(index),
       typeParameters,
       errorTypes,
       exported: this.isExported(index),
@@ -16324,7 +17332,12 @@ var SourceIndex = class {
       token: name,
       scope: this.root
     };
-    if (receiverType) {
+    if (interfaceName) {
+      const interfaceInfo = this.structs.get(interfaceName);
+      if (interfaceInfo && !interfaceInfo.fields.some((member) => member.name === name.value)) {
+        interfaceInfo.fields.push(symbol);
+      }
+    } else if (receiverType) {
       const receiverInfo = this.structs.get(this.baseTypeName(receiverType));
       if (receiverInfo && !receiverInfo.fields.some((member) => member.name === name.value)) {
         receiverInfo.fields.push(symbol);
@@ -16363,6 +17376,37 @@ var SourceIndex = class {
       }
     }
   }
+  indexInterface(index) {
+    const nameIndex = next(this.tokens, index);
+    const name = this.tokens[nameIndex];
+    if (!name || name.kind !== TokenKind.Kind_Identifier)
+      return;
+    const open = next(this.tokens, nameIndex);
+    if (this.tokens[open]?.kind !== TokenKind.Symbol_LeftBrace)
+      return;
+    const close = this.match(open, TokenKind.Symbol_LeftBrace, TokenKind.Symbol_RightBrace);
+    if (close < 0)
+      return;
+    this.interfaceRanges.push({ open, close });
+    const signatureStart = this.isExported(index) ? previous(this.tokens, index) : index;
+    this.add({
+      name: name.value,
+      kind: "interface",
+      type: name.value,
+      signature: this.source.slice(this.tokens[signatureStart].start, this.tokens[close].end).trim(),
+      documentation: this.documentationAt(index),
+      exported: this.isExported(index),
+      uri: this.uri,
+      token: name,
+      scope: this.root
+    });
+    this.structs.set(name.value, { fields: [] });
+    for (let i = open + 1; i < close; i++) {
+      if (this.tokens[i].kind === TokenKind.Keyword_Function) {
+        this.indexFunction(i, name.value, close);
+      }
+    }
+  }
   indexVariable(index) {
     const nameIndex = next(this.tokens, index);
     const name = this.tokens[nameIndex];
@@ -16375,6 +17419,7 @@ var SourceIndex = class {
       kind: "variable",
       type,
       signature: `${this.tokens[index].value} ${name.value}${type ? `: ${type}` : ""}`,
+      documentation: this.documentationAt(index),
       exported: scope === this.root && this.isExported(index),
       uri: this.uri,
       token: name,
@@ -16427,7 +17472,7 @@ var SourceIndex = class {
       const closeTypes = this.matchingAngle(afterName);
       if (closeTypes < 0)
         return;
-      typeParameters = this.tokens.slice(afterName + 1, closeTypes).filter((token) => token.kind === TokenKind.Kind_Identifier).map((token) => token.value);
+      typeParameters = this.typeParameterNames(afterName, closeTypes);
       afterName = next(this.tokens, closeTypes);
     }
     const declarationEnd = this.tokens.findIndex((token, i) => i > cursor && token.kind === TokenKind.Symbol_Semicolon);
@@ -16437,6 +17482,7 @@ var SourceIndex = class {
       kind: "type",
       type: `${name.value}${typeParameters?.length ? `<${typeParameters.join(", ")}>` : ""}`,
       signature: declarationEnd >= 0 ? this.source.slice(this.tokens[signatureStart].start, this.tokens[declarationEnd].end) : void 0,
+      documentation: this.documentationAt(index),
       typeParameters,
       exported: this.isExported(index),
       uri: this.uri,
@@ -16646,6 +17692,11 @@ var SourceIndex = class {
       return void 0;
     if (this.moduleDeclaration?.token.start === token.start)
       return this.moduleDeclaration;
+    for (const info of this.structs.values()) {
+      const declaredMember = info.fields.find((member) => member.token.start === token.start);
+      if (declaredMember)
+        return declaredMember;
+    }
     if (this.tokens[next(this.tokens, index)]?.kind === TokenKind.Symbol_Colon) {
       const field = this.resolveObjectField(index);
       if (field)
@@ -16748,6 +17799,12 @@ var SourceIndex = class {
       return namespace;
     const seen = /* @__PURE__ */ new Set();
     let type = this.baseTypeName(typeName);
+    const bounds = this.genericBounds.get(type);
+    if (bounds?.length) {
+      return [
+        ...new Map(bounds.flatMap((bound) => this.structs.get(bound)?.fields ?? []).map((member) => [member.name, member])).values()
+      ];
+    }
     while (!seen.has(type)) {
       seen.add(type);
       const info = this.structs.get(type);
@@ -16785,6 +17842,7 @@ var SourceIndex = class {
         const binding = this.root.symbols.get(localName);
         if (binding && external.declaration) {
           binding.signature = external.declaration.signature;
+          binding.documentation = external.declaration.documentation;
           binding.uri = external.declaration.uri;
           binding.token = external.declaration.token;
         }
@@ -16823,9 +17881,21 @@ var SourceIndex = class {
     }
     this.indexResultBindings();
   }
-  autoImportEdit(name, importPath) {
+  autoImportEdit(name, importPath, importKind = "named") {
     if (this.root.symbols.has(name) || this.importedNames().has(name))
       return void 0;
+    if (importKind === "module" && this.imports.some((declaration) => declaration.kind === "module" && declaration.path === importPath)) {
+      return void 0;
+    }
+    const insertion = this.imports.length ? this.imports[this.imports.length - 1].end : 0;
+    if (importKind === "module") {
+      return {
+        start: insertion,
+        end: insertion,
+        newText: `${insertion ? "\n" : ""}import ${name} from "${importPath}";
+`
+      };
+    }
     const existing = this.imports.find((declaration) => declaration.kind === "named" && declaration.path === importPath);
     if (existing?.rightBrace) {
       return {
@@ -16834,7 +17904,6 @@ var SourceIndex = class {
         newText: `${existing.names.length ? ", " : ""}${name}`
       };
     }
-    const insertion = this.imports.length ? this.imports[this.imports.length - 1].end : 0;
     return {
       start: insertion,
       end: insertion,
@@ -16868,7 +17937,7 @@ var SourceIndex = class {
 };
 
 // dist/src/lsp/version.js
-var LSP_VERSION = "0.3.9";
+var LSP_VERSION = "0.3.23";
 
 // dist/src/lsp/workspace-index.js
 var fs3 = __toESM(require("fs"), 1);
@@ -16879,10 +17948,15 @@ function isWithin(root, fileName) {
   const relative3 = path3.relative(root, fileName);
   return relative3 === "" || !relative3.startsWith("..") && !path3.isAbsolute(relative3);
 }
+function configuredStandardLibraryRoot() {
+  const configured = process.env.DELTA_STD_LIB?.trim();
+  return configured ? path3.resolve(configured) : void 0;
+}
 var WorkspaceIndex = class {
   roots;
   files = /* @__PURE__ */ new Map();
   manifests = /* @__PURE__ */ new Map();
+  standardLibraryRoot = configuredStandardLibraryRoot();
   constructor(roots = []) {
     this.roots = roots;
     this.roots = roots.map((root) => path3.resolve(root));
@@ -16890,7 +17964,7 @@ var WorkspaceIndex = class {
   setRoots(roots) {
     this.roots = roots.map((root) => path3.resolve(root));
     for (const fileName of this.files.keys()) {
-      const retained = this.roots.some((root) => isWithin(root, fileName));
+      const retained = this.roots.some((root) => isWithin(root, fileName)) || !!this.standardLibraryRoot && isWithin(this.standardLibraryRoot, fileName);
       if (!retained)
         this.files.delete(fileName);
     }
@@ -16904,6 +17978,8 @@ var WorkspaceIndex = class {
   scan() {
     for (const root of this.roots)
       this.scanDirectory(root);
+    if (this.standardLibraryRoot)
+      this.scanDirectory(this.standardLibraryRoot);
     this.linkAllImports();
   }
   scanDirectory(directory) {
@@ -16962,6 +18038,40 @@ var WorkspaceIndex = class {
     else
       this.load(fileName);
     this.linkAllImports();
+  }
+  /**
+   * Refreshes direct dependencies whose contents changed without a watcher
+   * notification. Generated interfaces and configured libraries may live
+   * outside watched workspace roots, so editor queries use this as a
+   * correctness fallback.
+   */
+  refreshImports(fileName, overlaySource) {
+    const normalized = path3.resolve(fileName);
+    const importer = this.files.get(normalized);
+    if (!importer)
+      return false;
+    let changed = false;
+    for (const declaration of importer.imports) {
+      const targetPath = this.resolvePath(normalized, declaration.path);
+      if (!targetPath)
+        continue;
+      let source = overlaySource?.(targetPath);
+      if (source === void 0) {
+        try {
+          source = fs3.readFileSync(targetPath, "utf8");
+        } catch {
+          continue;
+        }
+      }
+      const current = this.files.get(targetPath);
+      if (current?.source === source)
+        continue;
+      this.files.set(targetPath, new SourceIndex(source, (0, import_url.pathToFileURL)(targetPath).toString()));
+      changed = true;
+    }
+    if (changed)
+      this.linkAllImports();
+    return changed;
   }
   remove(fileName) {
     const normalized = path3.resolve(fileName);
@@ -17022,28 +18132,64 @@ var WorkspaceIndex = class {
       index.linkImports((importPath, name) => this.external(fileName, importPath, name), (importPath, moduleName) => this.externalModule(fileName, importPath, moduleName));
     }
   }
+  implementationModule(fileName) {
+    const manifestPath = findNearestDeltaManifest(path3.dirname(fileName));
+    if (!manifestPath)
+      return void 0;
+    try {
+      const manifest = readDeltaManifest(manifestPath);
+      if (!manifest.entry || manifest.kind === "executable")
+        return void 0;
+      const projectRoot = path3.dirname(manifestPath);
+      const entryPath = path3.resolve(projectRoot, manifest.entry);
+      const relativeEntry = path3.relative(projectRoot, entryPath).replace(/\.delta$/i, "");
+      const abiName = relativeEntry.split(path3.sep).map((part) => part.replace(/[^A-Za-z0-9_]/g, "_")).join("__");
+      return {
+        abiName,
+        publicName: (this.files.get(entryPath) ?? this.load(entryPath))?.exportModuleName
+      };
+    } catch {
+      return void 0;
+    }
+  }
   autoImports(fileName) {
     const normalized = path3.resolve(fileName);
     const current = this.files.get(normalized);
     if (!current)
       return [];
+    const implementationModule = this.implementationModule(normalized);
     const visible = new Set(current.completions(current.source.length).map((symbol) => symbol.name));
     const candidates = [];
     for (const [candidatePath, candidateIndex] of this.files) {
       if (candidatePath === normalized)
         continue;
+      if (candidatePath.endsWith(".ffi.delta") && implementationModule && (candidateIndex.ffiModuleNames.has(implementationModule.abiName) || !!implementationModule.publicName && candidateIndex.exportModuleName === implementationModule.publicName)) {
+        continue;
+      }
+      if (candidateIndex.moduleDeclaration && !visible.has(candidateIndex.moduleDeclaration.name)) {
+        candidates.push({
+          symbol: candidateIndex.moduleDeclaration,
+          importPath: this.moduleSpecifier(normalized, candidatePath),
+          importKind: "module"
+        });
+      }
       for (const symbol of candidateIndex.exportedSymbols()) {
         if (visible.has(symbol.name))
           continue;
         candidates.push({
           symbol,
-          importPath: this.moduleSpecifier(normalized, candidatePath)
+          importPath: this.moduleSpecifier(normalized, candidatePath),
+          importKind: "named"
         });
       }
     }
     return candidates;
   }
   moduleSpecifier(importer, target) {
+    if (this.standardLibraryRoot && isWithin(this.standardLibraryRoot, target)) {
+      const modulePath = path3.relative(this.standardLibraryRoot, target).replaceAll(path3.sep, "/").replace(/(?:\.ffi)?\.delta$/i, "");
+      return modulePath ? `@std/${modulePath}` : "@std";
+    }
     const manifest = this.manifestFor(importer);
     const alias = manifest ? aliasSpecifierForPath(target, manifest.root, manifest.dependencies) : void 0;
     if (alias)
@@ -17156,13 +18302,13 @@ function update(document) {
   connection.sendDiagnostics({ uri: document.uri, diagnostics: lspDiagnostics(document) });
 }
 function state(uri) {
+  if (uri.startsWith("file:")) {
+    try {
+      workspace.refreshImports((0, import_url2.fileURLToPath)(uri), (fileName) => documents.get((0, import_url2.pathToFileURL)(fileName).toString())?.getText());
+    } catch {
+    }
+  }
   return states.get(uri);
-}
-function symbolMarkdown(symbol) {
-  const detail = symbol.signature ?? `${symbol.kind} ${symbol.name}${symbol.type ? `: ${symbol.type}` : ""}`;
-  return `\`\`\`delta
-${detail}
-\`\`\``;
 }
 function completionKind(symbol) {
   switch (symbol.kind) {
@@ -17295,7 +18441,7 @@ connection.onCompletion((params) => {
     for (const candidate of workspace.autoImports(fileName)) {
       if (visible.has(candidate.symbol.name))
         continue;
-      const edit = index.autoImportEdit(candidate.symbol.name, candidate.importPath);
+      const edit = index.autoImportEdit(candidate.symbol.name, candidate.importPath, candidate.importKind);
       if (!edit)
         continue;
       autoImportItems.push({

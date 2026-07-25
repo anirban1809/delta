@@ -1,6 +1,6 @@
-function main(): int8 {
+function main(): uint8 {
     let buffer: uint8[8];
     buffer[0] = 42;
-    if (buffer[0] != 42) { return int8(1); }
-    return int8(0);
+    if (buffer[0] != 42) { return uint8(1); }
+    return uint8(0);
 }

@@ -1,7 +1,7 @@
-function main(): int8 {
+function main(): uint8 {
     if (true) {
-        return int8(1);
+        return uint8(1);
     } else {
-        return int8(2);
+        return uint8(2);
     }
 }

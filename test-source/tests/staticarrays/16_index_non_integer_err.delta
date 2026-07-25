@@ -1,4 +1,4 @@
-function main(): int8 {
+function main(): uint8 {
     const a: int32[3] = [1, 2, 3];
     let x: int32 = a[true];
     return 0;

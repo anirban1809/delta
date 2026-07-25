@@ -51,6 +51,28 @@ both the data pointer and the length, so the binding may point at a differently
 sized static block without losing its slice metadata. It does not resize or
 modify either backing block.
 
+## Compile-time concatenation
+
+`+` concatenates strings only when both operands are compile-time constants.
+String literals, `const` bindings initialized from constant strings, and chains
+of constant concatenations qualify:
+
+```delta
+const message = "Hello, " + "world";
+const hello = "hello";
+const world = hello + " world";
+```
+
+The compiler decodes both operands, concatenates their UTF-8 bytes, and emits a
+new static block with one trailing NUL. The resulting slice length is the sum of
+the operands' logical byte lengths. No runtime addition, allocation, or copy is
+emitted.
+
+Mutable bindings, parameters, function results, and other runtime values cannot
+be concatenated as primitive strings. Those cases require the future
+`dynamicstring.concat(...)` standard-library operation because they need owned
+storage and may fail allocation.
+
 ## C lowering
 
 The primitive type lowers to `delta_string`:
