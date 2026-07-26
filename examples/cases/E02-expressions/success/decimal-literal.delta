@@ -1,4 +1,0 @@
-// E02 success — decimal integer literal with `_` separators.
-function main(): uint8 {
-    return 1_000_000;
-}

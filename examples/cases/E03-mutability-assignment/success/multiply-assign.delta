@@ -1,6 +1,0 @@
-// E03 success — compound multiply-assign `*=`.
-function main(): uint8 {
-    let total: int32 = 5;
-    total *= 3;
-    return total;
-}

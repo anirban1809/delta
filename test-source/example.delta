@@ -1,7 +1,0 @@
-function a(): int32{
-}
-
-function main(): uint8 {
-    const x: int32 = a();
-    return 0;
-}

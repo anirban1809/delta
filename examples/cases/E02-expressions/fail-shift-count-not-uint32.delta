@@ -1,9 +1,0 @@
-// Shift count must be exactly `uint32` (§5.4). A non-`uint32` binding in shift
-// position is rejected (a literal would be typed `uint32` by context, but a typed
-// binding is not). No stable catalog code; Phase A rejection.
-function main(): uint8 {
-    const a: int32 = 8;
-    const count: int32 = 2;
-    const shifted: int32 = a << count;   // ERROR: shift count must be `uint32`, found `int32`
-    return shifted;
-}

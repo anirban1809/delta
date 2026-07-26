@@ -1,9 +1,0 @@
-// E05 success — compiler-derived structural inequality `!=` on records.
-type Point = { x: int32; y: int32; };
-
-function main(): uint8 {
-    const a: Point = { x: 1, y: 2 };
-    const c: Point = { x: 3, y: 4 };
-    const diff: bool = (a != c);
-    return 0;
-}

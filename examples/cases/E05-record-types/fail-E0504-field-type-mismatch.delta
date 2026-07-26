@@ -1,7 +1,0 @@
-// E0504 — field `x` expects `float64`, found `bool`
-type Vec3 = { x: float64; y: float64; z: float64; };
-
-function main(): uint8 {
-    const bad: Vec3 = { x: true, y: 0.0, z: 0.0 };   // ERROR[E0504]: field `x` expects `float64`, found `bool`
-    return int32(bad.y);
-}

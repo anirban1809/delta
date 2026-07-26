@@ -1,9 +1,0 @@
-// E0704 — cannot partially move out of `pair` — move the whole value
-type Counter = { value: heap<int64>; };
-type Pair = { first: Counter; second: Counter; };
-
-function main(): uint8 {
-    let pair: Pair = { first: { value: new 0 }, second: { value: new 1 } };
-    let stolen = move pair.first;   // ERROR[E0704]: cannot partially move out of `pair` — move the whole value
-    return 0;
-}

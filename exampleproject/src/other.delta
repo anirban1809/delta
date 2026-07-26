@@ -1,5 +1,0 @@
-function otherFunction(): int32{
-    return 420;
-}
-
-export module other;

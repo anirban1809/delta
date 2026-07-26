@@ -1,6 +1,0 @@
-// E03 success — postfix decrement `--` on a mutable integer.
-function main(): uint8 {
-    let total: int32 = 5;
-    total--;
-    return total;
-}

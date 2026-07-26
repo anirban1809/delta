@@ -1,5 +1,0 @@
-// runtime-traps success — shift with count below the bit width (no shift panic).
-function main(): uint8 {
-    const a: int32 = 1;
-    return a << 30;
-}

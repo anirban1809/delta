@@ -1,8 +1,0 @@
-// E0408 — `switch` requires a `default` case
-function main(): uint8 {
-    const count: int32 = 0;
-    switch (count) {        // ERROR[E0408]: `switch` requires a `default` case
-        case 0: { return 0; }
-    }
-    return 1;
-}

@@ -1,7 +1,0 @@
-// E12 modules success — the entry module imports a const and a function by name.
-import { BONUS, square } from "./mathlib";
-
-function main(): uint8 {
-    const area: int32 = square(5);
-    return area + BONUS;
-}

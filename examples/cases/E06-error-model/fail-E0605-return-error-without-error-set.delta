@@ -1,8 +1,0 @@
-// E0605 — `return error as` is only allowed in a function that declares an error set
-function plain(n: int64): int64 {        // no `| E` error set declared
-    return error as OverflowError { };   // ERROR[E0605]: `return error as` is only allowed in a function that declares an error set
-}
-
-function main(): uint8 {
-    return int32(plain(1));
-}

@@ -1,8 +1,0 @@
-// E02 success — a function-call expression.
-function add(a: int32, b: int32): int32 {
-    return a + b;
-}
-
-function main(): uint8 {
-    return add(6, 4);
-}

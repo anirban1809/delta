@@ -1,6 +1,0 @@
-// E0203 — no implicit sign change from `int32` to `uint32` — write `uint32(x)`
-function main(): uint8 {
-    const small: int32 = 10;
-    const u: uint32 = small;   // ERROR[E0203]: no implicit sign change from `int32` to `uint32` — write `uint32(x)`
-    return int32(u);
-}

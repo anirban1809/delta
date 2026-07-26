@@ -1,7 +1,0 @@
-// E0604 — no matching `as result` for `check result`
-function main(): uint8 {
-    check result {   // ERROR[E0604]: no matching `as result` for `check result`
-        return 1;
-    }
-    return 0;
-}

@@ -1,5 +1,0 @@
-// E0104 — cannot infer the type of `mystery` without an initializer or annotation
-function main(): uint8 {
-    const mystery;   // ERROR[E0104]: cannot infer the type of `mystery` without an initializer or annotation
-    return 0;
-}

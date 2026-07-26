@@ -1,7 +1,0 @@
-// E0106 — top-level executable statements are not allowed
-const x: int32 = 1;
-x = 2;   // ERROR[E0106]: top-level executable statements are not allowed
-
-function main(): uint8 {
-    return x;
-}

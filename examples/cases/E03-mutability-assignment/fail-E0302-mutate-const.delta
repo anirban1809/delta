@@ -1,6 +1,0 @@
-// E0302 — cannot mutate `const` binding `step`
-function main(): uint8 {
-    const step: int32 = 5;
-    step = step+1;   // ERROR[E0302]: cannot mutate `const` binding `step`
-    return step;
-}

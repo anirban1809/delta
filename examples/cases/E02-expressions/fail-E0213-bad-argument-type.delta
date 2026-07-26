@@ -1,8 +1,0 @@
-// E0213 — argument `2` has type `bool`, expected `int32`
-function add(a: int32, b: int32): int32 {
-    return a + b;
-}
-
-function main(): uint8 {
-    return add(1, true);   // ERROR[E0213]: argument `2` has type `bool`, expected `int32`
-}

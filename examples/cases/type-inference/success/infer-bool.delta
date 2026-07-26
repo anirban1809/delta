@@ -1,5 +1,0 @@
-// type-inference success — a boolean literal infers as bool.
-function main(): uint8 {
-    const flag = true;   // inferred bool
-    return 0;
-}

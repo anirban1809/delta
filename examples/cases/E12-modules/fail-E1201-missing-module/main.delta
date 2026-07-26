@@ -1,7 +1,0 @@
-// E1201 — cannot find module `./shapes` (no file `./shapes.delta`)
-import { Vec3 } from "./shapes";   // ERROR[E1201]: cannot find module `./shapes` (no file `./shapes.delta`)
-
-function main(): uint8 {
-    const a: Vec3 = { x: 1.0, y: 2.0, z: 3.0 };
-    return int32(a.x);
-}

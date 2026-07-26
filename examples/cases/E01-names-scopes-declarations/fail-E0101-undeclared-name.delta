@@ -1,4 +1,0 @@
-// E0101 — use of undeclared name `missing`
-function main(): uint8 {
-    return missing;   // ERROR[E0101]: use of undeclared name `missing`
-}

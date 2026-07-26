@@ -1,8 +1,0 @@
-// E0410 — case label must be a constant `int`/`char` matching the scrutinee type
-function main(): uint8 {
-    const n: int32 = 5;
-    switch (n) {
-        case true: { return 1; }   // ERROR[E0410]: case label must be a constant `int`/`char` matching the scrutinee type
-        default: { return 0; }
-    }
-}

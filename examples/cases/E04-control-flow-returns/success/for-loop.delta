@@ -1,8 +1,0 @@
-// E04 success — C-style `for` loop; the induction variable is loop-scoped.
-function main(): uint8 {
-    let sum: int32 = 0;
-    for (let i: int32 = 0; i < 5; i++) {
-        sum += i;
-    }
-    return sum;
-}

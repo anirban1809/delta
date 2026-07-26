@@ -1,6 +1,0 @@
-// E02 success — integer remainder `%`.
-function main(): uint8 {
-    const a: int32 = 6;
-    const b: int32 = 4;
-    return a % b;
-}

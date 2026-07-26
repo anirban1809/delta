@@ -1,6 +1,0 @@
-// E12xx — Modules — the other half of the cycle for E1203
-import { fromA } from "./a";
-
-export function fromB(): int32 {
-    return fromA() + 1;
-}

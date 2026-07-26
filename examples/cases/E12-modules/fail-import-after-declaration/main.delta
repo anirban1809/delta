@@ -1,8 +1,0 @@
-// Imports must precede any other top-level declaration (Phase I).
-function helper(): int32 { return 1; }
-
-import { ANSWER } from "./helper";   // ERROR: imports must precede other declarations
-
-function main(): uint8 {
-    return ANSWER + helper();
-}

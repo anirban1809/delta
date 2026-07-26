@@ -1,6 +1,0 @@
-// runtime-traps success — subtraction that stays in range (no overflow panic).
-function main(): uint8 {
-    const a: int32 = 2_000_000_000;
-    const b: int32 = 2_000_000_000;
-    return a - b;
-}

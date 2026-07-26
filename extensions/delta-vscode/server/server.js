@@ -16088,7 +16088,7 @@ var SourceIndex = class {
 };
 
 // dist/src/lsp/version.js
-var LSP_VERSION = "0.3.26";
+var LSP_VERSION = "0.3.27";
 
 // dist/src/lsp/server.js
 var documents = new import_node2.TextDocuments(TextDocument);

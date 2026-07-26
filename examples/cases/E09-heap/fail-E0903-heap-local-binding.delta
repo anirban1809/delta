@@ -1,5 +1,0 @@
-// E0903 — `owned<T>` may only be a field or parameter type in v0.5, not a local binding
-function main(): uint8 {
-    let boxed: heap<int64> = new 0;   // ERROR[E0903]: `owned<T>` may only be a field or parameter type in v0.5, not a local binding
-    return 0;
-}

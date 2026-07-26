@@ -1,8 +1,0 @@
-/* Generated C (illustrative; #line omitted) */
-#include <stdint.h>
-
-int32_t main(void) {
-    int32_t total = 30;
-    total = total / 3;
-    return total;
-}

@@ -1,8 +1,0 @@
-// Unary `-` on an unsigned operand is a compile error (no negation of unsigned).
-// Distinct from E0207 (operand not numeric): here the operand IS numeric but
-// unsigned. No stable catalog code; Phase A rejection (§5).
-function main(): uint8 {
-    const u: uint32 = 5;
-    const neg = -u;   // ERROR: unary `-` is not allowed on unsigned type `uint32`
-    return int32(neg);
-}

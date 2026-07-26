@@ -1,9 +1,0 @@
-// E0103 — `x` shadows a binding from an enclosing scope
-function main(): uint8 {
-    let x: int32 = 1;
-    if (x > 0) {
-        let x: int32 = 2;   // ERROR[E0103]: `x` shadows a binding from an enclosing scope
-        return x;
-    }
-    return x;
-}

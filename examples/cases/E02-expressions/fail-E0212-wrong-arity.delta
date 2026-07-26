@@ -1,8 +1,0 @@
-// E0212 — call expects `2` arguments, found `1`
-function add(a: int32, b: int32): int32 {
-    return a + b;
-}
-
-function main(): uint8 {
-    return add(1);   // ERROR[E0212]: call expects `2` arguments, found `1`
-}

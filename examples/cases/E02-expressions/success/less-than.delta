@@ -1,7 +1,0 @@
-// E02 success — the `<` comparison yields a bool.
-function main(): uint8 {
-    const a: int32 = 6;
-    const b: int32 = 4;
-    const result: bool = a < b;
-    return 0;
-}

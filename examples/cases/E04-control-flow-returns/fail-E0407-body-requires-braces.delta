@@ -1,6 +1,0 @@
-// E0407 — control-flow body requires braces
-function main(): uint8 {
-    let sum: int32 = 1;
-    if (sum > 0) sum = 0;   // ERROR[E0407]: control-flow body requires braces
-    return sum;
-}

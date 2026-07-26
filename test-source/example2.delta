@@ -1,7 +1,0 @@
-function a(p1: char): int32{
-    return 0;
-}
-
-function main(): uint8{
-    return a(23);
-}

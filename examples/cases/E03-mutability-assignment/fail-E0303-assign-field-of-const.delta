@@ -1,8 +1,0 @@
-// E0303 — cannot assign field of `const` binding `p`
-type Vec2 = { x: int32; y: int32; };
-
-function main(): uint8 {
-    const p: Vec2 = { x: 1, y: 2 };
-    p.x = 10;   // ERROR[E0303]: cannot assign field of `const` binding `p`
-    return p.x;
-}

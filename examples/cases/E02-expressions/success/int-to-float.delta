@@ -1,6 +1,0 @@
-// E02 success — explicit `int -> float` conversion.
-function main(): uint8 {
-    const a: int32 = 6;
-    const f: float64 = float64(a);
-    return int32(f);
-}

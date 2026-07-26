@@ -1,9 +1,0 @@
-// E0409 — duplicate case label `5`
-function main(): uint8 {
-    const n: int32 = 5;
-    switch (n) {
-        case 5: { return 1; }
-        case 5: { return 2; }   // ERROR[E0409]: duplicate case label `5`
-        default: { return 0; }
-    }
-}

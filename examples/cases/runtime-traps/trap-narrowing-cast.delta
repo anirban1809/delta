@@ -1,6 +1,0 @@
-// Runtime panic: value out of range for `uint8`
-// Parses and type-checks (the cast is explicit); the value 300 doesn't fit uint8.
-function main(): uint8 {
-    const overflowCast: uint8 = uint8(300);   // TRAP: value out of range for `uint8`
-    return int32(overflowCast);
-}

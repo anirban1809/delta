@@ -1,4 +1,0 @@
-// E0107 — `main` must be declared at top level as `function main(): uint8`
-function main(): float64 {   // ERROR[E0107]: `main` must be declared at top level as `function main(): uint8`
-    return 0.0;
-}
