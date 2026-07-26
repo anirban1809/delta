@@ -1,5 +1,8 @@
 # Delta
 
+**NOTE**: This is the experimental branch of Delta, and should only be used for testing on non-critical data. This branch is prone to breaking changes,
+and may diverge from the main branch eventually.
+
 A statically-typed, AOT-compiled systems programming language with TypeScript-like syntax. Delta lowers to inspectable C through Clang, and pairs ownership-based memory safety with a channel-style error model — no exceptions, no `Result<T, E>` wrappers, no hidden control flow.
 
 > **Status:** pre-1.0, actively moving. The compiler runs the full pipeline end to end — a `.delta` file or project becomes a native executable, static library, or shared library. Records, receiver methods, generics, interfaces, ownership/borrow checking, the error channel, modules, C interop, packaging, and an LSP server all work today. See [Current status](#current-status).
