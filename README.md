@@ -1,6 +1,6 @@
 # Delta
 
-**NOTE**: This is the experimental branch of Delta, and should only be used for testing on non-critical data. This branch is prone to breaking changes,
+**NOTE**: This is the experimental branch of Delta, and should only be used for testing on non-critical data. This branch is prone to frequent breaking changes,
 and may diverge from the main branch eventually.
 
 A statically-typed, AOT-compiled systems programming language with TypeScript-like syntax. Delta lowers to inspectable C through Clang, and pairs ownership-based memory safety with a channel-style error model — no exceptions, no `Result<T, E>` wrappers, no hidden control flow.
