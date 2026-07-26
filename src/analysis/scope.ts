@@ -11,14 +11,12 @@ export class Scope {
     parent: Scope | undefined; //parent scope can be empty for global scope
     symbols: Map<string, Symbol>;
     methods: Map<string, Map<string, FunctionSignature>>;
-    implementations: Map<string, Set<string>>;
     activeFunction?: FunctionDeclaration;
 
     constructor(parent?: Scope) {
         this.parent = parent;
         this.symbols = new Map();
         this.methods = parent?.methods ?? new Map();
-        this.implementations = parent?.implementations ?? new Map();
         this.activeFunction = parent?.activeFunction;
     }
 
@@ -47,16 +45,6 @@ export class Scope {
 
     getMethod(typeName: string, name: string): FunctionSignature | undefined {
         return this.methods.get(typeName)?.get(name);
-    }
-
-    addImplementation(typeName: string, interfaceName: string): void {
-        const interfaces = this.implementations.get(typeName) ?? new Set<string>();
-        interfaces.add(interfaceName);
-        this.implementations.set(typeName, interfaces);
-    }
-
-    implementsInterface(typeName: string, interfaceName: string): boolean {
-        return this.implementations.get(typeName)?.has(interfaceName) ?? false;
     }
 
     visibleSymbols(): Symbol[] {

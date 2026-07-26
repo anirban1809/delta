@@ -41,18 +41,6 @@ import {
     type WhileStatement,
     type NewExpression,
 } from "../ast/types.js";
-import type { ImportedSymbolReference } from "../compiler/module_bindings.js";
-
-/** Module-specific information used when emitting a project translation unit. */
-export type ModuleEmitOptions = {
-    moduleName: string;
-    /** Module identity baked into symbols, which may differ for a prebuilt interface. */
-    abiModuleName?: string;
-    importedSymbols?: Map<string, ImportedSymbolReference>;
-    importedHeaders?: string[];
-    entry?: boolean;
-    exportAll?: boolean;
-};
 
 //tracks and frees allocations in a block
 export class AllocationTracker {
@@ -72,7 +60,6 @@ type OwnedBinding = {
 
 type FunctionSpecialization = {
     bindings: Map<string, Type>;
-    variadicTypes: Type[];
 };
 
 /**
@@ -93,8 +80,6 @@ export class Emitter {
      * `T` used by a local declaration, not just a `T` in the C signature.
      */
     private activeConcreteTypes?: Map<string, Type>;
-    /** Concrete elements in the variadic type pack currently being emitted. */
-    private activeVariadicTypes: Type[] = [];
     guards: {
         conversions: { fromType: string; toType: string }[];
         divisions: { type: string }[];
@@ -103,10 +88,6 @@ export class Emitter {
         underflows: { type: string }[];
     };
     guardNames: Map<string, string>;
-    private moduleOptions?: ModuleEmitOptions;
-    private symbolModules = new Map<string, string>();
-    private symbolSourceNames = new Map<string, string>();
-    private externalLinkNames = new Map<string, string>();
     private localScopes: Set<string>[] = [];
     private activeFunction?: FunctionDeclaration;
     private resultCounter = 0;
@@ -126,35 +107,7 @@ export class Emitter {
     private stringLiteralBlocks: { name: string; bytes: number[] }[] = [];
     private sliceTypes = new Map<string, Type>();
 
-    constructor(
-        public ast: Module,
-        moduleOptions?: ModuleEmitOptions,
-    ) {
-        this.moduleOptions = moduleOptions;
-        if (moduleOptions) {
-            moduleOptions.importedSymbols?.forEach((reference, name) => {
-                this.symbolModules.set(name, reference.moduleName);
-                this.symbolSourceNames.set(name, reference.sourceName);
-                if (reference.linkName) this.externalLinkNames.set(name, reference.linkName);
-            });
-            ast.declarations.forEach((declaration) => {
-                if (declaration.kind != "import_declaration") {
-                    const externalModule =
-                        declaration.kind == "function_declaration" &&
-                        declaration.external?.abi == "delta"
-                            ? declaration.external.moduleName
-                            : (declaration.kind == "variable_declaration_statement" ||
-                                    declaration.kind == "type_declaration") &&
-                                declaration.external?.abi == "delta"
-                              ? declaration.external.moduleName
-                              : undefined;
-                    this.symbolModules.set(
-                        declaration.name.name,
-                        externalModule ?? moduleOptions.abiModuleName ?? moduleOptions.moduleName,
-                    );
-                }
-            });
-        }
+    constructor(public ast: Module) {
         this.guardNames = new Map();
         this.guards = {
             overflows: [],
@@ -176,22 +129,6 @@ export class Emitter {
     cType(t: Type): string {
         if (!t) {
             return "void";
-        }
-        // Preserve ABI spellings instead of lowering C types through Delta's
-        // fixed-width primitive representation.
-        switch (t.name.name) {
-            case "c.int":
-                return "int";
-            case "c.size_t":
-                return "size_t";
-            case "c.ssize_t":
-                return "ssize_t";
-            case "c.void":
-                return "void";
-            case "c.const":
-                return `const ${this.cType(t.typeParameters![0]!)}`;
-            case "c.ptr":
-                return `${this.cType(t.typeParameters![0]!)}*`;
         }
         if (t.reference) {
             const referent = { ...t, reference: false, edit: false };
@@ -309,7 +246,7 @@ typedef struct ${name} {
     /** Lowers a custom type, appending concrete generic arguments when present. */
     private customTypeName(t: Type): string {
         const name = this.resolveTargetIfAlias(t);
-        const baseName = this.moduleOptions ? this.moduleSymbol(name) : `delta__${name}`;
+        const baseName = `delta__${name}`;
         const concreteTypes = this.concreteTypeArguments(t.typeParameters);
         if (!concreteTypes) {
             return baseName;
@@ -331,35 +268,6 @@ typedef struct ${name} {
             return;
         }
         return concreteTypes as Type[];
-    }
-
-    /** Returns a project-wide C name without affecting runtime helper symbols. */
-    private moduleSymbol(name: string): string {
-        const moduleName =
-            this.symbolModules.get(name) ??
-            this.moduleOptions?.abiModuleName ??
-            this.moduleOptions?.moduleName;
-        const sourceName = this.symbolSourceNames.get(name) ?? name;
-        return moduleName ? `delta__${moduleName}__${sourceName}` : sourceName;
-    }
-
-    private isExported(declaration: { exported?: boolean }): boolean {
-        return !!declaration.exported || !!this.moduleOptions?.exportAll;
-    }
-
-    /** Resolves an identifier as a local binding or a module-level symbol. */
-    private emitIdentifier(name: string): string {
-        if (!this.isLocal(name) && this.externalLinkNames.has(name)) {
-            return this.externalLinkNames.get(name)!;
-        }
-        if (!this.moduleOptions || this.isLocal(name) || !this.symbolModules.has(name)) {
-            return name;
-        }
-        return this.moduleSymbol(name);
-    }
-
-    private isLocal(name: string): boolean {
-        return this.localScopes.some((scope) => scope.has(name));
     }
 
     private declareLocal(name: string): void {
@@ -501,9 +409,6 @@ typedef struct ${name} {
 
     /** Emits the standard C headers every generated unit depends on. */
     emitHeaders() {
-        if (this.moduleOptions) {
-            return `#define ${this.implementationMacro()}\n#include "delta_${this.moduleOptions.moduleName}.h"\n#include<stdio.h>\n#include<stdint.h>\n#include<stdbool.h>\n#include <stdlib.h>\n#include <math.h>\n\n`;
-        }
         return `#include<stdio.h>
 #include<stdint.h>
 #include<stdbool.h>
@@ -512,11 +417,6 @@ typedef struct ${name} {
 
 ${this.emitStringTypeDefinition()}
 `;
-    }
-
-    /** Enables declarations needed only while compiling this module's C file. */
-    private implementationMacro(): string {
-        return `DELTA_${this.moduleOptions!.moduleName.toUpperCase()}_IMPLEMENTATION`;
     }
 
     /** Returns the indentation whitespace for the current nesting depth. */
@@ -570,11 +470,9 @@ ${this.emitStringTypeDefinition()}
                 ? CreateType(e.resolvedReceiverType, TypeValue.TypeCustom)
                 : undefined);
         const callee = method
-            ? this.moduleOptions
-                ? `${this.moduleSymbol(resolvedReceiver!.name.name)}_${method.member.name}`
-                : `delta__${resolvedReceiver!.name.name}_${method.member.name}`
+            ? `delta__${resolvedReceiver!.name.name}_${method.member.name}`
             : e.callee.kind == "identifier"
-              ? (e.resolvedExternalLinkName ?? this.emitIdentifier(e.callee.name))
+              ? e.callee.name
               : "";
 
         if (e.conversion) {
@@ -607,12 +505,6 @@ ${this.emitStringTypeDefinition()}
 
     private emitCallArgument(expression: Expression, parameter?: Type): string {
         const value = this.emitExpression(expression);
-        if (
-            this.isCConstVoidPointer(parameter) &&
-            expression.expressionType?.value == TypeValue.Type_String
-        ) {
-            return `(const void *)(${value}).data`;
-        }
         if (parameter?.arrayLengths?.length == 1 && expression.kind == "array_literal_expression") {
             const elementType: Type = {
                 ...structuredClone(expression.expressionType ?? parameter),
@@ -630,12 +522,6 @@ ${this.emitStringTypeDefinition()}
         if (!parameter?.reference || expression.expressionType?.reference) return value;
         if (expression.expressionType?.value == TypeValue.Type_Owned) return value;
         return `&${value}`;
-    }
-
-    private isCConstVoidPointer(type: Type | undefined): boolean {
-        const pointee = type?.name.name == "c.ptr" ? type.typeParameters?.[0] : undefined;
-        const inner = pointee?.name.name == "c.const" ? pointee.typeParameters?.[0] : undefined;
-        return inner?.name.name == "c.void";
     }
 
     /** Emits a binary expression as C: `left <op> right`. */
@@ -868,33 +754,17 @@ ${this.emitStringTypeDefinition()}
             return;
         }
 
-        const baseName = this.moduleOptions
-            ? this.moduleSymbol(structName)
-            : `delta__${structName}`;
+        const baseName = `delta__${structName}`;
         return `${baseName}__${orderedTypes.map((type) => this.typeMangle(type!)).join("_")}`;
     }
 
     emitMemberAccessExpression(e: MemberAccessExpression): string {
-        if (e.namespaceReference) {
-            return this.emitIdentifier(e.namespaceReference);
-        }
         if (e.enumMember) {
             const receiver = this.emitExpression(e.receiver as Expression);
-            const member = e.member.name;
-            return this.moduleOptions ? `${receiver}_${member}` : `delta__${receiver}_${member}`;
+            return `delta__${receiver}_${e.member.name}`;
         }
         if (e.receiverType.arrayLengths?.length && e.member.name == "length") {
             return `${e.receiverType.arrayLengths[0]}`;
-        }
-        const variadicReceiverName = e.receiver.kind == "identifier" ? e.receiver.name : undefined;
-        if (
-            e.member.name == "length" &&
-            variadicReceiverName !== undefined &&
-            this.activeFunction?.parameters.some(
-                (parameter) => parameter.variadic && parameter.name.name == variadicReceiverName,
-            )
-        ) {
-            return `${this.activeVariadicTypes.length}`;
         }
         const receiver = this.emitExpression(e.receiver as Expression);
         const member =
@@ -1091,9 +961,7 @@ static ${cType} ${this.cloneHelperName(type)}(const ${cType}* source, const char
             .map((type) => {
                 const lines: string[] = [];
                 if (this.hasDispose(type)) {
-                    const disposeName = this.moduleOptions
-                        ? `${this.moduleSymbol(type.name.name)}_dispose`
-                        : `delta__${type.name.name}_dispose`;
+                    const disposeName = `delta__${type.name.name}_dispose`;
                     lines.push(`${disposeName}(value);`);
                 }
                 for (const field of [...this.structFields(type)].reverse()) {
@@ -1151,10 +1019,9 @@ ${lines.map((line) => `    ${line}`).join("\n")}
             case "identifier":
                 if (e.ownershipTransfer) {
                     const binding = this.findOwnedBinding(e.name);
-                    const source = this.emitIdentifier(e.name);
-                    return binding ? `(${binding.liveFlag} = false, ${source})` : source;
+                    return binding ? `(${binding.liveFlag} = false, ${e.name})` : e.name;
                 }
-                return this.emitIdentifier(e.name);
+                return e.name;
             case "function_call_expression":
                 return this.emitFunctionCallExpression(e as FunctionCallExpression);
             case "binary_expression":
@@ -1285,7 +1152,7 @@ typedef struct {
             if (declaration.kind != "function_declaration") continue;
             const specializations = declaration.typeParameters?.length
                 ? this.functionSpecializations(declaration)
-                : [{ bindings: new Map<string, Type>(), variadicTypes: [] }];
+                : [{ bindings: new Map<string, Type>() }];
             for (const specialization of specializations) {
                 const bindings = specialization.bindings;
                 if (declaration.errorTypes.length) {
@@ -1473,7 +1340,7 @@ typedef struct {
         e: VariableDeclarationStatement,
         allocationTracker?: AllocationTracker,
     ): string {
-        let name = e.file && this.moduleOptions ? this.moduleSymbol(e.name.name) : e.name.name;
+        let name = e.name.name;
         let type = this.cType(e.type);
         let value = this.emitExpression(e.value, allocationTracker);
 
@@ -1511,7 +1378,7 @@ typedef struct {
         }
 
         if (e.file) {
-            type = `${this.moduleOptions && this.isExported(e) ? "" : "static "}${this.cConstBindingType(e.type)}`;
+            type = `static ${this.cConstBindingType(e.type)}`;
         } else {
             this.declareLocal(e.name.name);
         }
@@ -1693,9 +1560,6 @@ typedef struct {
                 this.registerOwnedBinding(parameter.name.name, parameter.name.name, parameter.type),
             )
             .filter(Boolean);
-        if (this.moduleOptions) {
-            this.localScopes.push(new Set());
-        }
         this.indent++;
 
         let statements = [
@@ -1723,9 +1587,6 @@ typedef struct {
 
         this.indent--;
         block += "\n" + this.emitIndent() + (caseBlock ? "\n" : "}\n");
-        if (this.moduleOptions) {
-            this.localScopes.pop();
-        }
         this.ownershipScopes.pop();
         return block;
     }
@@ -1765,18 +1626,9 @@ typedef struct {
             return "";
         }
 
-        return (
-            specializations.length
-                ? specializations
-                : [{ bindings: new Map<string, Type>(), variadicTypes: [] }]
-        )
+        return (specializations.length ? specializations : [{ bindings: new Map<string, Type>() }])
             .map((specialization) =>
-                this.emitConcreteFunctionDeclaration(
-                    f,
-                    specialization.bindings,
-                    specialization.variadicTypes,
-                    forwardDecl,
-                ),
+                this.emitConcreteFunctionDeclaration(f, specialization.bindings, forwardDecl),
             )
             .join("\n");
     }
@@ -1785,60 +1637,37 @@ typedef struct {
     private emitConcreteFunctionDeclaration(
         f: FunctionDeclaration,
         concreteTypes: Map<string, Type>,
-        variadicTypes: Type[],
         forwardDecl: boolean,
     ): string {
         const previousConcreteTypes = this.activeConcreteTypes;
-        const previousVariadicTypes = this.activeVariadicTypes;
         this.activeConcreteTypes = concreteTypes;
-        this.activeVariadicTypes = variadicTypes;
 
         let fnName = f.receiver
-            ? this.moduleOptions
-                ? `${this.moduleSymbol(f.receiver.type.name.name)}_${f.name.name}`
-                : `delta__${f.receiver.type.name.name}_${f.name.name}`
-            : this.moduleOptions
-              ? this.moduleSymbol(f.name.name)
-              : f.name.name;
-        if (!f.receiver && !this.moduleOptions && fnName == "main") {
+            ? `delta__${f.receiver.type.name.name}_${f.name.name}`
+            : f.name.name;
+        if (!f.receiver && fnName == "main") {
             fnName = "delta_main";
-        } else if (concreteTypes.size || variadicTypes.length) {
-            const typeArguments = (f.typeParameters ?? []).flatMap((typeParameter) =>
-                typeParameter.variadic
-                    ? variadicTypes.map((type) => this.typeMangle(type))
-                    : [this.typeMangle(concreteTypes.get(typeParameter.name.name)!)],
+        } else if (concreteTypes.size) {
+            const typeArguments = (f.typeParameters ?? []).map((typeParameter) =>
+                this.typeMangle(concreteTypes.get(typeParameter.name.name)!),
             );
-            if (!(f.typeParameters ?? []).some((typeParameter) => typeParameter.variadic)) {
-                typeArguments.push(...variadicTypes.map((type) => this.typeMangle(type)));
-            }
             fnName += "__" + typeArguments.join("_");
         }
 
         const rT = f.errorTypes.length
             ? this.resultStructName(f.returnTypes[0])
             : this.cType(f.returnTypes[0]!);
-        const declaredParameters = f.receiver ? [f.receiver, ...f.parameters] : f.parameters;
-        const sourceParameters = declaredParameters.flatMap((parameter) =>
-            this.expandVariadicParameter(parameter, variadicTypes),
-        );
+        const sourceParameters = f.receiver ? [f.receiver, ...f.parameters] : f.parameters;
         const params = sourceParameters
             .map((parameter) => this.emitFunctionParameter(parameter, concreteTypes))
             .join(",");
-        const cParams = this.moduleOptions && params.length == 0 ? "void" : params;
-        const linkage = this.moduleOptions && !this.isExported(f) ? "static " : "";
-        const signature = `${linkage}${rT} ${fnName}(${cParams})`;
+        const signature = `${rT} ${fnName}(${params})`;
 
         if (forwardDecl) {
             this.activeConcreteTypes = previousConcreteTypes;
-            this.activeVariadicTypes = previousVariadicTypes;
             return `${signature};`;
         }
 
-        if (this.moduleOptions) {
-            this.localScopes.push(
-                new Set(sourceParameters.map((parameter) => parameter.name.name)),
-            );
-        }
         const previousFunction = this.activeFunction;
         const previousPending = this.pendingResults;
         this.activeFunction = f;
@@ -1849,38 +1678,8 @@ typedef struct {
         const body = this.emitBlockStatement(f.body);
         this.activeFunction = previousFunction;
         this.pendingResults = previousPending;
-        if (this.moduleOptions) {
-            this.localScopes.pop();
-        }
         this.activeConcreteTypes = previousConcreteTypes;
-        this.activeVariadicTypes = previousVariadicTypes;
         return signature + body;
-    }
-
-    /**
-     * A Delta type pack has no runtime container. Each argument becomes a
-     * concrete C parameter while the source-level parameter remains array-like
-     * to semantic analysis (notably for its compile-time `length`).
-     */
-    private expandVariadicParameter(
-        parameter: FunctionParameter,
-        variadicTypes: Type[],
-    ): FunctionParameter[] {
-        if (!parameter.variadic) return [parameter];
-        return variadicTypes.map((type, index) => ({
-            ...parameter,
-            variadic: undefined,
-            name: {
-                ...parameter.name,
-                name: `${parameter.name.name}__${index}`,
-            },
-            type: {
-                ...structuredClone(type),
-                slice: false,
-                reference: parameter.type.reference || type.reference,
-                edit: parameter.type.edit || type.edit,
-            },
-        }));
     }
 
     private emitFunctionParameter(
@@ -1904,13 +1703,12 @@ typedef struct {
      */
     private functionSpecializations(f: FunctionDeclaration): FunctionSpecialization[] {
         const typeParameters = f.typeParameters ?? [];
-        const hasVariadicParameter = f.parameters.some((parameter) => parameter.variadic);
-        if (!typeParameters.length && !hasVariadicParameter) {
+        if (!typeParameters.length) {
             return [];
         }
 
         let combinations: Map<string, Type>[] = [new Map()];
-        for (const typeParameter of typeParameters.filter((parameter) => !parameter.variadic)) {
+        for (const typeParameter of typeParameters) {
             const concreteTypes = f.concreteTypesMap?.get(typeParameter.name.name) ?? [];
             if (!concreteTypes.length) {
                 return [];
@@ -1924,17 +1722,7 @@ typedef struct {
                 }),
             );
         }
-        const hasVariadicTypeParameter = typeParameters.some((parameter) => parameter.variadic);
-        const packs = f.concreteVariadicTypePacks ?? [];
-        if ((hasVariadicTypeParameter || hasVariadicParameter) && !packs.length) {
-            return [];
-        }
-        return combinations.flatMap((bindings) =>
-            (packs.length ? packs : [[]]).map((variadicTypes) => ({
-                bindings,
-                variadicTypes,
-            })),
-        );
+        return combinations.map((bindings) => ({ bindings }));
     }
 
     /** Creates a stable, valid-enough suffix for a monomorphized C symbol. */
@@ -1967,9 +1755,7 @@ typedef struct {
             if (struct.typeParameters?.length) {
                 return this.emitConcreteStructDeclaration(struct);
             }
-            const sig = this.moduleOptions
-                ? this.moduleSymbol(d.name.name)
-                : `delta__${d.name.name}`;
+            const sig = `delta__${d.name.name}`;
             this.indent++;
             const members = struct.fields
                 .map((x) => {
@@ -1986,9 +1772,7 @@ typedef struct {
         }
 
         if (d.declKind == TypeDeclKind.Enum) {
-            const sig = this.moduleOptions
-                ? this.moduleSymbol(d.name.name)
-                : `delta__${d.name.name}`;
+            const sig = `delta__${d.name.name}`;
             this.indent++;
             const members = (d.declaration as EnumDecl).variants
                 .map((x) => {
@@ -2004,9 +1788,7 @@ typedef struct {
             this.indent++;
             const memberNames = (d.declaration as UnionDecl).variants.map((x) => x.name.name);
 
-            const unionSig = this.moduleOptions
-                ? this.moduleSymbol(d.name.name)
-                : `delta__${d.name.name}`;
+            const unionSig = `delta__${d.name.name}`;
             const tagSig = `${unionSig}_Tag`;
             const tagMembers = memberNames
                 .map((x) => {
@@ -2038,15 +1820,14 @@ typedef struct {
     /** Emits a top-level declaration, dispatching on its `kind`. */
     emitDeclaration(d: Declaration): string {
         switch (d.kind) {
-            case "import_declaration":
-            case "interface_declaration":
-                return "";
             case "variable_declaration_statement":
                 return this.emitVariableDeclarationStatement(d as VariableDeclarationStatement);
             case "function_declaration":
                 return this.emitFunctionDeclaration(d as FunctionDeclaration, false);
             case "type_declaration":
                 return this.emitTypeDeclaration(d as TypeDeclaration);
+            default:
+                return "";
         }
     }
 
@@ -2055,7 +1836,7 @@ typedef struct {
      * `delta_main` and returns its result as the process exit code.
      */
     emitMain(): string {
-        const entryFunction = this.moduleOptions ? this.moduleSymbol("main") : "delta_main";
+        const entryFunction = "delta_main";
         return `int main(){
     return (int)${entryFunction}();
 }
@@ -2256,95 +2037,6 @@ typedef struct {
 }\n\n`;
     }
 
-    /** Emits every module type and function declaration in one dependency-safe header. */
-    emitHeader(): string {
-        if (!this.moduleOptions) {
-            return "";
-        }
-
-        const guard = `DELTA_${this.moduleOptions.moduleName.toUpperCase()}_H`;
-        const dependencyIncludes = [...new Set(this.moduleOptions.importedHeaders ?? [])]
-            .filter((name) => name != this.moduleOptions!.moduleName)
-            .map((name) => `#include "delta_${name}.h"`)
-            .join("\n");
-        const ffiIncludes = [...new Set(this.ast.ffiHeaders ?? [])]
-            .map((header) => `#include ${header}`)
-            .join("\n");
-
-        const typeDeclarations = this.ast.declarations
-            .filter(
-                (declaration): declaration is TypeDeclaration =>
-                    declaration.kind == "type_declaration",
-            )
-            .map((declaration) => this.emitTypeDeclaration(declaration))
-            .join("\n\n");
-        const resultStructs = this.emitResultStructs();
-
-        const exportedValues = this.ast.declarations
-            .map((declaration) => {
-                if (
-                    declaration.kind == "function_declaration" &&
-                    this.isExported(declaration) &&
-                    declaration.external?.abi != "c"
-                ) {
-                    return this.emitForwardDeclaration(declaration);
-                }
-                if (
-                    declaration.kind == "variable_declaration_statement" &&
-                    this.isExported(declaration)
-                ) {
-                    const dimensions =
-                        declaration.type.arrayLengths?.map((length) => `[${length}]`).join("") ??
-                        "";
-                    return `extern ${this.cConstBindingType(declaration.type)} ${this.moduleSymbol(declaration.name.name)}${dimensions};`;
-                }
-                return "";
-            })
-            .filter(Boolean)
-            .join("\n");
-
-        const privateFunctionDeclarations = this.ast.declarations
-            .filter(
-                (declaration): declaration is FunctionDeclaration =>
-                    declaration.kind == "function_declaration" &&
-                    !this.isExported(declaration) &&
-                    !declaration.external,
-            )
-            .map((declaration) => this.emitForwardDeclaration(declaration))
-            .join("\n");
-
-        const implementationDeclarations = privateFunctionDeclarations
-            ? `#ifdef ${this.implementationMacro()}\n${privateFunctionDeclarations}\n#endif`
-            : "";
-
-        const declarations = [
-            typeDeclarations,
-            resultStructs,
-            exportedValues,
-            implementationDeclarations,
-        ]
-            .filter(Boolean)
-            .join("\n\n");
-        const sliceTypeDefinitions = this.emitSliceTypeDefinitions();
-        const sliceElementForwardDeclarations = this.emitSliceElementForwardDeclarations();
-
-        return `#ifndef ${guard}
-#define ${guard}
-
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-${dependencyIncludes ? `${dependencyIncludes}\n` : ""}
-${ffiIncludes ? `${ffiIncludes}\n` : ""}
-${this.emitStringTypeDefinition()}
-${sliceElementForwardDeclarations}
-${sliceTypeDefinitions}
-${declarations}
-
-#endif
-`;
-    }
-
     /**
      * Emits the complete C translation unit: headers, all forward declarations,
      * the function definitions, and the `main` shim, joined in dependency-safe
@@ -2362,32 +2054,14 @@ ${declarations}
         this.final += "<overflow-guards>";
         this.final += "<underflow-guards>";
 
-        const typeDeclarations = this.moduleOptions
-            ? []
-            : this.ast.declarations
-                  .filter((declaration) => declaration.kind == "type_declaration")
-                  .map((declaration) => this.emitTypeDeclaration(declaration as TypeDeclaration));
-        const fwdDecls = this.moduleOptions
-            ? []
-            : this.ast.declarations
-                  .filter(
-                      (declaration) =>
-                          declaration.kind == "function_declaration" && !declaration.external,
-                  )
-                  .map((declaration) =>
-                      this.emitForwardDeclaration(declaration as FunctionDeclaration),
-                  );
+        const typeDeclarations = this.ast.declarations
+            .filter((declaration) => declaration.kind == "type_declaration")
+            .map((declaration) => this.emitTypeDeclaration(declaration as TypeDeclaration));
+        const fwdDecls = this.ast.declarations
+            .filter((declaration) => declaration.kind == "function_declaration")
+            .map((declaration) => this.emitForwardDeclaration(declaration as FunctionDeclaration));
         const valueAndFunctionDeclarations = this.ast.declarations
-            .filter(
-                (declaration) =>
-                    declaration.kind != "type_declaration" &&
-                    declaration.kind != "import_declaration" &&
-                    !(
-                        (declaration.kind == "function_declaration" ||
-                            declaration.kind == "variable_declaration_statement") &&
-                        declaration.external
-                    ),
-            )
+            .filter((declaration) => declaration.kind != "type_declaration")
             .map((declaration) => this.emitDeclaration(declaration));
         const cloneHelpers = this.emitCloneHelpers();
         const cloneHelperPrototypes = this.emitCloneHelperPrototypes();
@@ -2415,7 +2089,7 @@ ${declarations}
         this.final = this.final.replace("<overflow-guards>", overflowGuards.join("\n"));
         this.final = this.final.replace("<underflow-guards>", underflowGuards.join("\n"));
 
-        const entryShim = !this.moduleOptions || this.moduleOptions.entry ? this.emitMain() : "";
+        const entryShim = this.emitMain();
         this.final =
             this.final +
             (stringLiteralBlocks ? stringLiteralBlocks + "\n\n" : "") +

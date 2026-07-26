@@ -1,4 +1,0 @@
-interface Invalid {
-    function (value: &Invalid) read(): int32;
-}
-

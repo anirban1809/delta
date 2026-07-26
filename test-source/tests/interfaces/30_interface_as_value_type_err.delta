@@ -1,8 +1,0 @@
-interface Writer {
-    function write(value: string): void;
-}
-
-function output(writer: edit &Writer, value: string): void {
-    writer.write(value);
-}
-

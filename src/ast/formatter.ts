@@ -13,9 +13,6 @@ import type {
     FunctionParameter,
     Identifier,
     IfStatement,
-    ImportDeclaration,
-    InterfaceDeclaration,
-    InterfaceMethodRequirement,
     Module,
     ObjectLiteralElement,
     ObjectLiteralExpression,
@@ -276,10 +273,6 @@ export class Formatter {
             value: t.value,
             ...(t.arrayLengths?.length ? { arrayLengths: t.arrayLengths } : {}),
             ...(t.slice ? { slice: true } : {}),
-            ...(t.variadic ? { variadic: true } : {}),
-            ...(t.interfaceBounds?.length
-                ? { interfaceBounds: t.interfaceBounds.map((x) => this.formatType(x)) }
-                : {}),
             ...(t.typeParameters?.length
                 ? { typeParameters: t.typeParameters.map((x) => this.formatType(x)) }
                 : {}),
@@ -291,7 +284,6 @@ export class Formatter {
         return {
             name: this.formatIdentifier(p.name),
             type: this.formatType(p.type),
-            ...(p.variadic ? { variadic: true } : {}),
         };
     }
 
@@ -309,8 +301,6 @@ export class Formatter {
             parameters,
             returnTypes: f.returnTypes.map((x) => this.formatType(x)),
             errorType: f.errorTypes.map((x) => this.formatType(x)),
-            ...(f.external ? { external: f.external } : {}),
-            ...(f.exported ? { exported: true } : {}),
             body,
         };
     }
@@ -335,13 +325,6 @@ export class Formatter {
                         name: this.formatIdentifier(f.name),
                         type: this.formatType(f.type),
                     })),
-                    ...(decl.implementedInterfaces?.length
-                        ? {
-                              implementedInterfaces: decl.implementedInterfaces.map((type) =>
-                                  this.formatType(type),
-                              ),
-                          }
-                        : {}),
                 };
             }
             case TypeDeclKind.Enum: {
@@ -366,58 +349,13 @@ export class Formatter {
         }
     }
 
-    formatInterfaceMethod(method: InterfaceMethodRequirement) {
-        return {
-            kind: method.kind,
-            name: this.formatIdentifier(method.name),
-            ...(method.typeParameters?.length
-                ? {
-                      typeParameters: method.typeParameters.map((type) => this.formatType(type)),
-                  }
-                : {}),
-            parameters: method.parameters.map((parameter) =>
-                this.formatFunctionParameter(parameter),
-            ),
-            returnTypes: method.returnTypes.map((type) => this.formatType(type)),
-            errorTypes: method.errorTypes.map((type) => this.formatType(type)),
-        };
-    }
-
-    formatInterfaceDeclaration(declaration: InterfaceDeclaration) {
-        return {
-            kind: declaration.kind,
-            name: this.formatIdentifier(declaration.name),
-            methods: declaration.methods.map((method) => this.formatInterfaceMethod(method)),
-            ...(declaration.exported ? { exported: true } : {}),
-            ...(declaration.external ? { external: declaration.external } : {}),
-        };
-    }
-
     /** Formats a top-level declaration, dispatching on its `kind`. */
     formatDeclaration(d: Declaration) {
         switch (d.kind) {
-            case "import_declaration": {
-                const declaration = d as ImportDeclaration;
-                return {
-                    kind: declaration.kind,
-                    ...(declaration.unsafe ? { unsafe: true } : {}),
-                    ...(declaration.namespace
-                        ? {
-                              module: declaration.namespace.module.name,
-                              ...(declaration.namespace.alias
-                                  ? { alias: declaration.namespace.alias.name }
-                                  : {}),
-                          }
-                        : { specifiers: declaration.specifiers.map((x) => x.name.name) }),
-                    path: declaration.path,
-                };
-            }
             // case "variable_declaration_statement":
             //     return this.formatVar;
             case "function_declaration":
                 return this.formatFunctionDeclaration(d as FunctionDeclaration);
-            case "interface_declaration":
-                return this.formatInterfaceDeclaration(d as InterfaceDeclaration);
             case "type_declaration":
                 return this.formatTypeDeclaration(d as TypeDeclaration);
         }
@@ -429,12 +367,6 @@ export class Formatter {
         return {
             file: this.ast.fileName,
             declarations,
-            ...(this.ast.exportModule ? { exportModule: this.ast.exportModule.name.name } : {}),
-            ...(this.ast.ffiHeaders?.length ? { ffiHeaders: this.ast.ffiHeaders } : {}),
-            ...(this.ast.ffiModuleName ? { ffiModule: this.ast.ffiModuleName } : {}),
-            ...(this.ast.ffiLibraries?.length
-                ? { ffiLibraries: this.ast.ffiLibraries.map(({ kind, path }) => ({ kind, path })) }
-                : {}),
         };
     }
 

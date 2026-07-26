@@ -2,9 +2,7 @@ import {
     CompletionItemKind,
     createConnection,
     DiagnosticSeverity,
-    DidChangeConfigurationNotification,
     DidChangeWatchedFilesNotification,
-    FileChangeType,
     MarkupKind,
     ProposedFeatures,
     TextDocumentSyncKind,
@@ -13,13 +11,12 @@ import {
     type Diagnostic,
     type Position,
 } from "vscode-languageserver/node.js";
-import { fileURLToPath, pathToFileURL } from "url";
+import { fileURLToPath } from "url";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { TextDocuments } from "vscode-languageserver/node.js";
-import { compileModuleSource, compileSource } from "../compiler/pipeline.js";
+import { compileSource } from "../compiler/pipeline.js";
 import { SourceIndex, symbolMarkdown, type IndexedSymbol } from "./source-index.js";
 import { LSP_VERSION } from "./version.js";
-import { WorkspaceIndex } from "./workspace-index.js";
 
 type DocumentState = { index: SourceIndex };
 const documents = new TextDocuments(TextDocument);
@@ -29,10 +26,6 @@ const connection: Connection = createConnection(
     process.stdin,
     process.stdout,
 );
-const workspace = new WorkspaceIndex();
-let autoImportsEnabled = true;
-let workspaceRoots: string[] = [];
-let supportsWorkspaceFolderChanges = false;
 
 const keywords = [
     "function",
@@ -50,16 +43,6 @@ const keywords = [
     "struct",
     "enum",
     "union",
-    "import",
-    "unsafe",
-    "export",
-    "extern",
-    "ffi",
-    "header",
-    "static",
-    "dynamic",
-    "module",
-    "from",
     "as",
     "check",
     "forward",
@@ -112,15 +95,7 @@ function documentPath(document: TextDocument): string | undefined {
 }
 
 function lspDiagnostics(document: TextDocument): Diagnostic[] {
-    const fileName = documentPath(document);
-    const result = fileName
-        ? compileModuleSource(
-              document.getText(),
-              fileName,
-              workspace.readSource,
-              workspace.resolveImport,
-          )
-        : compileSource(document.getText(), document.uri);
+    const result = compileSource(document.getText(), documentPath(document) ?? document.uri);
     return result.diagnostics.map((error) => ({
         severity: DiagnosticSeverity.Error,
         range: {
@@ -133,24 +108,12 @@ function lspDiagnostics(document: TextDocument): Diagnostic[] {
 }
 
 function update(document: TextDocument) {
-    const fileName = documentPath(document);
-    const index = fileName
-        ? workspace.update(fileName, document.getText())
-        : new SourceIndex(document.getText(), document.uri);
+    const index = new SourceIndex(document.getText(), documentPath(document) ?? document.uri);
     states.set(document.uri, { index });
     connection.sendDiagnostics({ uri: document.uri, diagnostics: lspDiagnostics(document) });
 }
 
 function state(uri: string): DocumentState | undefined {
-    if (uri.startsWith("file:")) {
-        try {
-            workspace.refreshImports(fileURLToPath(uri), (fileName) =>
-                documents.get(pathToFileURL(fileName).toString())?.getText(),
-            );
-        } catch {
-            // Keep editor queries available if a dependency disappears mid-request.
-        }
-    }
     return states.get(uri);
 }
 
@@ -164,8 +127,6 @@ function completionKind(symbol: IndexedSymbol): CompletionItemKind {
             return CompletionItemKind.Field;
         case "method":
             return CompletionItemKind.Method;
-        case "module":
-            return CompletionItemKind.Module;
         case "parameter":
             return CompletionItemKind.Variable;
         default:
@@ -173,54 +134,24 @@ function completionKind(symbol: IndexedSymbol): CompletionItemKind {
     }
 }
 
-connection.onInitialize((params) => {
-    supportsWorkspaceFolderChanges = params.capabilities.workspace?.workspaceFolders === true;
-    workspaceRoots =
-        params.workspaceFolders?.map((folder) => fileURLToPath(folder.uri)) ??
-        (params.rootUri?.startsWith("file:") ? [fileURLToPath(params.rootUri)] : []);
-    workspace.setRoots(workspaceRoots);
-    workspace.scan();
+connection.onInitialize(() => {
     return {
         capabilities: {
             textDocumentSync: TextDocumentSyncKind.Incremental,
             hoverProvider: true,
             definitionProvider: true,
             completionProvider: { triggerCharacters: ["."] },
-            workspace: { workspaceFolders: { supported: true, changeNotifications: true } },
         },
         serverInfo: { name: "delta-language-server", version: LSP_VERSION },
     };
 });
-connection.onInitialized(() => {
-    if (!supportsWorkspaceFolderChanges) return;
-    connection.workspace.onDidChangeWorkspaceFolders((event) => {
-        const removed = new Set(event.removed.map((folder) => fileURLToPath(folder.uri)));
-        workspaceRoots = workspaceRoots.filter((root) => !removed.has(root));
-        workspaceRoots.push(...event.added.map((folder) => fileURLToPath(folder.uri)));
-        workspace.setRoots(workspaceRoots);
-        workspace.scan();
-    });
-});
-connection.onNotification(DidChangeConfigurationNotification.type, (params: any) => {
-    const configured =
-        params?.settings?.delta?.autoImports?.enabled ?? params?.settings?.autoImports?.enabled;
-    autoImportsEnabled = configured !== false;
-});
-connection.onNotification(DidChangeWatchedFilesNotification.type, (params) => {
-    for (const change of params.changes) {
-        if (!change.uri.startsWith("file:")) continue;
-        const fileName = fileURLToPath(change.uri);
-        if (change.type === FileChangeType.Deleted) workspace.remove(fileName);
-        else workspace.refresh(fileName);
-    }
+connection.onNotification(DidChangeWatchedFilesNotification.type, () => {
     for (const document of documents.all()) update(document);
 });
 documents.onDidOpen((event) => update(event.document));
 documents.onDidChangeContent((event) => update(event.document));
 documents.onDidClose((event) => {
     states.delete(event.document.uri);
-    const fileName = documentPath(event.document);
-    if (fileName) workspace.refresh(fileName);
     connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
 });
 
@@ -273,42 +204,8 @@ connection.onCompletion((params): CompletionItem[] => {
         documentation: { kind: MarkupKind.Markdown, value: symbolMarkdown(symbol) },
     }));
     if (index.isMemberCompletion(offset(document, params.position))) return symbolItems;
-    const fileName = documentPath(document);
-    const visible = new Set(symbols.map((symbol) => symbol.name));
-    const autoImportItems: CompletionItem[] = [];
-    if (autoImportsEnabled && fileName) {
-        for (const candidate of workspace.autoImports(fileName)) {
-            if (visible.has(candidate.symbol.name)) continue;
-            const edit = index.autoImportEdit(
-                candidate.symbol.name,
-                candidate.importPath,
-                candidate.importKind,
-            );
-            if (!edit) continue;
-            autoImportItems.push({
-                label: candidate.symbol.name,
-                kind: completionKind(candidate.symbol),
-                detail: `${candidate.symbol.signature ?? candidate.symbol.type ?? candidate.symbol.kind} — auto import from ${candidate.importPath}`,
-                documentation: {
-                    kind: MarkupKind.Markdown,
-                    value: symbolMarkdown(candidate.symbol),
-                },
-                sortText: `9_${candidate.symbol.name}_${candidate.importPath}`,
-                additionalTextEdits: [
-                    {
-                        range: {
-                            start: position(document, edit.start),
-                            end: position(document, edit.end),
-                        },
-                        newText: edit.newText,
-                    },
-                ],
-            });
-        }
-    }
     return [
         ...symbolItems,
-        ...autoImportItems,
         ...keywords.map((label) => ({ label, kind: CompletionItemKind.Keyword })),
         ...primitives.map((label) => ({ label, kind: CompletionItemKind.TypeParameter })),
     ];

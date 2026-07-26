@@ -135,14 +135,14 @@ Owned-to-corresponding-view conversion is implicit and zero-cost. Other conversi
 - Functions, structs, and unions may declare type parameters with `<T, U>`. Uses must supply the correct arity; nested instantiations are allowed, and duplicate parameter names are rejected.
 - Function type arguments may be explicit or inferred from argument and expected-result types. Conflicting or incomplete inference is an error.
 - Instantiations are monomorphized. Only concrete instantiations exist at runtime.
-- Ownership bounds select one tier: `<T>` is copyable, `<clone T>` is cloneable, and `<unique T>` is unique. Structural interface constraints may use `extends`. A concrete overload outranks a generic overload.
-- Overloads are selected by arity and exact parameter types, never by return type or implicit conversion. A fixed-arity exact match outranks a variadic match.
+- Ownership bounds select one tier: `<T>` is copyable, `<clone T>` is cloneable, and `<unique T>` is unique. Type parameters carry no other constraints. A concrete overload outranks a generic overload.
+- Overloads are selected by arity and exact parameter types, never by return type or implicit conversion.
 
 ## 7. Functions, receiver functions, and calls
 
 - A function is declared as `function name<T>(parameters): Success1, Success2 | Error1, Error2 { ... }`. Omitted success types mean `void`; `void` cannot be combined with another success type.
 - Parameters are positional. Defaults, where supported, must be compile-time constants, follow all required parameters, and may not depend on earlier parameters.
-- A Delta variadic parameter is last and has the form `...items: T[]`; the body observes a slice. Raw C variadics exist only in C-imported or `extern "c"` declarations and accept only C-ABI-passable arguments.
+- Delta has no variadic parameters; a function taking a variable number of values declares a slice parameter such as `items: T[]`. Raw C variadics exist only in C-imported or `extern "c"` declarations and accept only C-ABI-passable arguments.
 - A receiver function is declared as `function (self: &Record) name(...)` or `function (self: edit &Record) name(...)`. By-value receivers are forbidden.
 - Receiver names share one namespace with fields. A receiver function may overload normally but may not collide with a field. There are no orphan receiver functions.
 - `value.method(...)` auto-forms the required receiver reference. A `const` value or `&T` can call only `&T` receivers; a `let` value or `edit &T` can call either.

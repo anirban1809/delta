@@ -5,8 +5,6 @@ import {
     type EnumDecl,
     type FunctionDeclaration,
     type Identifier,
-    type InterfaceDeclaration,
-    type InterfaceMethodRequirement,
     type Module,
     type StructDecl,
     type Type,
@@ -17,7 +15,6 @@ import {
 } from "../ast/types.js";
 import { Error, type Diagnostics } from "../diagnostics/diagnostics.js";
 import { BlockKind, SymbolKind, type BlockContext, type FunctionSignature } from "./analyzer.js";
-import { validateSpecializationCapability } from "./expression_analyzer.js";
 import { Scope } from "./scope.js";
 import { StatementAnalyzer } from "./statements/statement.js";
 import { TypeAnalyzer } from "./type_analyzer.js";
@@ -37,35 +34,6 @@ export class DeclarationAnalyzer {
         this.statementAnalyzer = new StatementAnalyzer(diagnostics);
         this.typeAnalyzer = new TypeAnalyzer(diagnostics);
         this.variableAnalyzer = new VariableDeclarationStatementAnalyzer(diagnostics);
-    }
-
-    /** Registers every named type before signatures and bodies are resolved. */
-    registerInterfaces() {
-        for (const declaration of this.ast.declarations) {
-            if (declaration.kind != "interface_declaration") continue;
-            if (this.globalScope.getSymbol(declaration.name.name)) {
-                this.diagnostics.addError(
-                    Error(
-                        this.ast.fileName,
-                        "semantic",
-                        declaration.name.position ?? declaration.position,
-                        `interface \`${declaration.name.name}\` is declared more than once`,
-                    ),
-                );
-                continue;
-            }
-            this.globalScope.addSymbol({
-                name: declaration.name.name,
-                kind: SymbolKind.SymbolInterfaceDecl,
-                declaration,
-            });
-        }
-        for (const declaration of this.ast.declarations) {
-            if (declaration.kind != "interface_declaration") continue;
-            for (const method of declaration.methods) {
-                this.validateTypeParameterBounds(method.typeParameters, method.position);
-            }
-        }
     }
 
     /** Registers every named type before signatures and bodies are resolved. */
@@ -107,7 +75,6 @@ export class DeclarationAnalyzer {
                     parameters: decl.parameters,
                     declaration: decl,
                     typeParameters: decl.typeParameters,
-                    external: decl.external,
                 },
             });
         });
@@ -208,15 +175,6 @@ export class DeclarationAnalyzer {
                             "dispose method must be void",
                         ),
                     );
-                if (declaration.exported || this.ast.exportModule)
-                    this.diagnostics.addError(
-                        Error(
-                            this.ast.fileName,
-                            "semantic",
-                            declaration.name.position ?? declaration.position,
-                            "dispose method cannot be exported",
-                        ),
-                    );
             }
             const resolvedReceiver = structuredClone(receiverType.type);
             resolvedReceiver.reference = true;
@@ -231,7 +189,6 @@ export class DeclarationAnalyzer {
                 receiverType: resolvedReceiver,
                 receiverName: receiver.name.name,
                 receiverEdit: !!receiver.type.edit,
-                external: declaration.external,
             };
             if (!this.globalScope.addMethod(recordName, declaration.name.name, signature)) {
                 this.diagnostics.addError(
@@ -246,357 +203,12 @@ export class DeclarationAnalyzer {
         }
     }
 
-    /** Validates every explicit `implements` clause after methods are registered. */
-    validateImplementations() {
-        for (const declaration of this.ast.declarations) {
-            if (
-                declaration.kind != "type_declaration" ||
-                declaration.declKind != TypeDeclKind.Struct
-            ) {
-                continue;
-            }
-            const record = declaration.declaration as StructDecl;
-            const implemented = record.implementedInterfaces ?? [];
-            const requirementsByName = new Map<
-                string,
-                { requirement: InterfaceMethodRequirement; interfaceName: string }
-            >();
-            for (const interfaceType of implemented) {
-                const symbol = this.globalScope.getSymbol(interfaceType.name.name);
-                if (!symbol) {
-                    this.diagnostics.addError(
-                        Error(
-                            this.ast.fileName,
-                            "semantic",
-                            interfaceType.position ?? declaration.position,
-                            `unknown interface \`${interfaceType.name.name}\``,
-                        ),
-                    );
-                    continue;
-                }
-                if (
-                    symbol.kind != SymbolKind.SymbolInterfaceDecl ||
-                    symbol.declaration?.kind != "interface_declaration"
-                ) {
-                    this.diagnostics.addError(
-                        Error(
-                            this.ast.fileName,
-                            "semantic",
-                            interfaceType.position ?? declaration.position,
-                            `\`${interfaceType.name.name}\` is not an interface`,
-                        ),
-                    );
-                    continue;
-                }
-                const interfaceDeclaration = symbol.declaration as InterfaceDeclaration;
-                let valid = true;
-                for (const requirement of interfaceDeclaration.methods) {
-                    const previous = requirementsByName.get(requirement.name.name);
-                    if (
-                        previous &&
-                        !this.interfaceRequirementsMatch(previous.requirement, requirement)
-                    ) {
-                        this.diagnostics.addError(
-                            Error(
-                                this.ast.fileName,
-                                "semantic",
-                                requirement.name.position ?? requirement.position,
-                                `interfaces \`${previous.interfaceName}\` and \`${interfaceType.name.name}\` require incompatible overloads of \`${requirement.name.name}\``,
-                            ),
-                        );
-                        valid = false;
-                        continue;
-                    }
-                    requirementsByName.set(requirement.name.name, {
-                        requirement,
-                        interfaceName: interfaceType.name.name,
-                    });
-                    const method = this.globalScope.getMethod(
-                        declaration.name.name,
-                        requirement.name.name,
-                    );
-                    if (!method) {
-                        this.diagnostics.addError(
-                            Error(
-                                this.ast.fileName,
-                                "semantic",
-                                interfaceType.position ?? declaration.position,
-                                `type \`${declaration.name.name}\` declares that it implements \`${interfaceType.name.name}\` but is missing method \`${requirement.name.name}\``,
-                            ),
-                        );
-                        valid = false;
-                        continue;
-                    }
-                    if (
-                        !this.methodSatisfiesRequirement(
-                            declaration.name.name,
-                            interfaceType.name.name,
-                            method,
-                            requirement,
-                        )
-                    ) {
-                        valid = false;
-                    }
-                    const publicConformance =
-                        (declaration.exported || !!this.ast.exportModule) &&
-                        (interfaceDeclaration.exported ||
-                            !!interfaceDeclaration.external ||
-                            !!this.ast.exportModule);
-                    if (
-                        publicConformance &&
-                        !method.declaration?.exported &&
-                        !method.declaration?.external &&
-                        !this.ast.exportModule
-                    ) {
-                        this.diagnostics.addError(
-                            Error(
-                                this.ast.fileName,
-                                "semantic",
-                                method.declaration?.name.position ??
-                                    method.declaration?.position ??
-                                    requirement.position,
-                                `method \`${declaration.name.name}.${requirement.name.name}\` must be exported because it provides public conformance to \`${interfaceType.name.name}\``,
-                            ),
-                        );
-                        valid = false;
-                    }
-                }
-                if (valid) {
-                    this.globalScope.addImplementation(
-                        declaration.name.name,
-                        interfaceType.name.name,
-                    );
-                }
-            }
-        }
-    }
-
-    /**
-     * Checks the specializations that were requested before their callee's body
-     * had been analyzed. Running these after every body in the module keeps
-     * receiver-capability validation independent of declaration order.
-     */
-    validateDeferredSpecializations() {
-        for (const declaration of this.ast.declarations) {
-            if (declaration.kind != "function_declaration") continue;
-            const pending = declaration.deferredSpecializations ?? [];
-            declaration.deferredSpecializations = undefined;
-            for (const request of pending) {
-                validateSpecializationCapability(
-                    declaration,
-                    request.typeParameter,
-                    request.concrete,
-                    this.globalScope,
-                    this.diagnostics,
-                    request.fileName,
-                    request.position,
-                );
-            }
-        }
-    }
-
-    private interfaceRequirementsMatch(
-        left: InterfaceMethodRequirement,
-        right: InterfaceMethodRequirement,
-    ): boolean {
-        if (
-            left.parameters.length != right.parameters.length ||
-            left.returnTypes.length != right.returnTypes.length ||
-            left.errorTypes.length != right.errorTypes.length ||
-            !this.typeParametersMatch(left.typeParameters, right.typeParameters)
-        ) {
-            return false;
-        }
-        const bindings = new Map<string, Type>();
-        (left.typeParameters ?? []).forEach((parameter, index) => {
-            const target = right.typeParameters?.[index];
-            if (target) bindings.set(parameter.name.name, target);
-        });
-        const matches = (a: Type, b: Type) =>
-            this.typeAnalyzer.arrayTypesMatch(this.typeAnalyzer.substituteType(a, bindings), b);
-        return (
-            left.parameters.every(
-                (parameter, index) =>
-                    !!parameter.variadic == !!right.parameters[index]!.variadic &&
-                    matches(parameter.type, right.parameters[index]!.type),
-            ) &&
-            left.returnTypes.every((type, index) => matches(type, right.returnTypes[index]!)) &&
-            left.errorTypes.every((type) =>
-                right.errorTypes.some((candidate) => matches(type, candidate)),
-            )
-        );
-    }
-
-    private methodSatisfiesRequirement(
-        concreteName: string,
-        interfaceName: string,
-        method: FunctionSignature,
-        requirement: InterfaceMethodRequirement,
-    ): boolean {
-        if (method.parameters.length != requirement.parameters.length) {
-            this.diagnostics.addError(
-                Error(
-                    this.ast.fileName,
-                    "semantic",
-                    requirement.position,
-                    `method \`${concreteName}.${requirement.name.name}\` does not satisfy \`${interfaceName}.${requirement.name.name}\`: parameter count must be ${requirement.parameters.length}, got ${method.parameters.length}`,
-                ),
-            );
-            return false;
-        }
-        if (!this.typeParametersMatch(requirement.typeParameters, method.typeParameters)) {
-            this.diagnostics.addError(
-                Error(
-                    this.ast.fileName,
-                    "semantic",
-                    requirement.position,
-                    `method \`${concreteName}.${requirement.name.name}\` does not satisfy \`${interfaceName}.${requirement.name.name}\`: generic parameter bounds or variadic shape differ`,
-                ),
-            );
-            return false;
-        }
-        const bindings = new Map<string, Type>();
-        (requirement.typeParameters ?? []).forEach((parameter, index) => {
-            const target = method.typeParameters?.[index];
-            if (target) bindings.set(parameter.name.name, target);
-        });
-        const required = (type: Type) => this.typeAnalyzer.substituteType(type, bindings);
-        for (let index = 0; index < requirement.parameters.length; index++) {
-            const want = required(requirement.parameters[index]!.type);
-            const have = method.parameters[index]!.type;
-            if (
-                !!requirement.parameters[index]!.variadic != !!method.parameters[index]!.variadic ||
-                !this.typeAnalyzer.arrayTypesMatch(want, have)
-            ) {
-                this.diagnostics.addError(
-                    Error(
-                        this.ast.fileName,
-                        "semantic",
-                        method.parameters[index]!.position,
-                        `method \`${concreteName}.${requirement.name.name}\` does not satisfy \`${interfaceName}.${requirement.name.name}\`: parameter ${index + 1} must be \`${this.typeAnalyzer.displayName(want)}\`, got \`${this.typeAnalyzer.displayName(have)}\``,
-                    ),
-                );
-                return false;
-            }
-        }
-        if (method.returnTypes.length != requirement.returnTypes.length) {
-            this.addRequirementReturnError(concreteName, interfaceName, method, requirement);
-            return false;
-        }
-        for (let index = 0; index < requirement.returnTypes.length; index++) {
-            if (
-                !this.typeAnalyzer.arrayTypesMatch(
-                    required(requirement.returnTypes[index]!),
-                    method.returnTypes[index]!,
-                )
-            ) {
-                this.addRequirementReturnError(concreteName, interfaceName, method, requirement);
-                return false;
-            }
-        }
-        const requiredErrors = requirement.errorTypes.map(required);
-        if (
-            method.errorTypes.length != requiredErrors.length ||
-            !requiredErrors.every((type) =>
-                method.errorTypes.some((candidate) =>
-                    this.typeAnalyzer.arrayTypesMatch(type, candidate),
-                ),
-            )
-        ) {
-            this.diagnostics.addError(
-                Error(
-                    this.ast.fileName,
-                    "semantic",
-                    method.declaration?.position ?? requirement.position,
-                    `method \`${concreteName}.${requirement.name.name}\` does not satisfy \`${interfaceName}.${requirement.name.name}\`: error set differs`,
-                ),
-            );
-            return false;
-        }
-        return true;
-    }
-
-    private typeParametersMatch(left?: Type[], right?: Type[]): boolean {
-        if ((left?.length ?? 0) != (right?.length ?? 0)) return false;
-        return (left ?? []).every((parameter, index) => {
-            const candidate = right![index]!;
-            const bounds = parameter.interfaceBounds ?? [];
-            const candidateBounds = candidate.interfaceBounds ?? [];
-            return (
-                !!parameter.variadic == !!candidate.variadic &&
-                bounds.length == candidateBounds.length &&
-                bounds.every((bound) =>
-                    candidateBounds.some(
-                        (candidateBound) => candidateBound.name.name == bound.name.name,
-                    ),
-                )
-            );
-        });
-    }
-
-    private validateTypeParameterBounds(
-        typeParameters: Type[] | undefined,
-        position: Type["position"] | FunctionDeclaration["position"],
-    ): void {
-        for (const parameter of typeParameters ?? []) {
-            for (const bound of parameter.interfaceBounds ?? []) {
-                const symbol = this.globalScope.getSymbol(bound.name.name);
-                if (symbol?.kind == SymbolKind.SymbolInterfaceDecl) continue;
-                this.diagnostics.addError(
-                    Error(
-                        this.ast.fileName,
-                        "semantic",
-                        bound.position ?? position!,
-                        symbol
-                            ? `generic bound \`${bound.name.name}\` is not an interface`
-                            : `unknown interface bound \`${bound.name.name}\``,
-                    ),
-                );
-            }
-        }
-    }
-
-    private addRequirementReturnError(
-        concreteName: string,
-        interfaceName: string,
-        method: FunctionSignature,
-        requirement: InterfaceMethodRequirement,
-    ): void {
-        const want = requirement.returnTypes.length
-            ? requirement.returnTypes.map((type) => this.typeAnalyzer.displayName(type)).join(", ")
-            : "void";
-        const have = method.returnTypes.length
-            ? method.returnTypes.map((type) => this.typeAnalyzer.displayName(type)).join(", ")
-            : "void";
-        this.diagnostics.addError(
-            Error(
-                this.ast.fileName,
-                "semantic",
-                method.declaration?.position ?? requirement.position,
-                `method \`${concreteName}.${requirement.name.name}\` does not satisfy \`${interfaceName}.${requirement.name.name}\`: return type must be \`${want}\`, got \`${have}\``,
-            ),
-        );
-    }
-
     /** Second pass: analyze a top-level type, variable, or function declaration. */
     analyze(decl: Declaration) {
         switch (decl.kind) {
-            case "import_declaration":
-            case "interface_declaration":
-                return;
             case "type_declaration":
                 return;
             case "variable_declaration_statement":
-                if (decl.external?.abi == "delta" && !decl.external.moduleName) {
-                    this.diagnostics.addError(
-                        Error(
-                            this.ast.fileName,
-                            "semantic",
-                            decl.position,
-                            'a `.ffi.delta` file declaring prebuilt Delta symbols must specify `ffi module "<abi-name>";`',
-                        ),
-                    );
-                }
                 this.variableAnalyzer.analyze(
                     decl as VariableDeclarationStatement,
                     this.globalScope,
@@ -604,36 +216,11 @@ export class DeclarationAnalyzer {
                 return;
             case "function_declaration":
                 this.analyzeFunctionDeclaration(decl);
-                // Set on every path out of the body analysis, including the
-                // early returns for extern and malformed declarations, so the
-                // constrained calls recorded on `decl` are known to be complete.
-                decl.bodyAnalyzed = true;
         }
     }
 
     /** Validates a function signature and delegates its body to the statement layer. */
     private analyzeFunctionDeclaration(decl: FunctionDeclaration) {
-        this.validateTypeParameterBounds(decl.typeParameters, decl.position);
-        if (decl.external?.abi == "delta" && !decl.external.moduleName) {
-            this.diagnostics.addError(
-                Error(
-                    this.ast.fileName,
-                    "semantic",
-                    decl.position,
-                    'a `.ffi.delta` file declaring prebuilt Delta functions must specify `ffi module "<abi-name>";`',
-                ),
-            );
-        }
-        if (decl.external?.abi == "delta" && decl.typeParameters?.length) {
-            this.diagnostics.addError(
-                Error(
-                    this.ast.fileName,
-                    "semantic",
-                    decl.position,
-                    "prebuilt Delta generic functions require explicit ABI specializations and are not supported yet",
-                ),
-            );
-        }
         const functionScope = new Scope(this.globalScope);
         functionScope.activeFunction = decl;
         let methodSignature: FunctionSignature | undefined;
@@ -757,10 +344,6 @@ export class DeclarationAnalyzer {
         });
         decl.errorTypes = normalizedErrors;
 
-        // Extern declarations have no Delta body; their implementation is
-        // supplied by the C linker after the signature has been validated.
-        if (decl.external) return;
-
         const symbol = decl.receiver
             ? { name: decl.name.name, kind: SymbolKind.SymbolFuncDecl, signature: methodSignature }
             : this.globalScope.getSymbol(decl.name.name);
@@ -828,29 +411,6 @@ export class DeclarationAnalyzer {
         position: Type["position"] | FunctionDeclaration["position"],
         usage: "parameter" | "return",
     ): boolean {
-        if (this.typeAnalyzer.isCType(type)) {
-            if (decl.external?.abi != "c") {
-                this.diagnostics.addError(
-                    Error(
-                        this.ast.fileName,
-                        "semantic",
-                        type.position ?? position!,
-                        "C ABI types are only permitted in extern declarations",
-                    ),
-                );
-                return false;
-            }
-            if (this.typeAnalyzer.isValidCType(type)) return true;
-            this.diagnostics.addError(
-                Error(
-                    this.ast.fileName,
-                    "semantic",
-                    type.position ?? position!,
-                    `unsupported C ABI type: ${type.name.name}`,
-                ),
-            );
-            return false;
-        }
         if (this.typeAnalyzer.isIndirection(type)) {
             if (usage == "return") {
                 this.diagnostics.addError(
@@ -890,9 +450,6 @@ export class DeclarationAnalyzer {
 
         if (type.value == TypeValue.TypeCustom) {
             const symbol = this.globalScope.getSymbol(type.name.name);
-            if (this.reportInterfaceAsValueType(type, position!)) {
-                return false;
-            }
             const isTypeDeclaration =
                 symbol !== undefined &&
                 [
@@ -951,8 +508,6 @@ export class DeclarationAnalyzer {
             );
             return;
         }
-
-        this.rejectDeclarationTypeParameterBounds(decl);
 
         if (decl.declKind == TypeDeclKind.Union) {
             const value = decl.declaration as UnionDecl;
@@ -1030,16 +585,14 @@ export class DeclarationAnalyzer {
                 }
                 if (!this.isDeclaredFieldType(field.type, value.typeParameters)) {
                     const position = field.type.position ?? field.name.position ?? decl.position;
-                    if (!this.reportInterfaceAsValueType(field.type, position)) {
-                        this.diagnostics.addError(
-                            Error(
-                                this.ast.fileName,
-                                "semantic",
-                                position,
-                                "unknown type identifier: " + field.type.name.name,
-                            ),
-                        );
-                    }
+                    this.diagnostics.addError(
+                        Error(
+                            this.ast.fileName,
+                            "semantic",
+                            position,
+                            "unknown type identifier: " + field.type.name.name,
+                        ),
+                    );
                     return;
                 }
                 if (field.type.arrayLengths?.some((length) => length == 0)) {
@@ -1129,51 +682,6 @@ export class DeclarationAnalyzer {
             if (unknownType) return unknownType;
         }
         return undefined;
-    }
-
-    /**
-     * Rejects an interface bound written on a type declaration's own type
-     * parameter. Bounds are only honoured on functions and receiver functions,
-     * so accepting one here would silently promise a constraint that is never
-     * checked at instantiation.
-     */
-    private rejectDeclarationTypeParameterBounds(decl: TypeDeclaration): void {
-        const declaration = decl.declaration as { typeParameters?: Type[] };
-        for (const parameter of declaration.typeParameters ?? []) {
-            for (const bound of parameter.interfaceBounds ?? []) {
-                this.diagnostics.addError(
-                    Error(
-                        this.ast.fileName,
-                        "semantic",
-                        bound.position ?? parameter.position ?? decl.position,
-                        `interface bound \`${bound.name.name}\` is not supported on a type declaration's type parameter \`${parameter.name.name}\`; place the bound on the function that requires it`,
-                    ),
-                );
-            }
-        }
-    }
-
-    /**
-     * Reports a named interface used where a value type is expected, and says
-     * so in those terms rather than claiming the name is undeclared. Returns
-     * whether the diagnostic was emitted.
-     */
-    private reportInterfaceAsValueType(
-        type: Type,
-        position: NonNullable<Type["position"]>,
-    ): boolean {
-        if (this.globalScope.getSymbol(type.name.name)?.kind != SymbolKind.SymbolInterfaceDecl) {
-            return false;
-        }
-        this.diagnostics.addError(
-            Error(
-                this.ast.fileName,
-                "semantic",
-                position,
-                `interface \`${type.name.name}\` is a compile-time constraint and cannot be used as a value type`,
-            ),
-        );
-        return true;
     }
 
     private isDeclaredFieldType(type: Type, typeParameters?: Type[]): boolean {

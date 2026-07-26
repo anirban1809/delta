@@ -41,7 +41,6 @@ import { Scope } from "./scope.js";
 
 /** What a {@link Symbol} declares — used to distinguish entries in a {@link Scope}. */
 export enum SymbolKind {
-    SymbolInterfaceDecl,
     SymbolTypeStructDecl,
     SymbolTypeEnumDecl,
     SymbolTypeUnionDecl,
@@ -51,7 +50,6 @@ export enum SymbolKind {
     SymbolLocalConst,
     SymbolLocalLet,
     SymbolParameter,
-    SymbolModule,
 }
 
 export enum Flow {
@@ -77,9 +75,6 @@ export type FunctionSignature = {
     receiverType?: Type;
     receiverName?: string;
     receiverEdit?: boolean;
-    /** Synthetic signature selected from a generic parameter's interface bound. */
-    interfaceName?: string;
-    external?: { abi: "c"; linkName: string } | { abi: "delta"; moduleName?: string };
 };
 
 /**
@@ -1808,7 +1803,6 @@ export class Analyzer {
             case "int16":
                 return TypeValue.Type_Int16;
             case "int32":
-            case "c.int":
                 return TypeValue.Type_Int32;
             case "int64":
                 return TypeValue.Type_Int64;
@@ -1821,10 +1815,8 @@ export class Analyzer {
             case "uint64":
                 return TypeValue.Type_UInt64;
             case "intsize":
-            case "c.ssize_t":
                 return TypeValue.Type_IntSize;
             case "uintsize":
-            case "c.size_t":
                 return TypeValue.Type_UIntSize;
             case "char":
                 return TypeValue.Type_Char;

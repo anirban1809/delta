@@ -298,7 +298,7 @@ export class VariableDeclarationStatementAnalyzer {
                   ? SymbolKind.SymbolLocalLet
                   : SymbolKind.SymbolLocalConst,
             type,
-            assigned: !!s.value || !!s.external,
+            assigned: !!s.value,
             value: s.value,
             declaration: s,
             moved: "active",

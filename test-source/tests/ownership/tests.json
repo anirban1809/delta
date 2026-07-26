@@ -265,12 +265,6 @@
     "note": "phase F semantic — structurally propagated uniqueness does not authorize custom cleanup without explicit `unique type`"
   },
   {
-    "file": "dispose_export_err.delta",
-    "expect": "fail",
-    "contains": "export",
-    "note": "phase F semantic — compiler-only dispose hooks cannot be exported"
-  },
-  {
     "file": "dispose_readonly_receiver_err.delta",
     "expect": "fail",
     "contains": "edit",

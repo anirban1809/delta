@@ -9,7 +9,7 @@ type struct dynamicstring = {
 type ds = dynamicstring;
 type text = ds;
 
-export function new_str(s: string): dynamicstring {
+function new_str(s: string): dynamicstring {
     const str = new ds {
         data: s,
         length: s.length,

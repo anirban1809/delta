@@ -1,8 +1,0 @@
-type struct Writer = {
-    marker: uint8
-};
-
-type struct output = {
-    marker: uint8
-} implements Writer;
-

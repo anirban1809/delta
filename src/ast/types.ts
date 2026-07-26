@@ -27,16 +27,6 @@ export function Position(line: number, column: number, start: number, end: numbe
 }
 
 /**
- * Root of a parsed program: the full set of modules that make up a build.
- *
- * Delta uses a multi-file module system, so a project aggregates every module
- * that was discovered and parsed together.
- */
-export type Project = {
-    modules: Module[];
-};
-
-/**
  * A single source file and the top-level declarations it contains.
  *
  * `fileName` is retained so diagnostics and later compiler stages can map a
@@ -45,88 +35,14 @@ export type Project = {
 export type Module = {
     fileName: string;
     declarations: Declaration[];
-    exportModule?: ModuleDeclaration;
-    /** C headers included by a declaration-only `.ffi.delta` module. */
-    ffiHeaders?: string[];
-    /** ABI module identity used by declarations supplied by a prebuilt Delta library. */
-    ffiModuleName?: string;
-    /** Prebuilt libraries that must participate in the final native link. */
-    ffiLibraries?: FfiLibrary[];
 };
 
-export type FfiLibrary = {
-    kind: "static" | "dynamic";
-    path: string;
-    position: Position;
-};
-
-/** A terminal `export module name;` declaration for an export-all namespace. */
-export type ModuleDeclaration = {
-    kind: "module_declaration";
-    position: Position;
-    name: Identifier;
-    /** Markdown documentation collected from an immediately preceding doc comment. */
-    documentation?: string;
-};
-
-/**
- * A top-level item in a module.
- *
- * Currently only function declarations are supported; this union is expected
- * to grow as more declaration forms (types, imports, etc.) are parsed.
- */
+/** A top-level item in a module: a function, file-scope constant, or type. */
 export type Declaration =
-    | InterfaceDeclaration
     | ImportDeclaration
     | FunctionDeclaration
     | VariableDeclarationStatement
     | TypeDeclaration;
-
-/** A single name in an ES-module-style named import list. */
-export type ImportSpecifier = {
-    name: Identifier;
-    position: Position;
-};
-
-export type InterfaceMethodRequirement = {
-    kind: "interface_method_requirement";
-    position: Position;
-    name: Identifier;
-    typeParameters?: Type[];
-    parameters: FunctionParameter[];
-    returnTypes: Type[];
-    errorTypes: Type[];
-    documentation?: string;
-};
-
-export type InterfaceDeclaration = {
-    kind: "interface_declaration";
-    position: Position;
-    name: Identifier;
-    methods: InterfaceMethodRequirement[];
-    documentation?: string;
-    exported?: boolean;
-    /** Originating ABI module when described by a generated `.ffi.delta` file. */
-    external?: { abi: "delta"; moduleName?: string };
-};
-
-/** A module dependency such as `import { add } from "./math";`. */
-export type ImportDeclaration = {
-    kind: "import_declaration";
-    position: Position;
-    pathPosition: Position;
-    specifiers: ImportSpecifier[];
-    /** Present for `import moduleName [as alias] from "path";`. */
-    namespace?: {
-        module: Identifier;
-        alias?: Identifier;
-    };
-    path: string;
-    resolvedPath?: string;
-    moduleName?: string;
-    /** Acknowledges that imported extern declarations follow C contracts. */
-    unsafe?: boolean;
-};
 
 /** A named reference in the source — the spelling of a symbol or type. */
 export type Identifier = {
@@ -171,10 +87,6 @@ export type Type = {
     }[];
     unionVariants?: Type[];
     typeParameters?: Type[];
-    /** Declaration-only interface constraints on a generic type parameter. */
-    interfaceBounds?: Type[];
-    /** `<...T>` marks the final generic declaration parameter as a type pack. */
-    variadic?: boolean;
     /** Non-owning reference capability (`&T` / `edit &T`). */
     reference?: boolean;
     /** Mutable, exclusive reference capability. Implies `reference`. */
@@ -217,8 +129,6 @@ export type StructDecl = {
     }[];
     /** Named records incorporated through spread/intersection composition. */
     compositions?: Type[];
-    /** Interfaces named by the source `implements` clause. */
-    implementedInterfaces?: Type[];
 };
 
 export type EnumDecl = {
@@ -247,12 +157,11 @@ export type TypeDeclaration = {
     declaration: StructDecl | EnumDecl | UnionDecl | TypeAlias;
     /** Markdown documentation collected from an immediately preceding doc comment. */
     documentation?: string;
-    exported?: boolean;
     /** Explicitly non-copyable user-defined type (`unique type ...`). */
     unique?: boolean;
-    /** Originating ABI module when this type is described by an FFI interface. */
-    external?: { abi: "delta"; moduleName?: string };
 };
+
+export type ImportDeclaration = any;
 
 /**
  * A function declaration.
@@ -274,43 +183,8 @@ export type FunctionDeclaration = {
     /** Markdown documentation collected from an immediately preceding doc comment. */
     documentation?: string;
     concreteTypesMap?: Map<string, Type[]>;
-    /** Complete type packs requested for the single variadic type parameter. */
-    concreteVariadicTypePacks?: Type[][];
-    /** Constrained receiver calls checked again for each concrete specialization. */
-    interfaceCalls?: {
-        typeParameter: string;
-        interfaceName: string;
-        methodName: string;
-        receiverEdit: boolean;
-        position: Position;
-    }[];
-    /** Set once this declaration's body has been analyzed. */
-    bodyAnalyzed?: boolean;
-    /**
-     * Specializations requested before this declaration's body was analyzed, so
-     * `interfaceCalls` was not yet complete. Receiver-capability validation for
-     * these is deferred to a post-pass, keeping the result independent of
-     * declaration order.
-     */
-    deferredSpecializations?: {
-        typeParameter: string;
-        concrete: Type;
-        fileName: string;
-        position: Position;
-    }[];
-    exported?: boolean;
     /** Receiver binding for `function (self: &T) method(...)`. */
     receiver?: FunctionParameter;
-    /** Present for a declaration in an `extern {}` block. */
-    external?:
-        | {
-              abi: "c";
-              linkName: string;
-          }
-        | {
-              abi: "delta";
-              moduleName?: string;
-          };
 };
 
 /** A single declared parameter of a function: its name and annotated type. */
@@ -318,8 +192,6 @@ export type FunctionParameter = {
     position: Position;
     name: Identifier;
     type: Type;
-    /** `...values: T`; the stored type is the desugared `T[]`. */
-    variadic?: boolean;
 };
 
 export type IfStatement = {
@@ -417,9 +289,6 @@ export type VariableDeclarationStatement = {
     asResult?: AsResultBinding;
     /** Markdown documentation for a file-scope constant declaration. */
     documentation?: string;
-    exported?: boolean;
-    /** Present when storage is supplied by a prebuilt Delta library. */
-    external?: { abi: "delta"; moduleName?: string };
 };
 
 /** A `{ … }` block introducing a nested scope with its own statements. */
@@ -531,8 +400,6 @@ export type MemberAccessExpression = {
     member: Identifier;
     receiverType: Type;
     enumMember?: boolean;
-    /** Qualified compile-time namespace reference resolved by semantic analysis. */
-    namespaceReference?: string;
 };
 
 /** A postfix array access (`receiver[index]`). */
@@ -611,8 +478,6 @@ export type FunctionCallExpression = {
     resolvedParameterTypes?: Type[];
     /** Receiver type name when this is a method call. */
     resolvedReceiverType?: string;
-    /** Original linker symbol for a resolved extern call. */
-    resolvedExternalLinkName?: string;
     /** Declared receiver reference used for method-call lowering. */
     resolvedReceiverParameter?: Type;
 };

@@ -77,7 +77,7 @@
                 },
                 {
                     "name": "keyword.declaration.delta",
-                    "match": "\\b(?:function|const|let|type|struct|enum|union|interface|implements|import|export|module|from|error)\\b"
+                    "match": "\\b(?:function|const|let|type|struct|enum|union|import|export|module|from|error)\\b"
                 },
                 {
                     "name": "keyword.operator.word.delta",
@@ -90,10 +90,6 @@
                 {
                     "name": "storage.type.primitive.delta",
                     "match": "\\b(?:int8|int16|int32|int64|intsize|uint8|uint16|uint32|uint64|uintsize|float32|float64|bool|char|string|void)\\b"
-                },
-                {
-                    "name": "entity.name.type.interface.delta",
-                    "match": "(?<=\\binterface\\s)[A-Za-z_][A-Za-z0-9_]*"
                 }
             ]
         },

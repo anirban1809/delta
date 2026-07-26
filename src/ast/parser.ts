@@ -1,6 +1,5 @@
 import type { Diagnostics } from "../diagnostics/diagnostics.js";
 import { Error } from "../diagnostics/diagnostics.js";
-import type { Tokenizer } from "./tokenizer.js";
 import { getTokenPosition, string, TokenKind, type Token } from "./tokens.js";
 import {
     documentationFromComments,
@@ -9,7 +8,6 @@ import {
 } from "./documentation.js";
 import {
     Position,
-    type Project,
     type Module,
     type Declaration,
     type FunctionDeclaration,
@@ -39,10 +37,6 @@ import {
     type EnumDecl,
     type MemberAccessExpression,
     type UnionDecl,
-    type ImportDeclaration,
-    type InterfaceDeclaration,
-    type InterfaceMethodRequirement,
-    type ModuleDeclaration,
     type AsResultBinding,
     type CheckBlockStatement,
     type ForwardStatement,
@@ -66,10 +60,6 @@ export class Parser {
     typeDecls: Map<string, TypeDeclaration>;
     objectValueDecls: Map<string, ObjectLiteralExpression>;
     objectNonValueDecls: Map<string, string>;
-    exportModule?: ModuleDeclaration;
-    ffiHeaders: string[];
-    ffiModuleName?: string;
-    ffiLibraries: NonNullable<Module["ffiLibraries"]>;
 
     constructor(filepath: string, d: Diagnostics) {
         this.diagnostics = d;
@@ -78,8 +68,6 @@ export class Parser {
         this.typeDecls = new Map();
         this.objectValueDecls = new Map();
         this.objectNonValueDecls = new Map();
-        this.ffiHeaders = [];
-        this.ffiLibraries = [];
     }
 
     /** Advances the cursor by one and returns the now-current token. */
@@ -333,33 +321,29 @@ export class Parser {
         }
 
         while (this.current().kind != TokenKind.Symbol_RightParen) {
-            const variadic = this.current().kind == TokenKind.Symbol_Ellipsis;
-            if (variadic) this.advance();
+            if (this.current().kind == TokenKind.Symbol_Ellipsis) {
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        this.getCurrentPosition(),
+                        "variadic parameters are not supported; declare a slice parameter such as `items: T[]` instead",
+                    ),
+                );
+                return;
+            }
             const p = this.expect(TokenKind.Kind_Identifier, "identifier expected");
             if (!p || !this.expect(TokenKind.Symbol_Colon, ": symbol expected")) return;
             const t = this.parseTypeReference(typeParams);
             if (!t) return;
-            if (variadic) t.slice = true;
             this.objectNonValueDecls.set(p.value, t.name.name);
 
             params.push({
                 position: getTokenPosition(p),
                 name: CreateIdentifier(p.value, getTokenPosition(p)),
                 type: t,
-                variadic: variadic || undefined,
             });
             if (this.current().kind == TokenKind.Symbol_Comma) {
-                if (variadic) {
-                    this.diagnostics.addError(
-                        Error(
-                            this.filepath,
-                            "parser",
-                            getTokenPosition(p),
-                            "a variadic parameter must be the final parameter",
-                        ),
-                    );
-                    return;
-                }
                 this.advance();
                 continue;
             }
@@ -430,8 +414,17 @@ export class Parser {
             this.current().kind != TokenKind.Symbol_Greater &&
             this.current().kind != TokenKind.Symbol_ShiftRight
         ) {
-            const variadic = decl && this.current().kind == TokenKind.Symbol_Ellipsis;
-            if (variadic) this.advance();
+            if (decl && this.current().kind == TokenKind.Symbol_Ellipsis) {
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        this.getCurrentPosition(),
+                        "variadic type parameters are not supported",
+                    ),
+                );
+                return;
+            }
             const tName = this.expect(TokenKind.Kind_Identifier, "type identifier expected");
             if (!tName) {
                 return;
@@ -465,17 +458,16 @@ export class Parser {
                 decl ? TypeValue.TypeGeneric : this.resolveTypeValue(sourceName),
                 getTokenPosition(tName),
             );
-            type.variadic = variadic || undefined;
             if (decl && this.current().kind == TokenKind.Symbol_Colon) {
-                this.advance();
-                type.interfaceBounds = [];
-                while (true) {
-                    const bound = this.parseTypeReference();
-                    if (!bound) return;
-                    type.interfaceBounds.push(bound);
-                    if (this.current().kind != TokenKind.Symbol_Ampersand) break;
-                    this.advance();
-                }
+                this.diagnostics.addError(
+                    Error(
+                        this.filepath,
+                        "parser",
+                        this.getCurrentPosition(),
+                        `type parameter bounds are not supported; declare \`${sourceName}\` without a constraint`,
+                    ),
+                );
+                return;
             }
             if (!decl && this.current().kind == TokenKind.Symbol_Less) {
                 type.typeParameters = this.parseTypeParams(false);
@@ -496,17 +488,6 @@ export class Parser {
             types.push(type);
 
             if (this.current().kind == TokenKind.Symbol_Comma) {
-                if (variadic) {
-                    this.diagnostics.addError(
-                        Error(
-                            this.filepath,
-                            "parser",
-                            type.position!,
-                            "a variadic type parameter must be the final type parameter",
-                        ),
-                    );
-                    return;
-                }
                 this.advance(); //consume comma
                 continue;
             }
@@ -523,17 +504,6 @@ export class Parser {
         this.advance(); //consume > symbol
 
         if (decl) {
-            if (types.filter((type) => type.variadic).length > 1) {
-                this.diagnostics.addError(
-                    Error(
-                        this.filepath,
-                        "parser",
-                        types.find((type) => type.variadic)!.position!,
-                        "a declaration may have only one variadic type parameter",
-                    ),
-                );
-                return;
-            }
             const seenTypeParameters = new Set<string>();
             const duplicateTypeParameter = types.find((type) => {
                 if (seenTypeParameters.has(type.name.name)) {
@@ -656,28 +626,15 @@ export class Parser {
 
         if (this.current().kind == TokenKind.Symbol_Semicolon) {
             const semicolon = this.advance();
-            if (!this.filepath.endsWith(".ffi.delta")) {
-                this.diagnostics.addError(
-                    Error(
-                        this.filepath,
-                        "parser",
-                        getTokenPosition(semicolon),
-                        "declaration-only Delta functions are only allowed in `.ffi.delta` files",
-                    ),
-                );
-            }
-            return {
-                position: fnPos,
-                kind: "function_declaration",
-                name: CreateIdentifier(fnName.value, getTokenPosition(fnName)),
-                parameters: params,
-                typeParameters: typeparams,
-                returnTypes,
-                errorTypes,
-                body: { kind: "block_statement", position: fnPos, statements: [] },
-                receiver,
-                external: { abi: "delta", moduleName: this.ffiModuleName },
-            };
+            this.diagnostics.addError(
+                Error(
+                    this.filepath,
+                    "parser",
+                    getTokenPosition(semicolon),
+                    "a function declaration requires a body",
+                ),
+            );
+            return;
         }
 
         const blockContext: any = {
@@ -1599,7 +1556,6 @@ export class Parser {
             case "int16":
                 return TypeValue.Type_Int16;
             case "int32":
-            case "c.int":
                 return TypeValue.Type_Int32;
             case "int64":
                 return TypeValue.Type_Int64;
@@ -1612,10 +1568,8 @@ export class Parser {
             case "uint64":
                 return TypeValue.Type_UInt64;
             case "intsize":
-            case "c.ssize_t":
                 return TypeValue.Type_IntSize;
             case "uintsize":
-            case "c.size_t":
                 return TypeValue.Type_UIntSize;
             case "char":
                 return TypeValue.Type_Char;
@@ -1717,24 +1671,6 @@ export class Parser {
         const varType = this.parseTypeReference(typeParams);
         if (!varType) return;
 
-        if (
-            this.current().kind == TokenKind.Symbol_Semicolon &&
-            modifier.value != "let" &&
-            file &&
-            this.filepath.endsWith(".ffi.delta")
-        ) {
-            this.advance();
-            return {
-                file: true,
-                kind: "variable_declaration_statement",
-                mutable: false,
-                name: CreateIdentifier(varNameIdent.value, getTokenPosition(varNameIdent)),
-                type: varType,
-                position: getTokenPosition(varNameIdent),
-                external: { abi: "delta", moduleName: this.ffiModuleName },
-            };
-        }
-
         if (this.current().kind == TokenKind.Symbol_Semicolon && modifier.value != "let") {
             this.diagnostics.addError(
                 Error(
@@ -1806,160 +1742,6 @@ export class Parser {
             value,
             asResult,
         };
-    }
-
-    parseInterfaceDeclaration(): U<InterfaceDeclaration> {
-        const keyword = this.advance();
-        const name = this.expect(TokenKind.Kind_Identifier, "interface name expected");
-        if (!name) return;
-        if (!this.expect(TokenKind.Symbol_LeftBrace, "{ expected after interface name")) return;
-
-        const methods: InterfaceMethodRequirement[] = [];
-        const methodNames = new Set<string>();
-        while (
-            this.current().kind != TokenKind.Symbol_RightBrace &&
-            this.current().kind != TokenKind.Kind_EOF
-        ) {
-            const documentation = this.takeDocumentationComments();
-            const fn = this.expect(
-                TokenKind.Keyword_Function,
-                "interface bodies may contain only function requirements",
-            );
-            if (!fn) {
-                this.skipLine();
-                continue;
-            }
-            if (this.current().kind == TokenKind.Symbol_LeftParen) {
-                this.diagnostics.addError(
-                    Error(
-                        this.filepath,
-                        "parser",
-                        this.getCurrentPosition(),
-                        "interface method requirements cannot declare a receiver",
-                    ),
-                );
-                this.synchronizeInterfaceMember();
-                continue;
-            }
-            const methodName = this.expect(
-                TokenKind.Kind_Identifier,
-                "interface method name expected",
-            );
-            if (!methodName) {
-                this.synchronizeInterfaceMember();
-                continue;
-            }
-            let typeParameters: Type[] = [];
-            if (this.current().kind == TokenKind.Symbol_Less) {
-                const parsed = this.parseTypeParams(true);
-                if (!parsed) {
-                    this.synchronizeInterfaceMember();
-                    continue;
-                }
-                typeParameters = parsed;
-            }
-            const parameters = this.parseFuncParams(typeParameters);
-            if (!parameters) {
-                this.synchronizeInterfaceMember();
-                continue;
-            }
-            let returnTypes: Type[] = [];
-            let errorTypes: Type[] = [];
-            if (this.current().kind == TokenKind.Symbol_Colon) {
-                this.advance();
-                const parsed = this.parseFuncReturnTypes(typeParameters);
-                if (!parsed) {
-                    this.synchronizeInterfaceMember();
-                    continue;
-                }
-                returnTypes = parsed;
-            }
-            if (this.current().kind == TokenKind.Symbol_Pipe) {
-                this.advance();
-                const parsed = this.parseFuncErrorTypes();
-                if (!parsed) {
-                    this.synchronizeInterfaceMember();
-                    continue;
-                }
-                errorTypes = parsed;
-            }
-            if (this.current().kind == TokenKind.Symbol_LeftBrace) {
-                this.diagnostics.addError(
-                    Error(
-                        this.filepath,
-                        "parser",
-                        this.getCurrentPosition(),
-                        "interface method requirements cannot have a body",
-                    ),
-                );
-                this.skipBalancedBlock();
-            } else if (
-                !this.expect(
-                    TokenKind.Symbol_Semicolon,
-                    "interface method requirement must end with ;",
-                )
-            ) {
-                this.synchronizeInterfaceMember();
-            }
-            if (methodNames.has(methodName.value)) {
-                this.diagnostics.addError(
-                    Error(
-                        this.filepath,
-                        "parser",
-                        getTokenPosition(methodName),
-                        `duplicate interface method requirement \`${methodName.value}\``,
-                    ),
-                );
-                continue;
-            }
-            methodNames.add(methodName.value);
-            methods.push({
-                kind: "interface_method_requirement",
-                position: getTokenPosition(fn),
-                name: CreateIdentifier(methodName.value, getTokenPosition(methodName)),
-                typeParameters: typeParameters.length ? typeParameters : undefined,
-                parameters,
-                returnTypes,
-                errorTypes,
-                documentation,
-            });
-        }
-        if (!this.expect(TokenKind.Symbol_RightBrace, "} expected after interface body")) return;
-        if (this.current().kind == TokenKind.Symbol_Semicolon) this.advance();
-        return {
-            kind: "interface_declaration",
-            position: getTokenPosition(keyword),
-            name: CreateIdentifier(name.value, getTokenPosition(name)),
-            methods,
-            external: this.filepath.endsWith(".ffi.delta")
-                ? { abi: "delta", moduleName: this.ffiModuleName }
-                : undefined,
-        };
-    }
-
-    private synchronizeInterfaceMember(): void {
-        while (
-            this.current().kind != TokenKind.Kind_EOF &&
-            this.current().kind != TokenKind.Symbol_Semicolon &&
-            this.current().kind != TokenKind.Symbol_RightBrace
-        ) {
-            if (this.current().kind == TokenKind.Symbol_LeftBrace) {
-                this.skipBalancedBlock();
-                return;
-            }
-            this.advance();
-        }
-        if (this.current().kind == TokenKind.Symbol_Semicolon) this.advance();
-    }
-
-    private skipBalancedBlock(): void {
-        if (this.current().kind != TokenKind.Symbol_LeftBrace) return;
-        let depth = 0;
-        do {
-            const token = this.advance();
-            if (token.kind == TokenKind.Symbol_LeftBrace) depth++;
-            if (token.kind == TokenKind.Symbol_RightBrace) depth--;
-        } while (depth > 0 && this.current().kind != TokenKind.Kind_EOF);
     }
 
     parseIfStatement(blockContext?: any): U<Statement> {
@@ -2695,30 +2477,6 @@ export class Parser {
             }
         }
         this.advance(); //consume ending brace
-        if (this.current().kind == TokenKind.Keyword_Implements) {
-            this.advance();
-            declaration.implementedInterfaces = [];
-            const seen = new Set<string>();
-            while (true) {
-                const implemented = this.parseTypeReference();
-                if (!implemented) return;
-                if (seen.has(implemented.name.name)) {
-                    this.diagnostics.addError(
-                        Error(
-                            this.filepath,
-                            "parser",
-                            implemented.position!,
-                            `type \`${declaration.name.name}\` lists interface \`${implemented.name.name}\` more than once`,
-                        ),
-                    );
-                } else {
-                    seen.add(implemented.name.name);
-                    declaration.implementedInterfaces.push(implemented);
-                }
-                if (this.current().kind != TokenKind.Symbol_Comma) break;
-                this.advance();
-            }
-        }
         if (!this.expect(TokenKind.Symbol_Semicolon, "; symbol expected")) {
             return;
         }
@@ -3062,377 +2820,17 @@ export class Parser {
         return;
     }
 
-    /** Parses a named import or `import module [as alias] from "path";`. */
-    parseImportDeclaration(): U<ImportDeclaration> {
-        const keyword = this.advance(); // consume import
-        let unsafe = false;
-        if (this.current().kind == TokenKind.Keyword_Unsafe) {
-            unsafe = true;
-            this.advance();
-        }
-        if (this.current().kind != TokenKind.Symbol_LeftBrace) {
-            const moduleName = this.expect(
-                TokenKind.Kind_Identifier,
-                "module identifier expected after import",
-            );
-            if (!moduleName) return;
-            let alias: Token | undefined;
-            if (this.current().kind == TokenKind.Keyword_As) {
-                this.advance();
-                alias = this.expect(TokenKind.Kind_Identifier, "module alias expected after as");
-                if (!alias) return;
-            }
-            if (!this.expect(TokenKind.Keyword_From, "from expected after module import")) return;
-            const modulePath = this.expect(
-                TokenKind.Kind_StringLiteral,
-                "module path string expected",
-            );
-            if (!modulePath) return;
-            if (!this.expect(TokenKind.Symbol_Semicolon, "; expected after import")) return;
-            return {
-                kind: "import_declaration",
-                position: getTokenPosition(keyword),
-                pathPosition: getTokenPosition(modulePath),
-                specifiers: [],
-                namespace: {
-                    module: CreateIdentifier(moduleName.value, getTokenPosition(moduleName)),
-                    alias: alias
-                        ? CreateIdentifier(alias.value, getTokenPosition(alias))
-                        : undefined,
-                },
-                path: modulePath.value.slice(1, -1),
-                unsafe,
-            };
-        }
-        if (!this.expect(TokenKind.Symbol_LeftBrace, "{ symbol expected after import")) {
-            return;
-        }
-
-        const specifiers: ImportDeclaration["specifiers"] = [];
-        while (this.current().kind != TokenKind.Symbol_RightBrace) {
-            const name = this.expect(TokenKind.Kind_Identifier, "imported identifier expected");
-            if (!name) {
-                return;
-            }
-            specifiers.push({
-                name: CreateIdentifier(name.value),
-                position: getTokenPosition(name),
-            });
-
-            if (this.current().kind == TokenKind.Symbol_Comma) {
-                this.advance();
-                continue;
-            }
-            if (this.current().kind != TokenKind.Symbol_RightBrace) {
-                this.diagnostics.addError(
-                    Error(
-                        this.filepath,
-                        "parser",
-                        this.getCurrentPosition(),
-                        "comma or } expected in import list",
-                    ),
-                );
-                return;
-            }
-        }
-        this.advance(); // consume }
-
-        if (!this.expect(TokenKind.Keyword_From, "from expected after import list")) {
-            return;
-        }
-        const modulePath = this.expect(TokenKind.Kind_StringLiteral, "module path string expected");
-        if (!modulePath) {
-            return;
-        }
-        if (!this.expect(TokenKind.Symbol_Semicolon, "; expected after import")) {
-            return;
-        }
-
-        return {
-            kind: "import_declaration",
-            position: getTokenPosition(keyword),
-            pathPosition: getTokenPosition(modulePath),
-            specifiers,
-            path: modulePath.value.slice(1, -1),
-            unsafe,
-        };
-    }
-
-    /** Parses header, ABI-module, and native-library metadata in an FFI interface file. */
-    parseFfiHeaderDeclaration(): void {
-        const ffiToken = this.advance();
-        if (!this.filepath.endsWith(".ffi.delta")) {
-            this.diagnostics.addError(
-                Error(
-                    this.filepath,
-                    "parser",
-                    getTokenPosition(ffiToken),
-                    "ffi header declarations are only allowed in `.ffi.delta` files",
-                ),
-            );
-        }
-        if (this.current().kind == TokenKind.Keyword_Module) {
-            this.advance();
-            const moduleName = this.expect(
-                TokenKind.Kind_StringLiteral,
-                "Delta ABI module name string expected after ffi module",
-            );
-            if (!moduleName) return;
-            if (!this.expect(TokenKind.Symbol_Semicolon, "; expected after ffi module")) return;
-            const value = moduleName.value.slice(1, -1);
-            if (!/^[A-Za-z0-9_]+(?:__[A-Za-z0-9_]+)*$/.test(value)) {
-                this.diagnostics.addError(
-                    Error(
-                        this.filepath,
-                        "parser",
-                        getTokenPosition(moduleName),
-                        "ffi module must be a valid Delta ABI module name",
-                    ),
-                );
-                return;
-            }
-            this.ffiModuleName = value;
-            return;
-        }
-        if (
-            this.current().kind == TokenKind.Keyword_Static ||
-            this.current().kind == TokenKind.Keyword_Dynamic
-        ) {
-            const kind = this.advance();
-            const libraryPath = this.expect(
-                TokenKind.Kind_StringLiteral,
-                `library path string expected after ffi ${kind.value}`,
-            );
-            if (!libraryPath) return;
-            if (!this.expect(TokenKind.Symbol_Semicolon, `; expected after ffi ${kind.value}`)) {
-                return;
-            }
-            const value = libraryPath.value.slice(1, -1);
-            if (!value.length) {
-                this.diagnostics.addError(
-                    Error(
-                        this.filepath,
-                        "parser",
-                        getTokenPosition(libraryPath),
-                        "FFI library path cannot be empty",
-                    ),
-                );
-                return;
-            }
-            this.ffiLibraries.push({
-                kind: kind.kind == TokenKind.Keyword_Static ? "static" : "dynamic",
-                path: value,
-                position: getTokenPosition(libraryPath),
-            });
-            return;
-        }
-        if (
-            !this.expect(
-                TokenKind.Keyword_Header,
-                "header, module, static or dynamic expected after ffi",
-            )
-        )
-            return;
-        const header = this.expect(
-            TokenKind.Kind_StringLiteral,
-            "C header string expected after ffi header",
-        );
-        if (!header) return;
-        if (!this.expect(TokenKind.Symbol_Semicolon, "; expected after ffi header")) return;
-        const spelling = header.value.slice(1, -1);
-        if (!/^<[^>]+>$/.test(spelling) && !/^"[^"]+"$/.test(spelling)) {
-            this.diagnostics.addError(
-                Error(
-                    this.filepath,
-                    "parser",
-                    getTokenPosition(header),
-                    'ffi header must use C include spelling such as `<unistd.h>` or `"library.h"`',
-                ),
-            );
-            return;
-        }
-        if (!this.ffiHeaders.includes(spelling)) this.ffiHeaders.push(spelling);
-    }
-
-    /** Parses declaration-only functions from `extern { ... }`. */
-    parseExternBlock(exported: boolean): FunctionDeclaration[] {
-        const externToken = this.advance();
-        if (!this.filepath.endsWith(".ffi.delta")) {
-            this.diagnostics.addError(
-                Error(
-                    this.filepath,
-                    "parser",
-                    getTokenPosition(externToken),
-                    "extern declarations are only allowed in `.ffi.delta` files",
-                ),
-            );
-        }
-        if (!this.expect(TokenKind.Symbol_LeftBrace, "{ expected after extern")) return [];
-
-        const declarations: FunctionDeclaration[] = [];
-        while (
-            this.current().kind != TokenKind.Symbol_RightBrace &&
-            this.current().kind != TokenKind.Kind_EOF
-        ) {
-            const documentation = this.takeDocumentationComments();
-            if (this.current().kind == TokenKind.Symbol_RightBrace) break;
-            const fnToken = this.expect(
-                TokenKind.Keyword_Function,
-                "extern block may contain only function declarations",
-            );
-            if (!fnToken) {
-                this.skipLine();
-                continue;
-            }
-            const fnName = this.expect(TokenKind.Kind_Identifier, "function name expected");
-            if (!fnName) {
-                this.skipLine();
-                continue;
-            }
-            const parameters = this.parseFuncParams();
-            if (!parameters) {
-                this.skipLine();
-                continue;
-            }
-            let returnTypes: Type[] = [];
-            if (this.current().kind == TokenKind.Symbol_Colon) {
-                this.advance();
-                const parsedReturns = this.parseFuncReturnTypes();
-                if (!parsedReturns) {
-                    this.skipLine();
-                    continue;
-                }
-                returnTypes = parsedReturns;
-            }
-            if (
-                !this.expect(
-                    TokenKind.Symbol_Semicolon,
-                    "extern function declaration must end with ; and cannot have a body",
-                )
-            ) {
-                this.synchronizeTopLevel(this.pos);
-                continue;
-            }
-            declarations.push({
-                position: getTokenPosition(fnToken),
-                kind: "function_declaration",
-                name: CreateIdentifier(fnName.value, getTokenPosition(fnName)),
-                parameters,
-                returnTypes,
-                errorTypes: [],
-                body: {
-                    kind: "block_statement",
-                    position: getTokenPosition(fnToken),
-                    statements: [],
-                },
-                documentation,
-                exported,
-                external: { abi: "c", linkName: fnName.value },
-            });
-        }
-        this.expect(TokenKind.Symbol_RightBrace, "} expected after extern declarations");
-        return declarations;
-    }
-
     /**
      * Parses every top-level declaration until end-of-file. Only `function`
      * declarations are recognized today; any other leading token is an error.
      */
     parseDecls(): U<Declaration[]> {
         const decls: Declaration[] = [];
-        let sawNonImportDeclaration = false;
-        let sawModuleDeclaration = false;
         while (this.current().kind != TokenKind.Kind_EOF) {
-            let documentation = this.takeDocumentationComments();
+            const documentation = this.takeDocumentationComments();
 
             if (this.current().kind == TokenKind.Kind_EOF) {
                 break;
-            }
-
-            if (sawModuleDeclaration) {
-                this.diagnostics.addError(
-                    Error(
-                        this.filepath,
-                        "parser",
-                        this.getCurrentPosition(),
-                        "export module must be the final non-comment declaration in the file",
-                    ),
-                );
-            }
-
-            if (this.current().kind == TokenKind.Keyword_Import) {
-                const declarationStart = this.pos;
-                if (sawNonImportDeclaration) {
-                    this.diagnostics.addError(
-                        Error(
-                            this.filepath,
-                            "parser",
-                            this.getCurrentPosition(),
-                            "imports must precede other declarations",
-                        ),
-                    );
-                }
-                const declaration = this.parseImportDeclaration();
-                if (declaration) {
-                    decls.push(declaration);
-                } else {
-                    this.synchronizeTopLevel(declarationStart);
-                }
-                continue;
-            }
-
-            if (this.current().kind == TokenKind.Keyword_Ffi) {
-                sawNonImportDeclaration = true;
-                this.parseFfiHeaderDeclaration();
-                continue;
-            }
-
-            let exported = false;
-            if (this.current().kind == TokenKind.Keyword_Export) {
-                exported = true;
-                const exportToken = this.advance();
-                documentation = this.takeDocumentationComments() ?? documentation;
-                if (this.current().kind == TokenKind.Keyword_Module) {
-                    const moduleToken = this.advance();
-                    const name = this.expect(
-                        TokenKind.Kind_Identifier,
-                        "module identifier expected after export module",
-                    );
-                    if (!name) {
-                        this.synchronizeTopLevel(this.pos - 2);
-                        continue;
-                    }
-                    if (!this.expect(TokenKind.Symbol_Semicolon, "; expected after module name")) {
-                        this.synchronizeTopLevel(this.pos - 3);
-                        continue;
-                    }
-                    if (this.exportModule) {
-                        this.diagnostics.addError(
-                            Error(
-                                this.filepath,
-                                "parser",
-                                getTokenPosition(moduleToken),
-                                "a file may declare export module only once",
-                            ),
-                        );
-                    } else {
-                        this.exportModule = {
-                            kind: "module_declaration",
-                            position: getTokenPosition(exportToken),
-                            name: CreateIdentifier(name.value, getTokenPosition(name)),
-                            documentation,
-                        };
-                    }
-                    sawModuleDeclaration = true;
-                    sawNonImportDeclaration = true;
-                    continue;
-                }
-            }
-            sawNonImportDeclaration = true;
-
-            if (this.current().kind == TokenKind.Keyword_Extern) {
-                decls.push(...this.parseExternBlock(exported));
-                continue;
             }
 
             if (
@@ -3453,16 +2851,7 @@ export class Parser {
                     this.synchronizeTopLevel(declarationStart);
                     continue;
                 }
-                if (decl.kind != "import_declaration") {
-                    decl.exported = exported;
-                    decl.documentation = documentation;
-                }
-                if (decl.kind == "type_declaration" && this.filepath.endsWith(".ffi.delta")) {
-                    decl.external = {
-                        abi: "delta",
-                        moduleName: this.ffiModuleName,
-                    };
-                }
+                decl.documentation = documentation;
                 decls.push(decl);
                 continue;
             }
@@ -3488,20 +2877,6 @@ export class Parser {
                     this.synchronizeTopLevel(declarationStart);
                     continue;
                 }
-                decl.exported = exported;
-                decl.documentation = documentation;
-                decls.push(decl);
-                continue;
-            }
-
-            if (this.current().kind == TokenKind.Keyword_Interface) {
-                const declarationStart = this.pos;
-                const decl = this.parseInterfaceDeclaration();
-                if (!decl) {
-                    this.synchronizeTopLevel(declarationStart);
-                    continue;
-                }
-                decl.exported = exported;
                 decl.documentation = documentation;
                 decls.push(decl);
                 continue;
@@ -3514,7 +2889,6 @@ export class Parser {
                     this.synchronizeTopLevel(declarationStart);
                     continue;
                 }
-                decl.exported = exported;
                 decl.documentation = documentation;
                 decls.push(decl);
                 continue;
@@ -3524,9 +2898,7 @@ export class Parser {
                         this.filepath,
                         "parser",
                         this.getCurrentPosition(),
-                        exported
-                            ? "export must be followed by function, type or const"
-                            : "keyword function, type or const expected",
+                        "keyword function, type or const expected",
                     ),
                 );
                 this.skipLine();
@@ -3565,16 +2937,10 @@ export class Parser {
         }
         const startsDeclaration = (kind: TokenKind) =>
             [
-                TokenKind.Keyword_Import,
-                TokenKind.Keyword_Export,
-                TokenKind.Keyword_Module,
                 TokenKind.Keyword_Type,
                 TokenKind.Keyword_Unique,
                 TokenKind.Keyword_Const,
                 TokenKind.Keyword_Function,
-                TokenKind.Keyword_Ffi,
-                TokenKind.Keyword_Extern,
-                TokenKind.Keyword_Interface,
             ].includes(kind);
 
         while (this.current().kind != TokenKind.Kind_EOF) {
@@ -3618,20 +2984,6 @@ export class Parser {
         return {
             fileName: this.filepath,
             declarations: decls,
-            exportModule: this.exportModule,
-            ffiHeaders: this.ffiHeaders.length ? this.ffiHeaders : undefined,
-            ffiModuleName: this.ffiModuleName,
-            ffiLibraries: this.ffiLibraries.length ? this.ffiLibraries : undefined,
-        };
-    }
-
-    /**
-     * Discovers and parses every Delta file under a project root, producing one
-     * {@link Module} per file. (Not yet implemented — returns an empty project.)
-     */
-    public parseProject(root: string, tokenizer: Tokenizer): Project {
-        return {
-            modules: [],
         };
     }
 }

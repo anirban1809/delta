@@ -4,15 +4,7 @@ import { documentationBefore } from "../ast/documentation.js";
 
 export type IndexedSymbol = {
     name: string;
-    kind:
-        | "function"
-        | "method"
-        | "type"
-        | "interface"
-        | "variable"
-        | "parameter"
-        | "field"
-        | "module";
+    kind: "function" | "method" | "type" | "variable" | "parameter" | "field";
     type?: string;
     signature?: string;
     /** Markdown documentation attached to the declaration. */
@@ -21,8 +13,6 @@ export type IndexedSymbol = {
     errorTypes?: string[];
     exported?: boolean;
     uri?: string;
-    importPath?: string;
-    namespaceKey?: string;
     token: Token;
     scope: LexicalScope;
 };
@@ -36,17 +26,6 @@ export function symbolMarkdown(symbol: IndexedSymbol): string {
     const signature = `\`\`\`delta\n${detail}\n\`\`\``;
     return symbol.documentation ? `${signature}\n\n${symbol.documentation}` : signature;
 }
-
-export type IndexedImport = {
-    kind: "named" | "module";
-    path: string;
-    names: string[];
-    moduleName?: string;
-    localName?: string;
-    leftBrace?: Token;
-    rightBrace?: Token;
-    end: number;
-};
 
 class LexicalScope {
     readonly symbols = new Map<string, IndexedSymbol>();
@@ -97,13 +76,6 @@ export class SourceIndex {
     readonly tokens: Token[];
     readonly root: LexicalScope;
     readonly structs = new Map<string, StructInfo>();
-    private readonly genericBounds = new Map<string, string[]>();
-    readonly namespaces = new Map<string, IndexedSymbol[]>();
-    readonly imports: IndexedImport[] = [];
-    readonly ffiModuleNames = new Set<string>();
-    private readonly interfaceRanges: { open: number; close: number }[] = [];
-    exportModuleName?: string;
-    moduleDeclaration?: IndexedSymbol;
 
     constructor(
         readonly source: string,
@@ -138,18 +110,14 @@ export class SourceIndex {
 
     /**
      * Finds documentation before a declaration, including comments placed
-     * before `export`/`unique` modifiers or immediately after `export`.
+     * before a `unique` modifier.
      */
     private documentationAt(index: number): string | undefined {
         const direct = documentationBefore(this.tokens, index);
         if (direct) return direct;
 
         let cursor = previous(this.tokens, index);
-        while (
-            cursor >= 0 &&
-            (this.tokens[cursor]!.kind === TokenKind.Keyword_Export ||
-                this.tokens[cursor]!.kind === TokenKind.Keyword_Unique)
-        ) {
+        while (cursor >= 0 && this.tokens[cursor]!.kind === TokenKind.Keyword_Unique) {
             const documentation = documentationBefore(this.tokens, cursor);
             if (documentation) return documentation;
             cursor = previous(this.tokens, cursor);
@@ -158,60 +126,17 @@ export class SourceIndex {
     }
 
     private indexDeclarations() {
-        for (let i = 0; i < this.tokens.length; i++) {
-            if (
-                this.tokens[i]!.kind === TokenKind.Keyword_Ffi &&
-                this.tokens[next(this.tokens, i)]?.kind === TokenKind.Keyword_Module
-            ) {
-                const name = this.tokens[next(this.tokens, next(this.tokens, i))];
-                if (name?.kind === TokenKind.Kind_StringLiteral) {
-                    this.ffiModuleNames.add(name.value.slice(1, -1));
-                }
-            }
-            if (
-                this.tokens[i]!.kind === TokenKind.Keyword_Export &&
-                this.tokens[next(this.tokens, i)]?.kind === TokenKind.Keyword_Module
-            ) {
-                const name = this.tokens[next(this.tokens, next(this.tokens, i))];
-                if (name?.kind === TokenKind.Kind_Identifier) {
-                    this.exportModuleName = name.value;
-                    this.moduleDeclaration = {
-                        name: name.value,
-                        kind: "module",
-                        signature: `export module ${name.value}`,
-                        documentation: this.documentationAt(i),
-                        exported: true,
-                        uri: this.uri,
-                        token: name,
-                        scope: this.root,
-                    };
-                }
-            }
-        }
         // Index record shapes first so receiver functions can attach to types
         // even when a method appears before its record declaration.
         for (let i = 0; i < this.tokens.length; i++) {
             if (this.tokens[i]!.kind === TokenKind.Keyword_Type) this.indexType(i);
-            if (this.tokens[i]!.kind === TokenKind.Keyword_Interface) this.indexInterface(i);
         }
         for (let i = 0; i < this.tokens.length; i++) {
             const token = this.tokens[i]!;
-            if (
-                token.kind === TokenKind.Keyword_Function &&
-                !this.interfaceRanges.some((range) => range.open < i && i < range.close)
-            )
-                this.indexFunction(i);
+            if (token.kind === TokenKind.Keyword_Function) this.indexFunction(i);
             if (token.kind === TokenKind.Keyword_Const || token.kind === TokenKind.Keyword_Let)
                 this.indexVariable(i);
-            if (token.kind === TokenKind.Keyword_Import) this.indexImport(i);
         }
-    }
-
-    private isExported(index: number): boolean {
-        return (
-            !!this.exportModuleName ||
-            this.tokens[previous(this.tokens, index)]?.kind === TokenKind.Keyword_Export
-        );
     }
 
     private text(start: number, end: number): string {
@@ -261,37 +186,7 @@ export class SourceIndex {
         return names;
     }
 
-    private indexTypeParameterBounds(open: number, close: number) {
-        let parameterName: string | undefined;
-        let inBounds = false;
-        let nested = 0;
-        for (let i = open + 1; i < close; i++) {
-            const token = this.tokens[i]!;
-            if (token.kind === TokenKind.Symbol_Less) nested++;
-            else if (token.kind === TokenKind.Symbol_Greater && nested > 0) nested--;
-            if (nested > 0) continue;
-            if (token.kind === TokenKind.Symbol_Comma) {
-                parameterName = undefined;
-                inBounds = false;
-                continue;
-            }
-            if (!parameterName && token.kind === TokenKind.Kind_Identifier) {
-                parameterName = token.value;
-                continue;
-            }
-            if (token.kind === TokenKind.Symbol_Colon) {
-                inBounds = true;
-                continue;
-            }
-            if (inBounds && parameterName && token.kind === TokenKind.Kind_Identifier) {
-                const bounds = this.genericBounds.get(parameterName) ?? [];
-                if (!bounds.includes(token.value)) bounds.push(token.value);
-                this.genericBounds.set(parameterName, bounds);
-            }
-        }
-    }
-
-    private indexFunction(index: number, interfaceName?: string, boundary?: number) {
+    private indexFunction(index: number) {
         let nameIndex = next(this.tokens, index);
         let receiverName: Token | undefined;
         let receiverType: string | undefined;
@@ -317,7 +212,6 @@ export class SourceIndex {
             const closeTypes = this.matchingAngle(open);
             if (closeTypes < 0) return;
             typeParameters = this.typeParameterNames(open, closeTypes);
-            this.indexTypeParameterBounds(open, closeTypes);
             open = next(this.tokens, closeTypes);
         }
         if (this.tokens[open]?.kind !== TokenKind.Symbol_LeftParen) return;
@@ -369,9 +263,8 @@ export class SourceIndex {
             parameters.push(`${parameter.value}: ${type}`);
         }
         let terminator = close + 1;
-        const limit = boundary ?? this.tokens.length;
         while (
-            terminator < limit &&
+            terminator < this.tokens.length &&
             ![TokenKind.Symbol_LeftBrace, TokenKind.Symbol_Semicolon].includes(
                 this.tokens[terminator]!.kind,
             )
@@ -382,12 +275,10 @@ export class SourceIndex {
             this.tokens[terminator]?.kind === TokenKind.Symbol_LeftBrace ? terminator : -1;
         const requirementEnd =
             this.tokens[terminator]?.kind === TokenKind.Symbol_Semicolon ? terminator : -1;
-        const previousIndex = previous(this.tokens, index);
-        const signatureStart =
-            this.tokens[previousIndex]?.kind === TokenKind.Keyword_Export ? previousIndex : index;
+        const signatureStart = index;
         const symbol: IndexedSymbol = {
             name: name.value,
-            kind: receiverType || interfaceName ? "method" : "function",
+            kind: receiverType ? "method" : "function",
             type: returnType,
             signature:
                 bodyOpen >= 0
@@ -405,20 +296,11 @@ export class SourceIndex {
             documentation: this.documentationAt(index),
             typeParameters,
             errorTypes,
-            exported: this.isExported(index),
             uri: this.uri,
             token: name,
             scope: this.root,
         };
-        if (interfaceName) {
-            const interfaceInfo = this.structs.get(interfaceName);
-            if (
-                interfaceInfo &&
-                !interfaceInfo.fields.some((member) => member.name === name.value)
-            ) {
-                interfaceInfo.fields.push(symbol);
-            }
-        } else if (receiverType) {
+        if (receiverType) {
             const receiverInfo = this.structs.get(this.baseTypeName(receiverType));
             if (receiverInfo && !receiverInfo.fields.some((member) => member.name === name.value)) {
                 receiverInfo.fields.push(symbol);
@@ -458,38 +340,6 @@ export class SourceIndex {
         }
     }
 
-    private indexInterface(index: number) {
-        const nameIndex = next(this.tokens, index);
-        const name = this.tokens[nameIndex];
-        if (!name || name.kind !== TokenKind.Kind_Identifier) return;
-        const open = next(this.tokens, nameIndex);
-        if (this.tokens[open]?.kind !== TokenKind.Symbol_LeftBrace) return;
-        const close = this.match(open, TokenKind.Symbol_LeftBrace, TokenKind.Symbol_RightBrace);
-        if (close < 0) return;
-        this.interfaceRanges.push({ open, close });
-
-        const signatureStart = this.isExported(index) ? previous(this.tokens, index) : index;
-        this.add({
-            name: name.value,
-            kind: "interface",
-            type: name.value,
-            signature: this.source
-                .slice(this.tokens[signatureStart]!.start, this.tokens[close]!.end)
-                .trim(),
-            documentation: this.documentationAt(index),
-            exported: this.isExported(index),
-            uri: this.uri,
-            token: name,
-            scope: this.root,
-        });
-        this.structs.set(name.value, { fields: [] });
-        for (let i = open + 1; i < close; i++) {
-            if (this.tokens[i]!.kind === TokenKind.Keyword_Function) {
-                this.indexFunction(i, name.value, close);
-            }
-        }
-    }
-
     private indexVariable(index: number) {
         const nameIndex = next(this.tokens, index);
         const name = this.tokens[nameIndex];
@@ -504,7 +354,6 @@ export class SourceIndex {
             type,
             signature: `${this.tokens[index]!.value} ${name.value}${type ? `: ${type}` : ""}`,
             documentation: this.documentationAt(index),
-            exported: scope === this.root && this.isExported(index),
             uri: this.uri,
             token: name,
             scope,
@@ -570,7 +419,7 @@ export class SourceIndex {
         const declarationEnd = this.tokens.findIndex(
             (token, i) => i > cursor && token.kind === TokenKind.Symbol_Semicolon,
         );
-        const signatureStart = this.isExported(index) ? previous(this.tokens, index) : index;
+        const signatureStart = index;
         const symbol: IndexedSymbol = {
             name: name.value,
             kind: "type",
@@ -584,7 +433,6 @@ export class SourceIndex {
                     : undefined,
             documentation: this.documentationAt(index),
             typeParameters,
-            exported: this.isExported(index),
             uri: this.uri,
             token: name,
             scope: this.root,
@@ -629,89 +477,6 @@ export class SourceIndex {
         }
     }
 
-    private indexImport(index: number) {
-        const leftIndex = next(this.tokens, index);
-        const leftBrace = this.tokens[leftIndex];
-        if (leftBrace?.kind !== TokenKind.Symbol_LeftBrace) {
-            const moduleToken = leftBrace;
-            if (moduleToken?.kind !== TokenKind.Kind_Identifier) return;
-            let cursor = next(this.tokens, leftIndex);
-            let localToken = moduleToken;
-            if (this.tokens[cursor]?.kind === TokenKind.Keyword_As) {
-                cursor = next(this.tokens, cursor);
-                const alias = this.tokens[cursor];
-                if (alias?.kind !== TokenKind.Kind_Identifier) return;
-                localToken = alias;
-                cursor = next(this.tokens, cursor);
-            }
-            if (this.tokens[cursor]?.kind !== TokenKind.Keyword_From) return;
-            const pathIndex = next(this.tokens, cursor);
-            const pathToken = this.tokens[pathIndex];
-            if (pathToken?.kind !== TokenKind.Kind_StringLiteral) return;
-            const semicolonIndex = next(this.tokens, pathIndex);
-            const importPath = pathToken.value.replace(/^['"]|['"]$/g, "");
-            this.imports.push({
-                kind: "module",
-                path: importPath,
-                names: [localToken.value],
-                moduleName: moduleToken.value,
-                localName: localToken.value,
-                end:
-                    this.tokens[semicolonIndex]?.kind === TokenKind.Symbol_Semicolon
-                        ? this.tokens[semicolonIndex]!.end
-                        : pathToken.end,
-            });
-            this.add({
-                name: localToken.value,
-                kind: "module",
-                namespaceKey: localToken.value,
-                importPath,
-                uri: this.uri,
-                token: localToken,
-                scope: this.root,
-                exported: !!this.exportModuleName,
-            });
-            return;
-        }
-        const rightIndex = this.match(
-            leftIndex,
-            TokenKind.Symbol_LeftBrace,
-            TokenKind.Symbol_RightBrace,
-        );
-        if (rightIndex < 0) return;
-        const fromIndex = next(this.tokens, rightIndex);
-        const pathIndex = next(this.tokens, fromIndex);
-        if (this.tokens[fromIndex]?.kind !== TokenKind.Keyword_From) return;
-        const pathToken = this.tokens[pathIndex];
-        if (pathToken?.kind !== TokenKind.Kind_StringLiteral) return;
-        const importPath = pathToken.value.replace(/^['"]|['"]$/g, "");
-        const semicolonIndex = next(this.tokens, pathIndex);
-        const names = this.tokens
-            .slice(leftIndex + 1, rightIndex)
-            .filter((token) => token.kind === TokenKind.Kind_Identifier);
-        this.imports.push({
-            kind: "named",
-            path: importPath,
-            names: names.map((token) => token.value),
-            leftBrace,
-            rightBrace: this.tokens[rightIndex]!,
-            end:
-                this.tokens[semicolonIndex]?.kind === TokenKind.Symbol_Semicolon
-                    ? this.tokens[semicolonIndex]!.end
-                    : pathToken.end,
-        });
-        for (const token of names) {
-            this.add({
-                name: token.value,
-                kind: "variable",
-                importPath,
-                uri: this.uri,
-                token,
-                scope: this.root,
-            });
-        }
-    }
-
     private indexResultBindings() {
         for (let i = 0; i < this.tokens.length; i++) {
             if (this.tokens[i]!.kind !== TokenKind.Keyword_As) continue;
@@ -732,7 +497,6 @@ export class SourceIndex {
                 statementStart--;
             }
             const statementTokens = this.tokens.slice(statementStart + 1, i);
-            if (statementTokens.some((token) => token.kind === TokenKind.Keyword_Import)) continue;
             if (statementTokens.some((token) => token.kind === TokenKind.Keyword_Check)) continue;
 
             let sourceFunction: IndexedSymbol | undefined;
@@ -797,7 +561,6 @@ export class SourceIndex {
         if (index < 0) return undefined;
         const token = this.tokens[index]!;
         if (token.kind !== TokenKind.Kind_Identifier) return undefined;
-        if (this.moduleDeclaration?.token.start === token.start) return this.moduleDeclaration;
         for (const info of this.structs.values()) {
             const declaredMember = info.fields.find((member) => member.token.start === token.start);
             if (declaredMember) return declaredMember;
@@ -883,11 +646,6 @@ export class SourceIndex {
         const receiverIndex = previous(this.tokens, previous(this.tokens, memberIndex));
         if (receiverIndex < 0) return undefined;
         const receiver = this.resolveToken(receiverIndex);
-        if (receiver?.kind === "module") {
-            return this.namespaces
-                .get(receiver.namespaceKey ?? receiver.name)
-                ?.find((member) => member.name === this.tokens[memberIndex]!.value);
-        }
         const type = receiver?.type ?? receiver?.name;
         return type
             ? this.fieldsFor(type).find((field) => field.name === this.tokens[memberIndex]!.value)
@@ -903,20 +661,8 @@ export class SourceIndex {
     }
 
     fieldsFor(typeName: string): IndexedSymbol[] {
-        const namespace = this.namespaces.get(typeName);
-        if (namespace) return namespace;
         const seen = new Set<string>();
         let type = this.baseTypeName(typeName);
-        const bounds = this.genericBounds.get(type);
-        if (bounds?.length) {
-            return [
-                ...new Map(
-                    bounds
-                        .flatMap((bound) => this.structs.get(bound)?.fields ?? [])
-                        .map((member) => [member.name, member]),
-                ).values(),
-            ];
-        }
         while (!seen.has(type)) {
             seen.add(type);
             const info = this.structs.get(type);
@@ -939,122 +685,6 @@ export class SourceIndex {
         return type.replace(/<.*>$/, "").replace(/\[.*$/, "").trim();
     }
 
-    exportedSymbols(): IndexedSymbol[] {
-        return [...this.root.symbols.values()].filter(
-            (symbol) => !!this.exportModuleName || symbol.exported === true,
-        );
-    }
-
-    importedNames(): Set<string> {
-        return new Set(this.imports.flatMap((declaration) => declaration.names));
-    }
-
-    linkImports(
-        resolve: (
-            importPath: string,
-            name: string,
-        ) => { symbol: IndexedSymbol; struct?: StructInfo } | undefined,
-        resolveModule?: (
-            importPath: string,
-            moduleName: string,
-        ) =>
-            | {
-                  symbols: IndexedSymbol[];
-                  structs: Map<string, StructInfo>;
-                  namespaces: Map<string, IndexedSymbol[]>;
-                  declaration?: IndexedSymbol;
-              }
-            | undefined,
-    ) {
-        for (const declaration of this.imports) {
-            if (declaration.kind === "module") {
-                const localName = declaration.localName!;
-                const external = resolveModule?.(declaration.path, declaration.moduleName!);
-                if (!external) continue;
-                const binding = this.root.symbols.get(localName);
-                if (binding && external.declaration) {
-                    binding.signature = external.declaration.signature;
-                    binding.documentation = external.declaration.documentation;
-                    binding.uri = external.declaration.uri;
-                    binding.token = external.declaration.token;
-                }
-                this.namespaces.set(
-                    localName,
-                    external.symbols.map((symbol) => ({
-                        ...symbol,
-                        namespaceKey:
-                            symbol.kind === "module"
-                                ? `${localName}.${symbol.name}`
-                                : symbol.namespaceKey,
-                        scope: this.root,
-                        importPath: declaration.path,
-                    })),
-                );
-                for (const symbol of external.symbols) {
-                    if (symbol.kind !== "module") continue;
-                    const sourceKey = symbol.namespaceKey ?? symbol.name;
-                    const members = external.namespaces.get(sourceKey);
-                    if (members) this.namespaces.set(`${localName}.${symbol.name}`, members);
-                }
-                for (const [name, struct] of external.structs) {
-                    this.structs.set(`${localName}.${name}`, struct);
-                }
-                continue;
-            }
-            for (const name of declaration.names) {
-                const external = resolve(declaration.path, name);
-                if (!external) continue;
-                this.root.symbols.set(name, {
-                    ...external.symbol,
-                    name,
-                    scope: this.root,
-                    importPath: declaration.path,
-                });
-                if (external.struct) this.structs.set(name, external.struct);
-            }
-        }
-        this.indexResultBindings();
-    }
-
-    autoImportEdit(
-        name: string,
-        importPath: string,
-        importKind: "named" | "module" = "named",
-    ): { start: number; end: number; newText: string } | undefined {
-        if (this.root.symbols.has(name) || this.importedNames().has(name)) return undefined;
-        if (
-            importKind === "module" &&
-            this.imports.some(
-                (declaration) => declaration.kind === "module" && declaration.path === importPath,
-            )
-        ) {
-            return undefined;
-        }
-        const insertion = this.imports.length ? this.imports[this.imports.length - 1]!.end : 0;
-        if (importKind === "module") {
-            return {
-                start: insertion,
-                end: insertion,
-                newText: `${insertion ? "\n" : ""}import ${name} from "${importPath}";\n`,
-            };
-        }
-        const existing = this.imports.find(
-            (declaration) => declaration.kind === "named" && declaration.path === importPath,
-        );
-        if (existing?.rightBrace) {
-            return {
-                start: existing.rightBrace.start,
-                end: existing.rightBrace.start,
-                newText: `${existing.names.length ? ", " : ""}${name}`,
-            };
-        }
-        return {
-            start: insertion,
-            end: insertion,
-            newText: `${insertion ? "\n" : ""}import { ${name} } from "${importPath}";\n`,
-        };
-    }
-
     completions(offset: number): IndexedSymbol[] {
         let index = this.tokens.findIndex((token) => token.start <= offset && offset < token.end);
         if (
@@ -1066,9 +696,7 @@ export class SourceIndex {
         else index = this.tokens.reduce((best, token, i) => (token.end <= offset ? i : best), -1);
         if (this.tokens[index]?.kind === TokenKind.Symbol_Dot) {
             const receiver = this.resolveToken(previous(this.tokens, index));
-            return receiver
-                ? this.fieldsFor(receiver.namespaceKey ?? receiver.type ?? receiver.name)
-                : [];
+            return receiver ? this.fieldsFor(receiver.type ?? receiver.name) : [];
         }
         const visible: IndexedSymbol[] = [];
         for (

@@ -1,7 +1,0 @@
-function arity<...T>(...values: T): uint8 {
-    return uint8(values.length);
-}
-
-function main(): uint8 {
-    return arity();
-}

@@ -11,7 +11,6 @@ import {
     type FunctionCallExpression,
     type FunctionDeclaration,
     type Identifier,
-    type InterfaceDeclaration,
     type IndexExpression,
     type MemberAccessExpression,
     type ObjectLiteralExpression,
@@ -79,18 +78,6 @@ export class ExpressionAnalyzer {
                             "semantic",
                             e.position,
                             "unknown identifier: use of undeclared name `" + e.name + "`",
-                        ),
-                    );
-                    return CreateType("invalid", TypeValue.TypeInvalid);
-                }
-
-                if (s.kind == SymbolKind.SymbolModule) {
-                    this.diagnostics.addError(
-                        Error(
-                            this.diagnostics.fileName,
-                            "semantic",
-                            e.position,
-                            `module binding \`${s.name}\` is not a runtime value`,
                         ),
                     );
                     return CreateType("invalid", TypeValue.TypeInvalid);
@@ -206,46 +193,6 @@ export class ExpressionAnalyzer {
                 return this.analyzeObjectLiteral(e, scope);
 
             case "member_access_expression":
-                const qualifiedName = this.qualifiedExpressionName(e);
-                const namespaceSymbol = qualifiedName ? scope.getSymbol(qualifiedName) : undefined;
-                const namespaceOwner = qualifiedName
-                    ? this.namespaceOwner(qualifiedName, scope)
-                    : undefined;
-                if (namespaceSymbol) {
-                    if (namespaceSymbol.kind == SymbolKind.SymbolModule) {
-                        this.diagnostics.addError(
-                            Error(
-                                this.diagnostics.fileName,
-                                "semantic",
-                                e.position,
-                                `module binding \`${qualifiedName}\` is not a runtime value`,
-                            ),
-                        );
-                        return CreateType("invalid", TypeValue.TypeInvalid);
-                    }
-                    e.namespaceReference = qualifiedName;
-                    if (namespaceSymbol.type) return structuredClone(namespaceSymbol.type);
-                    this.diagnostics.addError(
-                        Error(
-                            this.diagnostics.fileName,
-                            "semantic",
-                            e.position,
-                            `namespace member \`${qualifiedName}\` is not a value`,
-                        ),
-                    );
-                    return CreateType("invalid", TypeValue.TypeInvalid);
-                }
-                if (namespaceOwner) {
-                    this.diagnostics.addError(
-                        Error(
-                            this.diagnostics.fileName,
-                            "semantic",
-                            e.position,
-                            `module \`${namespaceOwner}\` has no exported member \`${e.member.name}\``,
-                        ),
-                    );
-                    return CreateType("invalid", TypeValue.TypeInvalid);
-                }
                 e.receiverType = this.analyze(e.receiver, scope);
                 return (
                     this.analyzeMemberAccessExpression(e, scope) ??
@@ -1238,41 +1185,6 @@ export class ExpressionAnalyzer {
      */
     analyzeFunctionCallExpression(scope: Scope, e: FunctionCallExpression): U<Type> {
         if (e.callee.kind == "member_access_expression") {
-            const qualifiedName = this.qualifiedExpressionName(e.callee);
-            const namespaceSymbol = qualifiedName ? scope.getSymbol(qualifiedName) : undefined;
-            const namespaceOwner = qualifiedName
-                ? this.namespaceOwner(qualifiedName, scope)
-                : undefined;
-            if (namespaceSymbol && namespaceSymbol.kind != SymbolKind.SymbolModule) {
-                e.callee = {
-                    kind: "identifier",
-                    name: qualifiedName!,
-                    position: e.callee.position,
-                };
-                return this.analyzeFunctionCallExpression(scope, e);
-            }
-            if (namespaceSymbol?.kind == SymbolKind.SymbolModule) {
-                this.diagnostics.addError(
-                    Error(
-                        this.diagnostics.fileName,
-                        "semantic",
-                        e.position,
-                        `module binding \`${qualifiedName}\` is not callable`,
-                    ),
-                );
-                return CreateType("invalid", TypeValue.TypeInvalid);
-            }
-            if (namespaceOwner) {
-                this.diagnostics.addError(
-                    Error(
-                        this.diagnostics.fileName,
-                        "semantic",
-                        e.position,
-                        `module \`${namespaceOwner}\` has no exported member \`${e.callee.member.name}\``,
-                    ),
-                );
-                return CreateType("invalid", TypeValue.TypeInvalid);
-            }
             return this.analyzeMethodCall(scope, e, e.callee);
         }
         const calleeName = e.callee.kind == "identifier" ? e.callee.name : "";
@@ -1291,14 +1203,8 @@ export class ExpressionAnalyzer {
                 return CreateType("invalid", TypeValue.TypeInvalid);
             }
 
-            if (sym.signature.parameters.some((parameter) => parameter.variadic)) {
-                return this.analyzeVariadicFunctionCall(e, sym.signature, scope);
-            }
-
             const paramCount = sym.signature.parameters.length;
             const argCount = e.arguments.length;
-            e.resolvedExternalLinkName =
-                sym.signature.external?.abi == "c" ? sym.signature.external.linkName : undefined;
             e.resolvedParameterTypes = sym.signature.parameters.map((parameter) => parameter.type);
             let concreteTypesMap = new Map<string, Type[]>();
             const typeParameters = sym.signature.typeParameters ?? [];
@@ -1360,15 +1266,6 @@ export class ExpressionAnalyzer {
                 let argT = this.analyze(x, scope, wantT);
                 if (argT.value == TypeValue.TypeInvalid) return;
 
-                // Delta strings have stable UTF-8 byte storage for the duration
-                // of a call and may be viewed as a C const void buffer.
-                if (
-                    this.typeAnalyzer.isCConstVoidPointer(wantT) &&
-                    argT.value == TypeValue.Type_String
-                ) {
-                    return;
-                }
-
                 if (wantT?.value == TypeValue.TypeCustom && wantT.typeParameters?.length) {
                     wantT.typeParameters.forEach((typeArgument, argumentIndex) => {
                         if (typeArgument.value != TypeValue.TypeGeneric) {
@@ -1429,10 +1326,10 @@ export class ExpressionAnalyzer {
                     }
                     if (!typeSymbol.type) {
                         // The name resolves to a symbol that carries no value
-                        // type, such as an interface. Declaring the parameter
-                        // that way was already reported against the callee, so
-                        // this argument is left alone rather than matched
-                        // against a type that does not exist.
+                        // type. Declaring the parameter that way was already
+                        // reported against the callee, so this argument is left
+                        // alone rather than matched against a type that does
+                        // not exist.
                         return;
                     }
                     const bindings = new Map<string, Type>();
@@ -1586,18 +1483,6 @@ export class ExpressionAnalyzer {
                 return CreateType("invalid", TypeValue.TypeInvalid);
             }
 
-            if (
-                !this.validateInterfaceBounds(
-                    typeParameters,
-                    genericTypes,
-                    scope,
-                    e.position,
-                    sym.signature.declaration,
-                )
-            ) {
-                return CreateType("invalid", TypeValue.TypeInvalid);
-            }
-
             const returnTypeBindings = new Map<string, Type>();
             typeParameters.forEach((typeParameter, index) => {
                 returnTypeBindings.set(typeParameter.name.name, genericTypes[index]!);
@@ -1682,229 +1567,6 @@ export class ExpressionAnalyzer {
         return convSig.returnTypes[0]!;
     }
 
-    private analyzeVariadicFunctionCall(
-        call: FunctionCallExpression,
-        signature: FunctionSignature,
-        scope: Scope,
-    ): Type {
-        const declaration = signature.declaration;
-        const parameters = signature.parameters;
-        const variadicParameterIndex = parameters.findIndex((parameter) => parameter.variadic);
-        const variadicParameter = parameters[variadicParameterIndex]!;
-        const typeParameters = signature.typeParameters ?? [];
-        const variadicTypeParameter = typeParameters.find((parameter) => parameter.variadic);
-        const fixedTypeParameters = typeParameters.filter((parameter) => !parameter.variadic);
-
-        if (variadicParameterIndex != parameters.length - 1) {
-            this.diagnostics.addError(
-                Error(
-                    this.diagnostics.fileName,
-                    "semantic",
-                    variadicParameter.position,
-                    "a variadic parameter must be the final parameter",
-                ),
-            );
-            return CreateType("invalid", TypeValue.TypeInvalid);
-        }
-        if (call.arguments.length < variadicParameterIndex) {
-            this.diagnostics.addError(
-                Error(
-                    this.diagnostics.fileName,
-                    "semantic",
-                    call.position,
-                    `function ${signature.name} expects at least ${variadicParameterIndex} arguments, found ${call.arguments.length}`,
-                ),
-            );
-            return CreateType("invalid", TypeValue.TypeInvalid);
-        }
-
-        const explicit = call.genericTypes ?? [];
-        if (explicit.length && explicit.length < fixedTypeParameters.length) {
-            this.diagnostics.addError(
-                Error(
-                    this.diagnostics.fileName,
-                    "semantic",
-                    call.position,
-                    `mismatched type parameter count, want at least ${fixedTypeParameters.length}, got ${explicit.length}`,
-                ),
-            );
-            return CreateType("invalid", TypeValue.TypeInvalid);
-        }
-        const fixedBindings = new Map<string, Type>();
-        fixedTypeParameters.forEach((parameter, index) => {
-            const concrete = explicit[index];
-            if (concrete) fixedBindings.set(parameter.name.name, concrete);
-        });
-
-        let invalid = false;
-        const resolvedParameterTypes: Type[] = [];
-        for (let index = 0; index < variadicParameterIndex; index++) {
-            const parameter = parameters[index]!;
-            let expected = this.typeAnalyzer.substituteType(parameter.type, fixedBindings);
-            const actual = this.analyze(call.arguments[index]!, scope, expected);
-            if (actual.value == TypeValue.TypeInvalid) {
-                invalid = true;
-                continue;
-            }
-            if (parameter.type.value == TypeValue.TypeGeneric) {
-                const existing = fixedBindings.get(parameter.type.name.name);
-                if (!existing) {
-                    fixedBindings.set(
-                        parameter.type.name.name,
-                        this.inferGenericArgument(parameter.type, actual) ?? actual,
-                    );
-                    expected = this.typeAnalyzer.substituteType(parameter.type, fixedBindings);
-                }
-            }
-            if (!this.referenceCompatible(expected, actual, scope)) {
-                this.diagnostics.addError(
-                    Error(
-                        this.diagnostics.fileName,
-                        "semantic",
-                        call.arguments[index]!.position,
-                        `argument ${index + 1} of function ${signature.name} has type \`${this.typeAnalyzer.displayName(actual)}\`, want \`${this.typeAnalyzer.displayName(expected)}\``,
-                    ),
-                );
-                invalid = true;
-            }
-            resolvedParameterTypes.push(expected);
-        }
-
-        const packArguments = call.arguments.slice(variadicParameterIndex);
-        const explicitPack = explicit.slice(fixedTypeParameters.length);
-        if (explicitPack.length && explicitPack.length != packArguments.length) {
-            this.diagnostics.addError(
-                Error(
-                    this.diagnostics.fileName,
-                    "semantic",
-                    call.position,
-                    `variadic type pack for ${signature.name} has ${explicitPack.length} type argument(s), but ${packArguments.length} value argument(s) were provided`,
-                ),
-            );
-            return CreateType("invalid", TypeValue.TypeInvalid);
-        }
-        const pack: Type[] = [];
-        const elementTemplate = { ...variadicParameter.type, slice: false };
-        packArguments.forEach((argument, index) => {
-            const explicitType = explicitPack[index];
-            const expected =
-                variadicTypeParameter &&
-                elementTemplate.value == TypeValue.TypeGeneric &&
-                elementTemplate.name.name == variadicTypeParameter.name.name
-                    ? explicitType
-                    : this.typeAnalyzer.substituteType(elementTemplate, fixedBindings);
-            const actual = this.analyze(argument, scope, expected);
-            if (actual.value == TypeValue.TypeInvalid) {
-                invalid = true;
-                return;
-            }
-            const concrete = explicitType ?? actual;
-            if (expected && !this.referenceCompatible(expected, actual, scope)) {
-                this.diagnostics.addError(
-                    Error(
-                        this.diagnostics.fileName,
-                        "semantic",
-                        argument.position,
-                        `variadic argument ${index + 1} of function ${signature.name} has type \`${this.typeAnalyzer.displayName(actual)}\`, want \`${this.typeAnalyzer.displayName(expected)}\``,
-                    ),
-                );
-                invalid = true;
-            }
-            pack.push(concrete);
-            resolvedParameterTypes.push(concrete);
-        });
-        if (invalid) return CreateType("invalid", TypeValue.TypeInvalid);
-
-        const fixedConcrete = fixedTypeParameters.map(
-            (parameter) => fixedBindings.get(parameter.name.name)!,
-        );
-        if (fixedConcrete.some((type) => !type)) {
-            this.diagnostics.addError(
-                Error(
-                    this.diagnostics.fileName,
-                    "semantic",
-                    call.position,
-                    "cannot infer all fixed type arguments for variadic function " + signature.name,
-                ),
-            );
-            return CreateType("invalid", TypeValue.TypeInvalid);
-        }
-        if (
-            !this.validateInterfaceBounds(
-                fixedTypeParameters,
-                fixedConcrete,
-                scope,
-                call.position,
-                declaration,
-            )
-        ) {
-            return CreateType("invalid", TypeValue.TypeInvalid);
-        }
-        if (variadicTypeParameter) {
-            for (const concrete of pack) {
-                if (
-                    !this.validateInterfaceBounds(
-                        [variadicTypeParameter],
-                        [concrete],
-                        scope,
-                        call.position,
-                        declaration,
-                    )
-                ) {
-                    invalid = true;
-                }
-            }
-        }
-        if (invalid) return CreateType("invalid", TypeValue.TypeInvalid);
-
-        call.genericTypes = [...fixedConcrete, ...pack];
-        call.resolvedParameterTypes = resolvedParameterTypes;
-        call.resolvedErrorTypes = signature.errorTypes.map((type) =>
-            this.typeAnalyzer.substituteType(type, fixedBindings),
-        );
-
-        if (declaration) {
-            declaration.concreteTypesMap ??= new Map();
-            fixedTypeParameters.forEach((parameter, index) => {
-                const recorded = declaration.concreteTypesMap!.get(parameter.name.name) ?? [];
-                const concrete = fixedConcrete[index]!;
-                if (
-                    !recorded.some((candidate) => this.typeAnalyzer.typesMatch(candidate, concrete))
-                ) {
-                    recorded.push(concrete);
-                }
-                declaration.concreteTypesMap!.set(parameter.name.name, recorded);
-            });
-            declaration.concreteVariadicTypePacks ??= [];
-            if (
-                !declaration.concreteVariadicTypePacks.some(
-                    (candidate) =>
-                        candidate.length == pack.length &&
-                        candidate.every((type, index) =>
-                            this.typeAnalyzer.typesMatch(type, pack[index]!),
-                        ),
-                )
-            ) {
-                declaration.concreteVariadicTypePacks.push(pack);
-            }
-        }
-
-        const returnType = signature.returnTypes[0];
-        if (!returnType) return CreateType("void", TypeValue.TypeInvalid, call.position);
-        if (returnType.value == TypeValue.TypeGeneric && returnType.variadic) {
-            this.diagnostics.addError(
-                Error(
-                    this.diagnostics.fileName,
-                    "semantic",
-                    returnType.position ?? call.position,
-                    "a variadic type parameter cannot be used as a single return type",
-                ),
-            );
-            return CreateType("invalid", TypeValue.TypeInvalid);
-        }
-        return this.typeAnalyzer.substituteType(returnType, fixedBindings);
-    }
-
     private analyzeMethodCall(
         scope: Scope,
         call: FunctionCallExpression,
@@ -1918,50 +1580,7 @@ export class ExpressionAnalyzer {
         const typeSymbol = scope.getSymbol(recordType.name.name);
         if (typeSymbol?.kind == SymbolKind.SymbolTypsAliasDecl && typeSymbol.type)
             recordType = typeSymbol.type;
-        let signature = scope.getMethod(recordType.name.name, member.member.name);
-        if (!signature && recordType.value == TypeValue.TypeGeneric) {
-            const matches: { interfaceName: string; signature: FunctionSignature }[] = [];
-            for (const bound of recordType.interfaceBounds ?? []) {
-                const interfaceSymbol = scope.getSymbol(bound.name.name);
-                const declaration =
-                    interfaceSymbol?.kind == SymbolKind.SymbolInterfaceDecl &&
-                    interfaceSymbol.declaration?.kind == "interface_declaration"
-                        ? (interfaceSymbol.declaration as InterfaceDeclaration)
-                        : undefined;
-                const requirement = declaration?.methods.find(
-                    (method) => method.name.name == member.member.name,
-                );
-                if (!requirement) continue;
-                matches.push({
-                    interfaceName: bound.name.name,
-                    signature: {
-                        name: requirement.name.name,
-                        parameters: requirement.parameters,
-                        returnTypes: requirement.returnTypes,
-                        errorTypes: requirement.errorTypes,
-                        typeParameters: requirement.typeParameters,
-                        receiverType: {
-                            ...structuredClone(recordType),
-                            reference: true,
-                        },
-                        receiverEdit: false,
-                        interfaceName: bound.name.name,
-                    },
-                });
-            }
-            if (matches.length > 1) {
-                this.diagnostics.addError(
-                    Error(
-                        this.diagnostics.fileName,
-                        "semantic",
-                        (member as Expression).position,
-                        `interface method \`${member.member.name}\` is ambiguous across bounds`,
-                    ),
-                );
-                return CreateType("invalid", TypeValue.TypeInvalid);
-            }
-            signature = matches[0]?.signature;
-        }
+        const signature = scope.getMethod(recordType.name.name, member.member.name);
         if (!signature) {
             this.diagnostics.addError(
                 Error(
@@ -1976,29 +1595,6 @@ export class ExpressionAnalyzer {
             return CreateType("invalid", TypeValue.TypeInvalid);
         }
         this.recordConcreteStructInstantiation(recordType, scope);
-        if (signature.interfaceName && recordType.value == TypeValue.TypeGeneric) {
-            const declaration = scope.activeFunction;
-            if (declaration) {
-                declaration.interfaceCalls ??= [];
-                if (
-                    !declaration.interfaceCalls.some(
-                        (entry) =>
-                            entry.typeParameter == recordType.name.name &&
-                            entry.interfaceName == signature!.interfaceName &&
-                            entry.methodName == member.member.name &&
-                            entry.position.start == call.position.start,
-                    )
-                ) {
-                    declaration.interfaceCalls.push({
-                        typeParameter: recordType.name.name,
-                        interfaceName: signature.interfaceName,
-                        methodName: member.member.name,
-                        receiverEdit: !!receiverType.edit,
-                        position: call.position,
-                    });
-                }
-            }
-        }
         if (member.member.name == "dispose") {
             this.diagnostics.addError(
                 Error(
@@ -2182,76 +1778,6 @@ export class ExpressionAnalyzer {
         return returnType;
     }
 
-    private validateInterfaceBounds(
-        typeParameters: Type[],
-        concreteTypes: Type[],
-        scope: Scope,
-        position: Type["position"],
-        declaration?: FunctionDeclaration,
-    ): boolean {
-        let valid = true;
-        typeParameters.forEach((parameter, index) => {
-            const concrete = concreteTypes[index];
-            if (!concrete) return;
-            for (const bound of parameter.interfaceBounds ?? []) {
-                const symbol = scope.getSymbol(bound.name.name);
-                if (symbol?.kind != SymbolKind.SymbolInterfaceDecl) {
-                    this.diagnostics.addError(
-                        Error(
-                            this.diagnostics.fileName,
-                            "semantic",
-                            bound.position ?? position!,
-                            `unknown interface \`${bound.name.name}\``,
-                        ),
-                    );
-                    valid = false;
-                    continue;
-                }
-                if (!scope.implementsInterface(concrete.name.name, bound.name.name)) {
-                    this.diagnostics.addError(
-                        Error(
-                            this.diagnostics.fileName,
-                            "semantic",
-                            position!,
-                            `type argument \`${concrete.name.name}\` does not implement required interface \`${bound.name.name}\``,
-                        ),
-                    );
-                    valid = false;
-                }
-            }
-            if (!declaration) return;
-            if (declaration.bodyAnalyzed) {
-                // `interfaceCalls` is complete, so the witness capability can be
-                // resolved right here at the requesting call site.
-                if (
-                    !validateSpecializationCapability(
-                        declaration,
-                        parameter.name.name,
-                        concrete,
-                        scope,
-                        this.diagnostics,
-                        this.diagnostics.fileName,
-                        position!,
-                    )
-                ) {
-                    valid = false;
-                }
-                return;
-            }
-            // The callee body has not been analyzed yet, so the constrained calls
-            // it performs are still unknown. Record the request and let the
-            // post-pass check it once every body in this module is analyzed.
-            declaration.deferredSpecializations ??= [];
-            declaration.deferredSpecializations.push({
-                typeParameter: parameter.name.name,
-                concrete,
-                fileName: this.diagnostics.fileName,
-                position: position!,
-            });
-        });
-        return valid;
-    }
-
     private recordConcreteStructInstantiation(type: Type, scope: Scope): void {
         if (type.value != TypeValue.TypeCustom || !type.typeParameters?.length) return;
         const symbol = scope.getSymbol(type.name.name);
@@ -2280,22 +1806,6 @@ export class ExpressionAnalyzer {
         if (expression.kind == "member_access_expression" || expression.kind == "index_expression")
             return this.rootIdentifier(expression.receiver);
         return undefined;
-    }
-
-    private qualifiedExpressionName(expression: Expression): string | undefined {
-        if (expression.kind == "identifier") return expression.name;
-        if (expression.kind != "member_access_expression") return;
-        const receiver = this.qualifiedExpressionName(expression.receiver);
-        return receiver ? `${receiver}.${expression.member.name}` : undefined;
-    }
-
-    private namespaceOwner(qualifiedName: string, scope: Scope): string | undefined {
-        const parts = qualifiedName.split(".");
-        for (let length = parts.length - 1; length > 0; length--) {
-            const candidate = parts.slice(0, length).join(".");
-            if (scope.getSymbol(candidate)?.kind == SymbolKind.SymbolModule) return candidate;
-        }
-        return;
     }
 
     private referenceCompatible(expected: Type, actual: Type, scope: Scope): boolean {
@@ -2335,49 +1845,4 @@ export class ExpressionAnalyzer {
             ],
         };
     }
-}
-
-/**
- * Applies the receiver-capability table to one requested specialization of a
- * generic function: a constrained call made through a read-only `&W` receiver
- * cannot select a witness method that requires `edit &Concrete`.
- *
- * This runs either at the requesting call site or in the deferred post-pass,
- * depending on whether the callee's body had been analyzed when the
- * specialization was requested, so the outcome never depends on the order in
- * which declarations appear.
- */
-export function validateSpecializationCapability(
-    declaration: FunctionDeclaration,
-    typeParameter: string,
-    concrete: Type,
-    scope: Scope,
-    diagnostics: Diagnostics,
-    fileName: string,
-    position: Position,
-): boolean {
-    let valid = true;
-    // A body may call the same constrained method more than once. Those calls
-    // share one diagnostic at the requesting call site rather than repeating an
-    // identical message per occurrence.
-    const reported = new Set<string>();
-    for (const interfaceCall of declaration.interfaceCalls ?? []) {
-        if (interfaceCall.typeParameter != typeParameter) continue;
-        const witness = scope.getMethod(concrete.name.name, interfaceCall.methodName);
-        if (!witness) continue;
-        if (!interfaceCall.receiverEdit && witness.receiverEdit) {
-            valid = false;
-            if (reported.has(interfaceCall.methodName)) continue;
-            reported.add(interfaceCall.methodName);
-            diagnostics.addError(
-                Error(
-                    fileName,
-                    "semantic",
-                    position,
-                    `cannot specialize \`${declaration.name.name}<${concrete.name.name}>\`: \`${concrete.name.name}.${interfaceCall.methodName}\` requires \`edit &${concrete.name.name}\`, but the generic call receiver is read-only`,
-                ),
-            );
-        }
-    }
-    return valid;
 }

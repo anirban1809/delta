@@ -23,16 +23,13 @@ export class AnalyzerCore {
 
     /** Registers functions first, then analyzes every declaration. */
     analyze(): Scope {
-        this.declarationAnalyzer.registerInterfaces();
         this.declarationAnalyzer.registerTypes();
         this.declarationAnalyzer.finish();
         this.declarationAnalyzer.registerMethods();
-        this.declarationAnalyzer.validateImplementations();
         this.declarationAnalyzer.registerFunctions();
         this.ast.declarations.forEach((declaration) =>
             this.declarationAnalyzer.analyze(declaration),
         );
-        this.declarationAnalyzer.validateDeferredSpecializations();
         return this.globalScope;
     }
 }

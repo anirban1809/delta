@@ -1,7 +1,10 @@
 # Plan: Interfaces with Static Dispatch
 
 Date drafted: 2026-07-25  
-Status: proposed  
+Status: **abandoned** — implemented on 2026-07-25, removed from the language on
+2026-07-26 along with variadic type parameters and variadic value parameters.
+Nothing in this document describes the current compiler; it is kept as the
+design record for a feature that was tried and dropped.  
 Primary goal: declared interface conformance for receiver methods and generic
 constraints, lowered through monomorphized direct C calls.
 

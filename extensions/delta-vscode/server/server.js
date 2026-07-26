@@ -1071,8 +1071,8 @@ var require_semaphore = __commonJS({
         this._waiting = [];
       }
       lock(thunk) {
-        return new Promise((resolve4, reject) => {
-          this._waiting.push({ thunk, resolve: resolve4, reject });
+        return new Promise((resolve, reject) => {
+          this._waiting.push({ thunk, resolve, reject });
           this.runNext();
         });
       }
@@ -2562,9 +2562,9 @@ ${JSON.stringify(message, null, 4)}`);
           if (typeof cancellationStrategy.sender.enableCancellation === "function") {
             cancellationStrategy.sender.enableCancellation(requestMessage);
           }
-          return new Promise(async (resolve4, reject) => {
+          return new Promise(async (resolve, reject) => {
             const resolveWithCleanup = (r) => {
-              resolve4(r);
+              resolve(r);
               cancellationStrategy.sender.cleanup(id);
               disposable?.dispose();
             };
@@ -2975,10 +2975,10 @@ var require_ril = __commonJS({
         return api_1.Disposable.create(() => this.stream.off("end", listener));
       }
       write(data, encoding) {
-        return new Promise((resolve4, reject) => {
+        return new Promise((resolve, reject) => {
           const callback = (error) => {
             if (error === void 0 || error === null) {
-              resolve4();
+              resolve();
             } else {
               reject(error);
             }
@@ -3081,7 +3081,7 @@ var require_main = __commonJS({
     exports2.createMessageConnection = exports2.createServerSocketTransport = exports2.createClientSocketTransport = exports2.createServerPipeTransport = exports2.createClientPipeTransport = exports2.generateRandomPipeName = exports2.StreamMessageWriter = exports2.StreamMessageReader = exports2.SocketMessageWriter = exports2.SocketMessageReader = exports2.PortMessageWriter = exports2.PortMessageReader = exports2.IPCMessageWriter = exports2.IPCMessageReader = void 0;
     var ril_1 = require_ril();
     ril_1.default.install();
-    var path4 = require("path");
+    var path = require("path");
     var os = require("os");
     var crypto_1 = require("crypto");
     var net_1 = require("net");
@@ -3217,9 +3217,9 @@ var require_main = __commonJS({
       }
       let result;
       if (XDG_RUNTIME_DIR) {
-        result = path4.join(XDG_RUNTIME_DIR, `vscode-ipc-${randomSuffix}.sock`);
+        result = path.join(XDG_RUNTIME_DIR, `vscode-ipc-${randomSuffix}.sock`);
       } else {
-        result = path4.join(os.tmpdir(), `vscode-${randomSuffix}.sock`);
+        result = path.join(os.tmpdir(), `vscode-${randomSuffix}.sock`);
       }
       const limit = safeIpcPathLengths.get(process.platform);
       if (limit !== void 0 && result.length > limit) {
@@ -3230,10 +3230,10 @@ var require_main = __commonJS({
     exports2.generateRandomPipeName = generateRandomPipeName;
     function createClientPipeTransport(pipeName, encoding = "utf-8") {
       let connectResolve;
-      const connected = new Promise((resolve4, _reject) => {
-        connectResolve = resolve4;
+      const connected = new Promise((resolve, _reject) => {
+        connectResolve = resolve;
       });
-      return new Promise((resolve4, reject) => {
+      return new Promise((resolve, reject) => {
         let server = (0, net_1.createServer)((socket) => {
           server.close();
           connectResolve([
@@ -3244,7 +3244,7 @@ var require_main = __commonJS({
         server.on("error", reject);
         server.listen(pipeName, () => {
           server.removeListener("error", reject);
-          resolve4({
+          resolve({
             onConnected: () => {
               return connected;
             }
@@ -3263,10 +3263,10 @@ var require_main = __commonJS({
     exports2.createServerPipeTransport = createServerPipeTransport;
     function createClientSocketTransport(port, encoding = "utf-8") {
       let connectResolve;
-      const connected = new Promise((resolve4, _reject) => {
-        connectResolve = resolve4;
+      const connected = new Promise((resolve, _reject) => {
+        connectResolve = resolve;
       });
-      return new Promise((resolve4, reject) => {
+      return new Promise((resolve, reject) => {
         const server = (0, net_1.createServer)((socket) => {
           server.close();
           connectResolve([
@@ -3277,7 +3277,7 @@ var require_main = __commonJS({
         server.on("error", reject);
         server.listen(port, "127.0.0.1", () => {
           server.removeListener("error", reject);
-          resolve4({
+          resolve({
             onConnected: () => {
               return connected;
             }
@@ -5961,12 +5961,12 @@ var require_protocol = __commonJS({
       ExitNotification2.messageDirection = messages_1.MessageDirection.clientToServer;
       ExitNotification2.type = new messages_1.ProtocolNotificationType0(ExitNotification2.method);
     })(ExitNotification || (exports2.ExitNotification = ExitNotification = {}));
-    var DidChangeConfigurationNotification2;
-    (function(DidChangeConfigurationNotification3) {
-      DidChangeConfigurationNotification3.method = "workspace/didChangeConfiguration";
-      DidChangeConfigurationNotification3.messageDirection = messages_1.MessageDirection.clientToServer;
-      DidChangeConfigurationNotification3.type = new messages_1.ProtocolNotificationType(DidChangeConfigurationNotification3.method);
-    })(DidChangeConfigurationNotification2 || (exports2.DidChangeConfigurationNotification = DidChangeConfigurationNotification2 = {}));
+    var DidChangeConfigurationNotification;
+    (function(DidChangeConfigurationNotification2) {
+      DidChangeConfigurationNotification2.method = "workspace/didChangeConfiguration";
+      DidChangeConfigurationNotification2.messageDirection = messages_1.MessageDirection.clientToServer;
+      DidChangeConfigurationNotification2.type = new messages_1.ProtocolNotificationType(DidChangeConfigurationNotification2.method);
+    })(DidChangeConfigurationNotification || (exports2.DidChangeConfigurationNotification = DidChangeConfigurationNotification = {}));
     var MessageType;
     (function(MessageType2) {
       MessageType2.Error = 1;
@@ -6066,12 +6066,12 @@ var require_protocol = __commonJS({
       DidChangeWatchedFilesNotification3.messageDirection = messages_1.MessageDirection.clientToServer;
       DidChangeWatchedFilesNotification3.type = new messages_1.ProtocolNotificationType(DidChangeWatchedFilesNotification3.method);
     })(DidChangeWatchedFilesNotification2 || (exports2.DidChangeWatchedFilesNotification = DidChangeWatchedFilesNotification2 = {}));
-    var FileChangeType2;
-    (function(FileChangeType3) {
-      FileChangeType3.Created = 1;
-      FileChangeType3.Changed = 2;
-      FileChangeType3.Deleted = 3;
-    })(FileChangeType2 || (exports2.FileChangeType = FileChangeType2 = {}));
+    var FileChangeType;
+    (function(FileChangeType2) {
+      FileChangeType2.Created = 1;
+      FileChangeType2.Changed = 2;
+      FileChangeType2.Deleted = 3;
+    })(FileChangeType || (exports2.FileChangeType = FileChangeType = {}));
     var RelativePattern;
     (function(RelativePattern2) {
       function is(value) {
@@ -8055,16 +8055,16 @@ var require_server = __commonJS({
       const telemetry = factories && factories.telemetry ? new (factories.telemetry(TelemetryImpl))() : new TelemetryImpl();
       const client = factories && factories.client ? new (factories.client(RemoteClientImpl))() : new RemoteClientImpl();
       const remoteWindow = factories && factories.window ? new (factories.window(RemoteWindowImpl))() : new RemoteWindowImpl();
-      const workspace2 = factories && factories.workspace ? new (factories.workspace(RemoteWorkspaceImpl))() : new RemoteWorkspaceImpl();
+      const workspace = factories && factories.workspace ? new (factories.workspace(RemoteWorkspaceImpl))() : new RemoteWorkspaceImpl();
       const languages = factories && factories.languages ? new (factories.languages(LanguagesImpl))() : new LanguagesImpl();
       const notebooks = factories && factories.notebooks ? new (factories.notebooks(NotebooksImpl))() : new NotebooksImpl();
-      const allRemotes = [logger, tracer, telemetry, client, remoteWindow, workspace2, languages, notebooks];
+      const allRemotes = [logger, tracer, telemetry, client, remoteWindow, workspace, languages, notebooks];
       function asPromise(value) {
         if (value instanceof Promise) {
           return value;
         } else if (Is.thenable(value)) {
-          return new Promise((resolve4, reject) => {
-            value.then((resolved) => resolve4(resolved), (error) => reject(error));
+          return new Promise((resolve, reject) => {
+            value.then((resolved) => resolve(resolved), (error) => reject(error));
           });
         } else {
           return Promise.resolve(value);
@@ -8125,7 +8125,7 @@ var require_server = __commonJS({
           return remoteWindow;
         },
         get workspace() {
-          return workspace2;
+          return workspace;
         },
         get languages() {
           return languages;
@@ -8309,8 +8309,8 @@ var require_files = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.resolveModulePath = exports2.FileSystem = exports2.resolveGlobalYarnPath = exports2.resolveGlobalNodePath = exports2.resolve = exports2.uriToFilePath = void 0;
     var url = require("url");
-    var path4 = require("path");
-    var fs4 = require("fs");
+    var path = require("path");
+    var fs = require("fs");
     var child_process_1 = require("child_process");
     function uriToFilePath(uri) {
       let parsed = url.parse(uri);
@@ -8328,13 +8328,13 @@ var require_files = __commonJS({
           segments.shift();
         }
       }
-      return path4.normalize(segments.join("/"));
+      return path.normalize(segments.join("/"));
     }
     exports2.uriToFilePath = uriToFilePath;
     function isWindows() {
       return process.platform === "win32";
     }
-    function resolve4(moduleName, nodePath, cwd, tracer) {
+    function resolve(moduleName, nodePath, cwd, tracer) {
       const nodePathKey = "NODE_PATH";
       const app = [
         "var p = process;",
@@ -8353,13 +8353,13 @@ var require_files = __commonJS({
         "}",
         "});"
       ].join("");
-      return new Promise((resolve5, reject) => {
+      return new Promise((resolve2, reject) => {
         let env = process.env;
         let newEnv = /* @__PURE__ */ Object.create(null);
         Object.keys(env).forEach((key) => newEnv[key] = env[key]);
-        if (nodePath && fs4.existsSync(nodePath)) {
+        if (nodePath && fs.existsSync(nodePath)) {
           if (newEnv[nodePathKey]) {
-            newEnv[nodePathKey] = nodePath + path4.delimiter + newEnv[nodePathKey];
+            newEnv[nodePathKey] = nodePath + path.delimiter + newEnv[nodePathKey];
           } else {
             newEnv[nodePathKey] = nodePath;
           }
@@ -8385,7 +8385,7 @@ var require_files = __commonJS({
             if (message2.c === "r") {
               cp.send({ c: "e" });
               if (message2.s) {
-                resolve5(message2.r);
+                resolve2(message2.r);
               } else {
                 reject(new Error(`Failed to resolve module: ${moduleName}`));
               }
@@ -8401,7 +8401,7 @@ var require_files = __commonJS({
         }
       });
     }
-    exports2.resolve = resolve4;
+    exports2.resolve = resolve;
     function resolveGlobalNodePath(tracer) {
       let npmCommand = "npm";
       const env = /* @__PURE__ */ Object.create(null);
@@ -8432,9 +8432,9 @@ var require_files = __commonJS({
         }
         if (prefix.length > 0) {
           if (isWindows()) {
-            return path4.join(prefix, "node_modules");
+            return path.join(prefix, "node_modules");
           } else {
-            return path4.join(prefix, "lib", "node_modules");
+            return path.join(prefix, "lib", "node_modules");
           }
         }
         return void 0;
@@ -8474,7 +8474,7 @@ var require_files = __commonJS({
           try {
             let yarn = JSON.parse(line);
             if (yarn.type === "log") {
-              return path4.join(yarn.data, "node_modules");
+              return path.join(yarn.data, "node_modules");
             }
           } catch (e) {
           }
@@ -8497,36 +8497,36 @@ var require_files = __commonJS({
         if (process.platform === "win32") {
           _isCaseSensitive = false;
         } else {
-          _isCaseSensitive = !fs4.existsSync(__filename.toUpperCase()) || !fs4.existsSync(__filename.toLowerCase());
+          _isCaseSensitive = !fs.existsSync(__filename.toUpperCase()) || !fs.existsSync(__filename.toLowerCase());
         }
         return _isCaseSensitive;
       }
       FileSystem2.isCaseSensitive = isCaseSensitive;
       function isParent(parent, child) {
         if (isCaseSensitive()) {
-          return path4.normalize(child).indexOf(path4.normalize(parent)) === 0;
+          return path.normalize(child).indexOf(path.normalize(parent)) === 0;
         } else {
-          return path4.normalize(child).toLowerCase().indexOf(path4.normalize(parent).toLowerCase()) === 0;
+          return path.normalize(child).toLowerCase().indexOf(path.normalize(parent).toLowerCase()) === 0;
         }
       }
       FileSystem2.isParent = isParent;
     })(FileSystem || (exports2.FileSystem = FileSystem = {}));
     function resolveModulePath(workspaceRoot, moduleName, nodePath, tracer) {
       if (nodePath) {
-        if (!path4.isAbsolute(nodePath)) {
-          nodePath = path4.join(workspaceRoot, nodePath);
+        if (!path.isAbsolute(nodePath)) {
+          nodePath = path.join(workspaceRoot, nodePath);
         }
-        return resolve4(moduleName, nodePath, nodePath, tracer).then((value) => {
+        return resolve(moduleName, nodePath, nodePath, tracer).then((value) => {
           if (FileSystem.isParent(nodePath, value)) {
             return value;
           } else {
             return Promise.reject(new Error(`Failed to load ${moduleName} from node path location.`));
           }
         }).then(void 0, (_error) => {
-          return resolve4(moduleName, resolveGlobalNodePath(tracer), workspaceRoot, tracer);
+          return resolve(moduleName, resolveGlobalNodePath(tracer), workspaceRoot, tracer);
         });
       } else {
-        return resolve4(moduleName, resolveGlobalNodePath(tracer), workspaceRoot, tracer);
+        return resolve(moduleName, resolveGlobalNodePath(tracer), workspaceRoot, tracer);
       }
     }
     exports2.resolveModulePath = resolveModulePath;
@@ -8877,7 +8877,7 @@ var require_node3 = __commonJS({
 
 // dist/src/lsp/server.js
 var import_node = __toESM(require_node3(), 1);
-var import_url2 = require("url");
+var import_url = require("url");
 
 // node_modules/vscode-languageserver-textdocument/lib/esm/main.js
 var FullTextDocument = class _FullTextDocument {
@@ -9106,10 +9106,6 @@ function getWellformedEdit(textEdit) {
 // dist/src/lsp/server.js
 var import_node2 = __toESM(require_node3(), 1);
 
-// dist/src/compiler/pipeline.js
-var fs2 = __toESM(require("fs"), 1);
-var path2 = __toESM(require("path"), 1);
-
 // dist/src/ast/tokens.js
 function getTokenPosition(t) {
   return {
@@ -9149,10 +9145,6 @@ var TokenKind;
   TokenKind2["Keyword_As"] = "Keyword_As";
   TokenKind2["Keyword_Forward"] = "Keyword_Forward";
   TokenKind2["Keyword_Check"] = "Keyword_Check";
-  TokenKind2["Keyword_Import"] = "Keyword_Import";
-  TokenKind2["Keyword_Export"] = "Keyword_Export";
-  TokenKind2["Keyword_Module"] = "Keyword_Module";
-  TokenKind2["Keyword_From"] = "Keyword_From";
   TokenKind2["Keyword_Edit"] = "Keyword_Edit";
   TokenKind2["Keyword_New"] = "Keyword_New";
   TokenKind2["Keyword_Clone"] = "Keyword_Clone";
@@ -9162,14 +9154,6 @@ var TokenKind;
   TokenKind2["Keyword_Struct"] = "Keyword_Struct";
   TokenKind2["Keyword_Enum"] = "Keyword_Enum";
   TokenKind2["Keyword_Union"] = "Keyword_Union";
-  TokenKind2["Keyword_Extern"] = "Keyword_Extern";
-  TokenKind2["Keyword_Ffi"] = "Keyword_Ffi";
-  TokenKind2["Keyword_Header"] = "Keyword_Header";
-  TokenKind2["Keyword_Unsafe"] = "Keyword_Unsafe";
-  TokenKind2["Keyword_Static"] = "Keyword_Static";
-  TokenKind2["Keyword_Dynamic"] = "Keyword_Dynamic";
-  TokenKind2["Keyword_Interface"] = "Keyword_Interface";
-  TokenKind2["Keyword_Implements"] = "Keyword_Implements";
   TokenKind2["Symbol_LeftParen"] = "Symbol_LeftParen";
   TokenKind2["Symbol_RightParen"] = "Symbol_RightParen";
   TokenKind2["Symbol_LeftBrace"] = "Symbol_LeftBrace";
@@ -9274,14 +9258,6 @@ function string(kind) {
       return "forward";
     case TokenKind.Keyword_Check:
       return "check";
-    case TokenKind.Keyword_Import:
-      return "import";
-    case TokenKind.Keyword_Export:
-      return "export";
-    case TokenKind.Keyword_Module:
-      return "module";
-    case TokenKind.Keyword_From:
-      return "from";
     case TokenKind.Keyword_Edit:
       return "edit";
     case TokenKind.Keyword_New:
@@ -9300,22 +9276,6 @@ function string(kind) {
       return "union";
     case TokenKind.Keyword_Enum:
       return "enum";
-    case TokenKind.Keyword_Extern:
-      return "extern";
-    case TokenKind.Keyword_Ffi:
-      return "ffi";
-    case TokenKind.Keyword_Header:
-      return "header";
-    case TokenKind.Keyword_Unsafe:
-      return "unsafe";
-    case TokenKind.Keyword_Static:
-      return "static";
-    case TokenKind.Keyword_Dynamic:
-      return "dynamic";
-    case TokenKind.Keyword_Interface:
-      return "interface";
-    case TokenKind.Keyword_Implements:
-      return "implements";
     case TokenKind.Symbol_LeftParen:
       return "(";
     case TokenKind.Symbol_RightParen:
@@ -9448,14 +9408,6 @@ function getTokenKind(s) {
       return TokenKind.Keyword_Forward;
     case "check":
       return TokenKind.Keyword_Check;
-    case "import":
-      return TokenKind.Keyword_Import;
-    case "export":
-      return TokenKind.Keyword_Export;
-    case "module":
-      return TokenKind.Keyword_Module;
-    case "from":
-      return TokenKind.Keyword_From;
     case "edit":
       return TokenKind.Keyword_Edit;
     case "new":
@@ -9474,22 +9426,6 @@ function getTokenKind(s) {
       return TokenKind.Keyword_Union;
     case "enum":
       return TokenKind.Keyword_Enum;
-    case "extern":
-      return TokenKind.Keyword_Extern;
-    case "ffi":
-      return TokenKind.Keyword_Ffi;
-    case "header":
-      return TokenKind.Keyword_Header;
-    case "unsafe":
-      return TokenKind.Keyword_Unsafe;
-    case "static":
-      return TokenKind.Keyword_Static;
-    case "dynamic":
-      return TokenKind.Keyword_Dynamic;
-    case "interface":
-      return TokenKind.Keyword_Interface;
-    case "implements":
-      return TokenKind.Keyword_Implements;
     case "true":
     case "false":
       return TokenKind.Kind_BooleanLiteral;
@@ -9677,17 +9613,15 @@ at ${e.filepath}:${e.position.line}:${e.position.column}
 // dist/src/analysis/analyzer.js
 var SymbolKind;
 (function(SymbolKind2) {
-  SymbolKind2[SymbolKind2["SymbolInterfaceDecl"] = 0] = "SymbolInterfaceDecl";
-  SymbolKind2[SymbolKind2["SymbolTypeStructDecl"] = 1] = "SymbolTypeStructDecl";
-  SymbolKind2[SymbolKind2["SymbolTypeEnumDecl"] = 2] = "SymbolTypeEnumDecl";
-  SymbolKind2[SymbolKind2["SymbolTypeUnionDecl"] = 3] = "SymbolTypeUnionDecl";
-  SymbolKind2[SymbolKind2["SymbolTypsAliasDecl"] = 4] = "SymbolTypsAliasDecl";
-  SymbolKind2[SymbolKind2["SymbolFuncDecl"] = 5] = "SymbolFuncDecl";
-  SymbolKind2[SymbolKind2["SymbolFileConst"] = 6] = "SymbolFileConst";
-  SymbolKind2[SymbolKind2["SymbolLocalConst"] = 7] = "SymbolLocalConst";
-  SymbolKind2[SymbolKind2["SymbolLocalLet"] = 8] = "SymbolLocalLet";
-  SymbolKind2[SymbolKind2["SymbolParameter"] = 9] = "SymbolParameter";
-  SymbolKind2[SymbolKind2["SymbolModule"] = 10] = "SymbolModule";
+  SymbolKind2[SymbolKind2["SymbolTypeStructDecl"] = 0] = "SymbolTypeStructDecl";
+  SymbolKind2[SymbolKind2["SymbolTypeEnumDecl"] = 1] = "SymbolTypeEnumDecl";
+  SymbolKind2[SymbolKind2["SymbolTypeUnionDecl"] = 2] = "SymbolTypeUnionDecl";
+  SymbolKind2[SymbolKind2["SymbolTypsAliasDecl"] = 3] = "SymbolTypsAliasDecl";
+  SymbolKind2[SymbolKind2["SymbolFuncDecl"] = 4] = "SymbolFuncDecl";
+  SymbolKind2[SymbolKind2["SymbolFileConst"] = 5] = "SymbolFileConst";
+  SymbolKind2[SymbolKind2["SymbolLocalConst"] = 6] = "SymbolLocalConst";
+  SymbolKind2[SymbolKind2["SymbolLocalLet"] = 7] = "SymbolLocalLet";
+  SymbolKind2[SymbolKind2["SymbolParameter"] = 8] = "SymbolParameter";
 })(SymbolKind || (SymbolKind = {}));
 var Flow;
 (function(Flow2) {
@@ -9712,13 +9646,11 @@ var Scope = class {
   //parent scope can be empty for global scope
   symbols;
   methods;
-  implementations;
   activeFunction;
   constructor(parent) {
     this.parent = parent;
     this.symbols = /* @__PURE__ */ new Map();
     this.methods = parent?.methods ?? /* @__PURE__ */ new Map();
-    this.implementations = parent?.implementations ?? /* @__PURE__ */ new Map();
     this.activeFunction = parent?.activeFunction;
   }
   /** Declares a symbol in this scope. */
@@ -9744,14 +9676,6 @@ var Scope = class {
   }
   getMethod(typeName, name) {
     return this.methods.get(typeName)?.get(name);
-  }
-  addImplementation(typeName, interfaceName) {
-    const interfaces = this.implementations.get(typeName) ?? /* @__PURE__ */ new Set();
-    interfaces.add(interfaceName);
-    this.implementations.set(typeName, interfaces);
-  }
-  implementsInterface(typeName, interfaceName) {
-    return this.implementations.get(typeName)?.has(interfaceName) ?? false;
   }
   visibleSymbols() {
     const result = /* @__PURE__ */ new Map();
@@ -9886,7 +9810,6 @@ var TypeAnalyzer = class {
       case "int16":
         return TypeValue.Type_Int16;
       case "int32":
-      case "c.int":
         return TypeValue.Type_Int32;
       case "int64":
         return TypeValue.Type_Int64;
@@ -9899,10 +9822,8 @@ var TypeAnalyzer = class {
       case "uint64":
         return TypeValue.Type_UInt64;
       case "intsize":
-      case "c.ssize_t":
         return TypeValue.Type_IntSize;
       case "uintsize":
-      case "c.size_t":
         return TypeValue.Type_UIntSize;
       case "char":
         return TypeValue.Type_Char;
@@ -9919,34 +9840,6 @@ var TypeAnalyzer = class {
         return TypeValue.Type_Owned;
     }
     return TypeValue.TypeCustom;
-  }
-  /** Whether this is one of the deliberately small C FFI type constructors. */
-  isCType(t) {
-    return t.name.name.startsWith("c.");
-  }
-  /** Validates the C ABI types supported by the initial handwritten FFI surface. */
-  isValidCType(t, nested = false) {
-    const parameters = t.typeParameters ?? [];
-    switch (t.name.name) {
-      case "c.int":
-      case "c.size_t":
-      case "c.ssize_t":
-        return parameters.length == 0;
-      case "c.void":
-        return nested && parameters.length == 0;
-      case "c.const":
-        return parameters.length == 1 && this.isValidCType(parameters[0], true);
-      case "c.ptr":
-        return parameters.length == 1 && this.isValidCType(parameters[0], true);
-      default:
-        return false;
-    }
-  }
-  /** The buffer type accepted by the first POSIX interoperability milestone. */
-  isCConstVoidPointer(t) {
-    const pointee = t?.name.name == "c.ptr" ? t.typeParameters?.[0] : void 0;
-    const inner = pointee?.name.name == "c.const" ? pointee.typeParameters?.[0] : void 0;
-    return inner?.name.name == "c.void";
   }
   /** Returns whether a type resolves to one of Delta's built-in primitives. */
   isValidPrimitiveType(t) {
@@ -10282,10 +10175,6 @@ var ExpressionAnalyzer = class {
           this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", e.position, "unknown identifier: use of undeclared name `" + e.name + "`"));
           return CreateType("invalid", TypeValue.TypeInvalid);
         }
-        if (s.kind == SymbolKind.SymbolModule) {
-          this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", e.position, `module binding \`${s.name}\` is not a runtime value`));
-          return CreateType("invalid", TypeValue.TypeInvalid);
-        }
         if (s.pendingResult) {
           this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", e.position, `binding \`${s.name}\` is pending from \`as ${s.pendingResult}\`; check or forward the result before reading it`));
           return CreateType("invalid", TypeValue.TypeInvalid);
@@ -10340,24 +10229,6 @@ var ExpressionAnalyzer = class {
       case "object_literal":
         return this.analyzeObjectLiteral(e, scope);
       case "member_access_expression":
-        const qualifiedName = this.qualifiedExpressionName(e);
-        const namespaceSymbol = qualifiedName ? scope.getSymbol(qualifiedName) : void 0;
-        const namespaceOwner = qualifiedName ? this.namespaceOwner(qualifiedName, scope) : void 0;
-        if (namespaceSymbol) {
-          if (namespaceSymbol.kind == SymbolKind.SymbolModule) {
-            this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", e.position, `module binding \`${qualifiedName}\` is not a runtime value`));
-            return CreateType("invalid", TypeValue.TypeInvalid);
-          }
-          e.namespaceReference = qualifiedName;
-          if (namespaceSymbol.type)
-            return structuredClone(namespaceSymbol.type);
-          this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", e.position, `namespace member \`${qualifiedName}\` is not a value`));
-          return CreateType("invalid", TypeValue.TypeInvalid);
-        }
-        if (namespaceOwner) {
-          this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", e.position, `module \`${namespaceOwner}\` has no exported member \`${e.member.name}\``));
-          return CreateType("invalid", TypeValue.TypeInvalid);
-        }
         e.receiverType = this.analyze(e.receiver, scope);
         return this.analyzeMemberAccessExpression(e, scope) ?? CreateType("invalid", TypeValue.TypeInvalid);
       case "array_literal_expression":
@@ -10928,25 +10799,6 @@ var ExpressionAnalyzer = class {
    */
   analyzeFunctionCallExpression(scope, e) {
     if (e.callee.kind == "member_access_expression") {
-      const qualifiedName = this.qualifiedExpressionName(e.callee);
-      const namespaceSymbol = qualifiedName ? scope.getSymbol(qualifiedName) : void 0;
-      const namespaceOwner = qualifiedName ? this.namespaceOwner(qualifiedName, scope) : void 0;
-      if (namespaceSymbol && namespaceSymbol.kind != SymbolKind.SymbolModule) {
-        e.callee = {
-          kind: "identifier",
-          name: qualifiedName,
-          position: e.callee.position
-        };
-        return this.analyzeFunctionCallExpression(scope, e);
-      }
-      if (namespaceSymbol?.kind == SymbolKind.SymbolModule) {
-        this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", e.position, `module binding \`${qualifiedName}\` is not callable`));
-        return CreateType("invalid", TypeValue.TypeInvalid);
-      }
-      if (namespaceOwner) {
-        this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", e.position, `module \`${namespaceOwner}\` has no exported member \`${e.callee.member.name}\``));
-        return CreateType("invalid", TypeValue.TypeInvalid);
-      }
       return this.analyzeMethodCall(scope, e, e.callee);
     }
     const calleeName = e.callee.kind == "identifier" ? e.callee.name : "";
@@ -10956,12 +10808,8 @@ var ExpressionAnalyzer = class {
         this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", e.position, sym.name + " is not callable"));
         return CreateType("invalid", TypeValue.TypeInvalid);
       }
-      if (sym.signature.parameters.some((parameter) => parameter.variadic)) {
-        return this.analyzeVariadicFunctionCall(e, sym.signature, scope);
-      }
       const paramCount = sym.signature.parameters.length;
       const argCount = e.arguments.length;
-      e.resolvedExternalLinkName = sym.signature.external?.abi == "c" ? sym.signature.external.linkName : void 0;
       e.resolvedParameterTypes = sym.signature.parameters.map((parameter) => parameter.type);
       let concreteTypesMap = /* @__PURE__ */ new Map();
       const typeParameters = sym.signature.typeParameters ?? [];
@@ -11003,9 +10851,6 @@ var ExpressionAnalyzer = class {
         let argT2 = this.analyze(x, scope, wantT2);
         if (argT2.value == TypeValue.TypeInvalid)
           return;
-        if (this.typeAnalyzer.isCConstVoidPointer(wantT2) && argT2.value == TypeValue.Type_String) {
-          return;
-        }
         if (wantT2?.value == TypeValue.TypeCustom && wantT2.typeParameters?.length) {
           wantT2.typeParameters.forEach((typeArgument, argumentIndex) => {
             if (typeArgument.value != TypeValue.TypeGeneric) {
@@ -11045,8 +10890,11 @@ var ExpressionAnalyzer = class {
             this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", x.position, "unknown type identifier: " + wantT2.name.name));
             return;
           }
+          if (!typeSymbol.type) {
+            return;
+          }
           const bindings = /* @__PURE__ */ new Map();
-          typeSymbol.type?.typeParameters?.forEach((typeParameter, index) => {
+          typeSymbol.type.typeParameters?.forEach((typeParameter, index) => {
             let typeArgument = wantT2?.typeParameters?.[index];
             if (typeArgument?.value == TypeValue.TypeGeneric) {
               const genericIndex = typeParameters.findIndex((parameter) => parameter.name.name == typeArgument?.name.name);
@@ -11112,9 +10960,6 @@ var ExpressionAnalyzer = class {
         this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", e.position, `mismatched type parameter count, want ${typeParameters.length}, got ${genericTypes.length}`));
         return CreateType("invalid", TypeValue.TypeInvalid);
       }
-      if (!this.validateInterfaceBounds(typeParameters, genericTypes, scope, e.position, sym.signature.declaration)) {
-        return CreateType("invalid", TypeValue.TypeInvalid);
-      }
       const returnTypeBindings = /* @__PURE__ */ new Map();
       typeParameters.forEach((typeParameter, index) => {
         returnTypeBindings.set(typeParameter.name.name, genericTypes[index]);
@@ -11158,126 +11003,6 @@ var ExpressionAnalyzer = class {
     }
     return convSig.returnTypes[0];
   }
-  analyzeVariadicFunctionCall(call, signature, scope) {
-    const declaration = signature.declaration;
-    const parameters = signature.parameters;
-    const variadicParameterIndex = parameters.findIndex((parameter) => parameter.variadic);
-    const variadicParameter = parameters[variadicParameterIndex];
-    const typeParameters = signature.typeParameters ?? [];
-    const variadicTypeParameter = typeParameters.find((parameter) => parameter.variadic);
-    const fixedTypeParameters = typeParameters.filter((parameter) => !parameter.variadic);
-    if (variadicParameterIndex != parameters.length - 1) {
-      this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", variadicParameter.position, "a variadic parameter must be the final parameter"));
-      return CreateType("invalid", TypeValue.TypeInvalid);
-    }
-    if (call.arguments.length < variadicParameterIndex) {
-      this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", call.position, `function ${signature.name} expects at least ${variadicParameterIndex} arguments, found ${call.arguments.length}`));
-      return CreateType("invalid", TypeValue.TypeInvalid);
-    }
-    const explicit = call.genericTypes ?? [];
-    if (explicit.length && explicit.length < fixedTypeParameters.length) {
-      this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", call.position, `mismatched type parameter count, want at least ${fixedTypeParameters.length}, got ${explicit.length}`));
-      return CreateType("invalid", TypeValue.TypeInvalid);
-    }
-    const fixedBindings = /* @__PURE__ */ new Map();
-    fixedTypeParameters.forEach((parameter, index) => {
-      const concrete = explicit[index];
-      if (concrete)
-        fixedBindings.set(parameter.name.name, concrete);
-    });
-    let invalid = false;
-    const resolvedParameterTypes = [];
-    for (let index = 0; index < variadicParameterIndex; index++) {
-      const parameter = parameters[index];
-      let expected = this.typeAnalyzer.substituteType(parameter.type, fixedBindings);
-      const actual = this.analyze(call.arguments[index], scope, expected);
-      if (actual.value == TypeValue.TypeInvalid) {
-        invalid = true;
-        continue;
-      }
-      if (parameter.type.value == TypeValue.TypeGeneric) {
-        const existing = fixedBindings.get(parameter.type.name.name);
-        if (!existing) {
-          fixedBindings.set(parameter.type.name.name, this.inferGenericArgument(parameter.type, actual) ?? actual);
-          expected = this.typeAnalyzer.substituteType(parameter.type, fixedBindings);
-        }
-      }
-      if (!this.referenceCompatible(expected, actual, scope)) {
-        this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", call.arguments[index].position, `argument ${index + 1} of function ${signature.name} has type \`${this.typeAnalyzer.displayName(actual)}\`, want \`${this.typeAnalyzer.displayName(expected)}\``));
-        invalid = true;
-      }
-      resolvedParameterTypes.push(expected);
-    }
-    const packArguments = call.arguments.slice(variadicParameterIndex);
-    const explicitPack = explicit.slice(fixedTypeParameters.length);
-    if (explicitPack.length && explicitPack.length != packArguments.length) {
-      this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", call.position, `variadic type pack for ${signature.name} has ${explicitPack.length} type argument(s), but ${packArguments.length} value argument(s) were provided`));
-      return CreateType("invalid", TypeValue.TypeInvalid);
-    }
-    const pack = [];
-    const elementTemplate = { ...variadicParameter.type, slice: false };
-    packArguments.forEach((argument, index) => {
-      const explicitType = explicitPack[index];
-      const expected = variadicTypeParameter && elementTemplate.value == TypeValue.TypeGeneric && elementTemplate.name.name == variadicTypeParameter.name.name ? explicitType : this.typeAnalyzer.substituteType(elementTemplate, fixedBindings);
-      const actual = this.analyze(argument, scope, expected);
-      if (actual.value == TypeValue.TypeInvalid) {
-        invalid = true;
-        return;
-      }
-      const concrete = explicitType ?? actual;
-      if (expected && !this.referenceCompatible(expected, actual, scope)) {
-        this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", argument.position, `variadic argument ${index + 1} of function ${signature.name} has type \`${this.typeAnalyzer.displayName(actual)}\`, want \`${this.typeAnalyzer.displayName(expected)}\``));
-        invalid = true;
-      }
-      pack.push(concrete);
-      resolvedParameterTypes.push(concrete);
-    });
-    if (invalid)
-      return CreateType("invalid", TypeValue.TypeInvalid);
-    const fixedConcrete = fixedTypeParameters.map((parameter) => fixedBindings.get(parameter.name.name));
-    if (fixedConcrete.some((type) => !type)) {
-      this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", call.position, "cannot infer all fixed type arguments for variadic function " + signature.name));
-      return CreateType("invalid", TypeValue.TypeInvalid);
-    }
-    if (!this.validateInterfaceBounds(fixedTypeParameters, fixedConcrete, scope, call.position, declaration)) {
-      return CreateType("invalid", TypeValue.TypeInvalid);
-    }
-    if (variadicTypeParameter) {
-      for (const concrete of pack) {
-        if (!this.validateInterfaceBounds([variadicTypeParameter], [concrete], scope, call.position, declaration)) {
-          invalid = true;
-        }
-      }
-    }
-    if (invalid)
-      return CreateType("invalid", TypeValue.TypeInvalid);
-    call.genericTypes = [...fixedConcrete, ...pack];
-    call.resolvedParameterTypes = resolvedParameterTypes;
-    call.resolvedErrorTypes = signature.errorTypes.map((type) => this.typeAnalyzer.substituteType(type, fixedBindings));
-    if (declaration) {
-      declaration.concreteTypesMap ??= /* @__PURE__ */ new Map();
-      fixedTypeParameters.forEach((parameter, index) => {
-        const recorded = declaration.concreteTypesMap.get(parameter.name.name) ?? [];
-        const concrete = fixedConcrete[index];
-        if (!recorded.some((candidate) => this.typeAnalyzer.typesMatch(candidate, concrete))) {
-          recorded.push(concrete);
-        }
-        declaration.concreteTypesMap.set(parameter.name.name, recorded);
-      });
-      declaration.concreteVariadicTypePacks ??= [];
-      if (!declaration.concreteVariadicTypePacks.some((candidate) => candidate.length == pack.length && candidate.every((type, index) => this.typeAnalyzer.typesMatch(type, pack[index])))) {
-        declaration.concreteVariadicTypePacks.push(pack);
-      }
-    }
-    const returnType = signature.returnTypes[0];
-    if (!returnType)
-      return CreateType("void", TypeValue.TypeInvalid, call.position);
-    if (returnType.value == TypeValue.TypeGeneric && returnType.variadic) {
-      this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", returnType.position ?? call.position, "a variadic type parameter cannot be used as a single return type"));
-      return CreateType("invalid", TypeValue.TypeInvalid);
-    }
-    return this.typeAnalyzer.substituteType(returnType, fixedBindings);
-  }
   analyzeMethodCall(scope, call, member) {
     const receiverType = this.analyze(member.receiver, scope);
     if (receiverType.value == TypeValue.TypeInvalid)
@@ -11288,58 +11013,12 @@ var ExpressionAnalyzer = class {
     const typeSymbol = scope.getSymbol(recordType.name.name);
     if (typeSymbol?.kind == SymbolKind.SymbolTypsAliasDecl && typeSymbol.type)
       recordType = typeSymbol.type;
-    let signature = scope.getMethod(recordType.name.name, member.member.name);
-    if (!signature && recordType.value == TypeValue.TypeGeneric) {
-      const matches = [];
-      for (const bound of recordType.interfaceBounds ?? []) {
-        const interfaceSymbol = scope.getSymbol(bound.name.name);
-        const declaration2 = interfaceSymbol?.kind == SymbolKind.SymbolInterfaceDecl && interfaceSymbol.declaration?.kind == "interface_declaration" ? interfaceSymbol.declaration : void 0;
-        const requirement = declaration2?.methods.find((method) => method.name.name == member.member.name);
-        if (!requirement)
-          continue;
-        matches.push({
-          interfaceName: bound.name.name,
-          signature: {
-            name: requirement.name.name,
-            parameters: requirement.parameters,
-            returnTypes: requirement.returnTypes,
-            errorTypes: requirement.errorTypes,
-            typeParameters: requirement.typeParameters,
-            receiverType: {
-              ...structuredClone(recordType),
-              reference: true
-            },
-            receiverEdit: false,
-            interfaceName: bound.name.name
-          }
-        });
-      }
-      if (matches.length > 1) {
-        this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", member.position, `interface method \`${member.member.name}\` is ambiguous across bounds`));
-        return CreateType("invalid", TypeValue.TypeInvalid);
-      }
-      signature = matches[0]?.signature;
-    }
+    const signature = scope.getMethod(recordType.name.name, member.member.name);
     if (!signature) {
       this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", member.position, recordType.value == TypeValue.TypeGeneric ? `type parameter ${recordType.name.name} has no known method \`${member.member.name}\`` : `type ${recordType.name.name} has no method \`${member.member.name}\``));
       return CreateType("invalid", TypeValue.TypeInvalid);
     }
     this.recordConcreteStructInstantiation(recordType, scope);
-    if (signature.interfaceName && recordType.value == TypeValue.TypeGeneric) {
-      const declaration2 = scope.activeFunction;
-      if (declaration2) {
-        declaration2.interfaceCalls ??= [];
-        if (!declaration2.interfaceCalls.some((entry) => entry.typeParameter == recordType.name.name && entry.interfaceName == signature.interfaceName && entry.methodName == member.member.name && entry.position.start == call.position.start)) {
-          declaration2.interfaceCalls.push({
-            typeParameter: recordType.name.name,
-            interfaceName: signature.interfaceName,
-            methodName: member.member.name,
-            receiverEdit: !!receiverType.edit,
-            position: call.position
-          });
-        }
-      }
-    }
     if (member.member.name == "dispose") {
       this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", member.position, `dispose method on ${recordType.name.name} cannot be called manually`));
       return CreateType("invalid", TypeValue.TypeInvalid);
@@ -11440,42 +11119,6 @@ var ExpressionAnalyzer = class {
     this.recordConcreteStructInstantiation(returnType, scope);
     return returnType;
   }
-  validateInterfaceBounds(typeParameters, concreteTypes, scope, position2, declaration) {
-    let valid = true;
-    typeParameters.forEach((parameter, index) => {
-      const concrete = concreteTypes[index];
-      if (!concrete)
-        return;
-      for (const bound of parameter.interfaceBounds ?? []) {
-        const symbol = scope.getSymbol(bound.name.name);
-        if (symbol?.kind != SymbolKind.SymbolInterfaceDecl) {
-          this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", bound.position ?? position2, `unknown interface \`${bound.name.name}\``));
-          valid = false;
-          continue;
-        }
-        if (!scope.implementsInterface(concrete.name.name, bound.name.name)) {
-          this.diagnostics.addError(Error2(this.diagnostics.fileName, "semantic", position2, `type argument \`${concrete.name.name}\` does not implement required interface \`${bound.name.name}\``));
-          valid = false;
-        }
-      }
-      if (!declaration)
-        return;
-      if (declaration.bodyAnalyzed) {
-        if (!validateSpecializationCapability(declaration, parameter.name.name, concrete, scope, this.diagnostics, this.diagnostics.fileName, position2)) {
-          valid = false;
-        }
-        return;
-      }
-      declaration.deferredSpecializations ??= [];
-      declaration.deferredSpecializations.push({
-        typeParameter: parameter.name.name,
-        concrete,
-        fileName: this.diagnostics.fileName,
-        position: position2
-      });
-    });
-    return valid;
-  }
   recordConcreteStructInstantiation(type, scope) {
     if (type.value != TypeValue.TypeCustom || !type.typeParameters?.length)
       return;
@@ -11501,23 +11144,6 @@ var ExpressionAnalyzer = class {
     if (expression.kind == "member_access_expression" || expression.kind == "index_expression")
       return this.rootIdentifier(expression.receiver);
     return void 0;
-  }
-  qualifiedExpressionName(expression) {
-    if (expression.kind == "identifier")
-      return expression.name;
-    if (expression.kind != "member_access_expression")
-      return;
-    const receiver = this.qualifiedExpressionName(expression.receiver);
-    return receiver ? `${receiver}.${expression.member.name}` : void 0;
-  }
-  namespaceOwner(qualifiedName, scope) {
-    const parts = qualifiedName.split(".");
-    for (let length = parts.length - 1; length > 0; length--) {
-      const candidate = parts.slice(0, length).join(".");
-      if (scope.getSymbol(candidate)?.kind == SymbolKind.SymbolModule)
-        return candidate;
-    }
-    return;
   }
   referenceCompatible(expected, actual, scope) {
     const expectedBase = { ...expected, reference: false, edit: false };
@@ -11548,25 +11174,6 @@ var ExpressionAnalyzer = class {
     };
   }
 };
-function validateSpecializationCapability(declaration, typeParameter, concrete, scope, diagnostics, fileName, position2) {
-  let valid = true;
-  const reported = /* @__PURE__ */ new Set();
-  for (const interfaceCall of declaration.interfaceCalls ?? []) {
-    if (interfaceCall.typeParameter != typeParameter)
-      continue;
-    const witness = scope.getMethod(concrete.name.name, interfaceCall.methodName);
-    if (!witness)
-      continue;
-    if (!interfaceCall.receiverEdit && witness.receiverEdit) {
-      valid = false;
-      if (reported.has(interfaceCall.methodName))
-        continue;
-      reported.add(interfaceCall.methodName);
-      diagnostics.addError(Error2(fileName, "semantic", position2, `cannot specialize \`${declaration.name.name}<${concrete.name.name}>\`: \`${concrete.name.name}.${interfaceCall.methodName}\` requires \`edit &${concrete.name.name}\`, but the generic call receiver is read-only`));
-    }
-  }
-  return valid;
-}
 
 // dist/src/analysis/statements/assignment_statement.js
 var AssignmentStatementAnalyzer = class {
@@ -12160,7 +11767,7 @@ var VariableDeclarationStatementAnalyzer = class {
       name: s.name.name,
       kind: s.file ? SymbolKind.SymbolFileConst : s.mutable ? SymbolKind.SymbolLocalLet : SymbolKind.SymbolLocalConst,
       type,
-      assigned: !!s.value || !!s.external,
+      assigned: !!s.value,
       value: s.value,
       declaration: s,
       moved: "active"
@@ -12593,29 +12200,6 @@ var DeclarationAnalyzer = class {
     this.variableAnalyzer = new VariableDeclarationStatementAnalyzer(diagnostics);
   }
   /** Registers every named type before signatures and bodies are resolved. */
-  registerInterfaces() {
-    for (const declaration of this.ast.declarations) {
-      if (declaration.kind != "interface_declaration")
-        continue;
-      if (this.globalScope.getSymbol(declaration.name.name)) {
-        this.diagnostics.addError(Error2(this.ast.fileName, "semantic", declaration.name.position ?? declaration.position, `interface \`${declaration.name.name}\` is declared more than once`));
-        continue;
-      }
-      this.globalScope.addSymbol({
-        name: declaration.name.name,
-        kind: SymbolKind.SymbolInterfaceDecl,
-        declaration
-      });
-    }
-    for (const declaration of this.ast.declarations) {
-      if (declaration.kind != "interface_declaration")
-        continue;
-      for (const method of declaration.methods) {
-        this.validateTypeParameterBounds(method.typeParameters, method.position);
-      }
-    }
-  }
-  /** Registers every named type before signatures and bodies are resolved. */
   registerTypes() {
     this.ast.declarations.forEach((decl) => {
       if (decl.kind == "type_declaration")
@@ -12647,8 +12231,7 @@ var DeclarationAnalyzer = class {
           errorTypes: decl.errorTypes,
           parameters: decl.parameters,
           declaration: decl,
-          typeParameters: decl.typeParameters,
-          external: decl.external
+          typeParameters: decl.typeParameters
         }
       });
     });
@@ -12688,8 +12271,6 @@ var DeclarationAnalyzer = class {
           this.diagnostics.addError(Error2(this.ast.fileName, "semantic", declaration.errorTypes[0].position ?? declaration.position, "dispose method cannot have an error channel"));
         if (declaration.returnTypes.length)
           this.diagnostics.addError(Error2(this.ast.fileName, "semantic", declaration.returnTypes[0].position ?? declaration.position, "dispose method must be void"));
-        if (declaration.exported || this.ast.exportModule)
-          this.diagnostics.addError(Error2(this.ast.fileName, "semantic", declaration.name.position ?? declaration.position, "dispose method cannot be exported"));
       }
       const resolvedReceiver = structuredClone(receiverType.type);
       resolvedReceiver.reference = true;
@@ -12703,190 +12284,27 @@ var DeclarationAnalyzer = class {
         typeParameters: declaration.typeParameters,
         receiverType: resolvedReceiver,
         receiverName: receiver.name.name,
-        receiverEdit: !!receiver.type.edit,
-        external: declaration.external
+        receiverEdit: !!receiver.type.edit
       };
       if (!this.globalScope.addMethod(recordName, declaration.name.name, signature)) {
         this.diagnostics.addError(Error2(this.ast.fileName, "semantic", declaration.name.position ?? declaration.position, `duplicate method ${declaration.name.name} on type ${recordName}`));
       }
     }
   }
-  /** Validates every explicit `implements` clause after methods are registered. */
-  validateImplementations() {
-    for (const declaration of this.ast.declarations) {
-      if (declaration.kind != "type_declaration" || declaration.declKind != TypeDeclKind.Struct) {
-        continue;
-      }
-      const record = declaration.declaration;
-      const implemented = record.implementedInterfaces ?? [];
-      const requirementsByName = /* @__PURE__ */ new Map();
-      for (const interfaceType of implemented) {
-        const symbol = this.globalScope.getSymbol(interfaceType.name.name);
-        if (!symbol) {
-          this.diagnostics.addError(Error2(this.ast.fileName, "semantic", interfaceType.position ?? declaration.position, `unknown interface \`${interfaceType.name.name}\``));
-          continue;
-        }
-        if (symbol.kind != SymbolKind.SymbolInterfaceDecl || symbol.declaration?.kind != "interface_declaration") {
-          this.diagnostics.addError(Error2(this.ast.fileName, "semantic", interfaceType.position ?? declaration.position, `\`${interfaceType.name.name}\` is not an interface`));
-          continue;
-        }
-        const interfaceDeclaration = symbol.declaration;
-        let valid = true;
-        for (const requirement of interfaceDeclaration.methods) {
-          const previous2 = requirementsByName.get(requirement.name.name);
-          if (previous2 && !this.interfaceRequirementsMatch(previous2.requirement, requirement)) {
-            this.diagnostics.addError(Error2(this.ast.fileName, "semantic", requirement.name.position ?? requirement.position, `interfaces \`${previous2.interfaceName}\` and \`${interfaceType.name.name}\` require incompatible overloads of \`${requirement.name.name}\``));
-            valid = false;
-            continue;
-          }
-          requirementsByName.set(requirement.name.name, {
-            requirement,
-            interfaceName: interfaceType.name.name
-          });
-          const method = this.globalScope.getMethod(declaration.name.name, requirement.name.name);
-          if (!method) {
-            this.diagnostics.addError(Error2(this.ast.fileName, "semantic", interfaceType.position ?? declaration.position, `type \`${declaration.name.name}\` declares that it implements \`${interfaceType.name.name}\` but is missing method \`${requirement.name.name}\``));
-            valid = false;
-            continue;
-          }
-          if (!this.methodSatisfiesRequirement(declaration.name.name, interfaceType.name.name, method, requirement)) {
-            valid = false;
-          }
-          const publicConformance = (declaration.exported || !!this.ast.exportModule) && (interfaceDeclaration.exported || !!interfaceDeclaration.external || !!this.ast.exportModule);
-          if (publicConformance && !method.declaration?.exported && !method.declaration?.external && !this.ast.exportModule) {
-            this.diagnostics.addError(Error2(this.ast.fileName, "semantic", method.declaration?.name.position ?? method.declaration?.position ?? requirement.position, `method \`${declaration.name.name}.${requirement.name.name}\` must be exported because it provides public conformance to \`${interfaceType.name.name}\``));
-            valid = false;
-          }
-        }
-        if (valid) {
-          this.globalScope.addImplementation(declaration.name.name, interfaceType.name.name);
-        }
-      }
-    }
-  }
-  /**
-   * Checks the specializations that were requested before their callee's body
-   * had been analyzed. Running these after every body in the module keeps
-   * receiver-capability validation independent of declaration order.
-   */
-  validateDeferredSpecializations() {
-    for (const declaration of this.ast.declarations) {
-      if (declaration.kind != "function_declaration")
-        continue;
-      const pending = declaration.deferredSpecializations ?? [];
-      declaration.deferredSpecializations = void 0;
-      for (const request of pending) {
-        validateSpecializationCapability(declaration, request.typeParameter, request.concrete, this.globalScope, this.diagnostics, request.fileName, request.position);
-      }
-    }
-  }
-  interfaceRequirementsMatch(left, right) {
-    if (left.parameters.length != right.parameters.length || left.returnTypes.length != right.returnTypes.length || left.errorTypes.length != right.errorTypes.length || !this.typeParametersMatch(left.typeParameters, right.typeParameters)) {
-      return false;
-    }
-    const bindings = /* @__PURE__ */ new Map();
-    (left.typeParameters ?? []).forEach((parameter, index) => {
-      const target = right.typeParameters?.[index];
-      if (target)
-        bindings.set(parameter.name.name, target);
-    });
-    const matches = (a, b) => this.typeAnalyzer.arrayTypesMatch(this.typeAnalyzer.substituteType(a, bindings), b);
-    return left.parameters.every((parameter, index) => !!parameter.variadic == !!right.parameters[index].variadic && matches(parameter.type, right.parameters[index].type)) && left.returnTypes.every((type, index) => matches(type, right.returnTypes[index])) && left.errorTypes.every((type) => right.errorTypes.some((candidate) => matches(type, candidate)));
-  }
-  methodSatisfiesRequirement(concreteName, interfaceName, method, requirement) {
-    if (method.parameters.length != requirement.parameters.length) {
-      this.diagnostics.addError(Error2(this.ast.fileName, "semantic", requirement.position, `method \`${concreteName}.${requirement.name.name}\` does not satisfy \`${interfaceName}.${requirement.name.name}\`: parameter count must be ${requirement.parameters.length}, got ${method.parameters.length}`));
-      return false;
-    }
-    if (!this.typeParametersMatch(requirement.typeParameters, method.typeParameters)) {
-      this.diagnostics.addError(Error2(this.ast.fileName, "semantic", requirement.position, `method \`${concreteName}.${requirement.name.name}\` does not satisfy \`${interfaceName}.${requirement.name.name}\`: generic parameter bounds or variadic shape differ`));
-      return false;
-    }
-    const bindings = /* @__PURE__ */ new Map();
-    (requirement.typeParameters ?? []).forEach((parameter, index) => {
-      const target = method.typeParameters?.[index];
-      if (target)
-        bindings.set(parameter.name.name, target);
-    });
-    const required = (type) => this.typeAnalyzer.substituteType(type, bindings);
-    for (let index = 0; index < requirement.parameters.length; index++) {
-      const want = required(requirement.parameters[index].type);
-      const have = method.parameters[index].type;
-      if (!!requirement.parameters[index].variadic != !!method.parameters[index].variadic || !this.typeAnalyzer.arrayTypesMatch(want, have)) {
-        this.diagnostics.addError(Error2(this.ast.fileName, "semantic", method.parameters[index].position, `method \`${concreteName}.${requirement.name.name}\` does not satisfy \`${interfaceName}.${requirement.name.name}\`: parameter ${index + 1} must be \`${this.typeAnalyzer.displayName(want)}\`, got \`${this.typeAnalyzer.displayName(have)}\``));
-        return false;
-      }
-    }
-    if (method.returnTypes.length != requirement.returnTypes.length) {
-      this.addRequirementReturnError(concreteName, interfaceName, method, requirement);
-      return false;
-    }
-    for (let index = 0; index < requirement.returnTypes.length; index++) {
-      if (!this.typeAnalyzer.arrayTypesMatch(required(requirement.returnTypes[index]), method.returnTypes[index])) {
-        this.addRequirementReturnError(concreteName, interfaceName, method, requirement);
-        return false;
-      }
-    }
-    const requiredErrors = requirement.errorTypes.map(required);
-    if (method.errorTypes.length != requiredErrors.length || !requiredErrors.every((type) => method.errorTypes.some((candidate) => this.typeAnalyzer.arrayTypesMatch(type, candidate)))) {
-      this.diagnostics.addError(Error2(this.ast.fileName, "semantic", method.declaration?.position ?? requirement.position, `method \`${concreteName}.${requirement.name.name}\` does not satisfy \`${interfaceName}.${requirement.name.name}\`: error set differs`));
-      return false;
-    }
-    return true;
-  }
-  typeParametersMatch(left, right) {
-    if ((left?.length ?? 0) != (right?.length ?? 0))
-      return false;
-    return (left ?? []).every((parameter, index) => {
-      const candidate = right[index];
-      const bounds = parameter.interfaceBounds ?? [];
-      const candidateBounds = candidate.interfaceBounds ?? [];
-      return !!parameter.variadic == !!candidate.variadic && bounds.length == candidateBounds.length && bounds.every((bound) => candidateBounds.some((candidateBound) => candidateBound.name.name == bound.name.name));
-    });
-  }
-  validateTypeParameterBounds(typeParameters, position2) {
-    for (const parameter of typeParameters ?? []) {
-      for (const bound of parameter.interfaceBounds ?? []) {
-        const symbol = this.globalScope.getSymbol(bound.name.name);
-        if (symbol?.kind == SymbolKind.SymbolInterfaceDecl)
-          continue;
-        this.diagnostics.addError(Error2(this.ast.fileName, "semantic", bound.position ?? position2, symbol ? `generic bound \`${bound.name.name}\` is not an interface` : `unknown interface bound \`${bound.name.name}\``));
-      }
-    }
-  }
-  addRequirementReturnError(concreteName, interfaceName, method, requirement) {
-    const want = requirement.returnTypes.length ? requirement.returnTypes.map((type) => this.typeAnalyzer.displayName(type)).join(", ") : "void";
-    const have = method.returnTypes.length ? method.returnTypes.map((type) => this.typeAnalyzer.displayName(type)).join(", ") : "void";
-    this.diagnostics.addError(Error2(this.ast.fileName, "semantic", method.declaration?.position ?? requirement.position, `method \`${concreteName}.${requirement.name.name}\` does not satisfy \`${interfaceName}.${requirement.name.name}\`: return type must be \`${want}\`, got \`${have}\``));
-  }
   /** Second pass: analyze a top-level type, variable, or function declaration. */
   analyze(decl) {
     switch (decl.kind) {
-      case "import_declaration":
-      case "interface_declaration":
-        return;
       case "type_declaration":
         return;
       case "variable_declaration_statement":
-        if (decl.external?.abi == "delta" && !decl.external.moduleName) {
-          this.diagnostics.addError(Error2(this.ast.fileName, "semantic", decl.position, 'a `.ffi.delta` file declaring prebuilt Delta symbols must specify `ffi module "<abi-name>";`'));
-        }
         this.variableAnalyzer.analyze(decl, this.globalScope);
         return;
       case "function_declaration":
         this.analyzeFunctionDeclaration(decl);
-        decl.bodyAnalyzed = true;
     }
   }
   /** Validates a function signature and delegates its body to the statement layer. */
   analyzeFunctionDeclaration(decl) {
-    this.validateTypeParameterBounds(decl.typeParameters, decl.position);
-    if (decl.external?.abi == "delta" && !decl.external.moduleName) {
-      this.diagnostics.addError(Error2(this.ast.fileName, "semantic", decl.position, 'a `.ffi.delta` file declaring prebuilt Delta functions must specify `ffi module "<abi-name>";`'));
-    }
-    if (decl.external?.abi == "delta" && decl.typeParameters?.length) {
-      this.diagnostics.addError(Error2(this.ast.fileName, "semantic", decl.position, "prebuilt Delta generic functions require explicit ABI specializations and are not supported yet"));
-    }
     const functionScope = new Scope(this.globalScope);
     functionScope.activeFunction = decl;
     let methodSignature;
@@ -12955,8 +12373,6 @@ var DeclarationAnalyzer = class {
       }
     });
     decl.errorTypes = normalizedErrors;
-    if (decl.external)
-      return;
     const symbol = decl.receiver ? { name: decl.name.name, kind: SymbolKind.SymbolFuncDecl, signature: methodSignature } : this.globalScope.getSymbol(decl.name.name);
     if (symbol?.signature)
       symbol.signature.errorTypes = normalizedErrors;
@@ -12989,16 +12405,6 @@ var DeclarationAnalyzer = class {
    * this function's own type-parameter list.
    */
   isValidFunctionSignatureType(type, decl, position2, usage) {
-    if (this.typeAnalyzer.isCType(type)) {
-      if (decl.external?.abi != "c") {
-        this.diagnostics.addError(Error2(this.ast.fileName, "semantic", type.position ?? position2, "C ABI types are only permitted in extern declarations"));
-        return false;
-      }
-      if (this.typeAnalyzer.isValidCType(type))
-        return true;
-      this.diagnostics.addError(Error2(this.ast.fileName, "semantic", type.position ?? position2, `unsupported C ABI type: ${type.name.name}`));
-      return false;
-    }
     if (this.typeAnalyzer.isIndirection(type)) {
       if (usage == "return") {
         this.diagnostics.addError(Error2(this.ast.fileName, "semantic", type.position ?? position2, "indirection types are only permitted in record fields and function parameters"));
@@ -13019,9 +12425,6 @@ var DeclarationAnalyzer = class {
     }
     if (type.value == TypeValue.TypeCustom) {
       const symbol = this.globalScope.getSymbol(type.name.name);
-      if (this.reportInterfaceAsValueType(type, position2)) {
-        return false;
-      }
       const isTypeDeclaration = symbol !== void 0 && [
         SymbolKind.SymbolTypeStructDecl,
         SymbolKind.SymbolTypeEnumDecl,
@@ -13047,7 +12450,6 @@ var DeclarationAnalyzer = class {
       this.diagnostics.addError(Error2(this.ast.fileName, "semantic", decl.name.position ?? decl.position, "duplicate type declaration: " + decl.name.name));
       return;
     }
-    this.rejectDeclarationTypeParameterBounds(decl);
     if (decl.declKind == TypeDeclKind.Union) {
       const value2 = decl.declaration;
       for (const variant of value2.variants) {
@@ -13099,9 +12501,7 @@ var DeclarationAnalyzer = class {
         }
         if (!this.isDeclaredFieldType(field.type, value2.typeParameters)) {
           const position2 = field.type.position ?? field.name.position ?? decl.position;
-          if (!this.reportInterfaceAsValueType(field.type, position2)) {
-            this.diagnostics.addError(Error2(this.ast.fileName, "semantic", position2, "unknown type identifier: " + field.type.name.name));
-          }
+          this.diagnostics.addError(Error2(this.ast.fileName, "semantic", position2, "unknown type identifier: " + field.type.name.name));
           return;
         }
         if (field.type.arrayLengths?.some((length) => length == 0)) {
@@ -13158,32 +12558,6 @@ var DeclarationAnalyzer = class {
         return unknownType;
     }
     return void 0;
-  }
-  /**
-   * Rejects an interface bound written on a type declaration's own type
-   * parameter. Bounds are only honoured on functions and receiver functions,
-   * so accepting one here would silently promise a constraint that is never
-   * checked at instantiation.
-   */
-  rejectDeclarationTypeParameterBounds(decl) {
-    const declaration = decl.declaration;
-    for (const parameter of declaration.typeParameters ?? []) {
-      for (const bound of parameter.interfaceBounds ?? []) {
-        this.diagnostics.addError(Error2(this.ast.fileName, "semantic", bound.position ?? parameter.position ?? decl.position, `interface bound \`${bound.name.name}\` is not supported on a type declaration's type parameter \`${parameter.name.name}\`; place the bound on the function that requires it`));
-      }
-    }
-  }
-  /**
-   * Reports a named interface used where a value type is expected, and says
-   * so in those terms rather than claiming the name is undeclared. Returns
-   * whether the diagnostic was emitted.
-   */
-  reportInterfaceAsValueType(type, position2) {
-    if (this.globalScope.getSymbol(type.name.name)?.kind != SymbolKind.SymbolInterfaceDecl) {
-      return false;
-    }
-    this.diagnostics.addError(Error2(this.ast.fileName, "semantic", position2, `interface \`${type.name.name}\` is a compile-time constraint and cannot be used as a value type`));
-    return true;
   }
   isDeclaredFieldType(type, typeParameters) {
     if (this.typeAnalyzer.isIndirection(type))
@@ -13262,7 +12636,7 @@ var DeclarationAnalyzer = class {
   flattenCompositions() {
     const resolving = /* @__PURE__ */ new Set();
     const cache = /* @__PURE__ */ new Map();
-    const resolve4 = (name) => {
+    const resolve = (name) => {
       if (cache.has(name))
         return structuredClone(cache.get(name));
       if (resolving.has(name))
@@ -13270,7 +12644,7 @@ var DeclarationAnalyzer = class {
       const symbol = this.globalScope.getSymbol(name);
       const declaration = symbol?.declaration;
       if (symbol?.kind == SymbolKind.SymbolTypsAliasDecl && symbol.type)
-        return resolve4(symbol.type.name.name);
+        return resolve(symbol.type.name.name);
       if (declaration?.kind != "type_declaration" || declaration.declKind != TypeDeclKind.Struct)
         return [];
       resolving.add(name);
@@ -13283,7 +12657,7 @@ var DeclarationAnalyzer = class {
         }
       }
       const fields = [
-        ...(struct.compositions ?? []).flatMap((composition) => resolve4(composition.name.name)),
+        ...(struct.compositions ?? []).flatMap((composition) => resolve(composition.name.name)),
         ...struct.fields
       ];
       resolving.delete(name);
@@ -13299,7 +12673,7 @@ var DeclarationAnalyzer = class {
     };
     for (const declaration of this.ast.declarations) {
       if (declaration.kind == "type_declaration" && declaration.declKind == TypeDeclKind.Struct)
-        resolve4(declaration.name.name);
+        resolve(declaration.name.name);
     }
   }
   hasDuplicates(names, decl, noun) {
@@ -13325,14 +12699,11 @@ var AnalyzerCore = class {
   }
   /** Registers functions first, then analyzes every declaration. */
   analyze() {
-    this.declarationAnalyzer.registerInterfaces();
     this.declarationAnalyzer.registerTypes();
     this.declarationAnalyzer.finish();
     this.declarationAnalyzer.registerMethods();
-    this.declarationAnalyzer.validateImplementations();
     this.declarationAnalyzer.registerFunctions();
     this.ast.declarations.forEach((declaration) => this.declarationAnalyzer.analyze(declaration));
-    this.declarationAnalyzer.validateDeferredSpecializations();
     return this.globalScope;
   }
 };
@@ -13397,10 +12768,6 @@ var Parser = class {
   typeDecls;
   objectValueDecls;
   objectNonValueDecls;
-  exportModule;
-  ffiHeaders;
-  ffiModuleName;
-  ffiLibraries;
   constructor(filepath, d) {
     this.diagnostics = d;
     this.tokens = [];
@@ -13408,8 +12775,6 @@ var Parser = class {
     this.typeDecls = /* @__PURE__ */ new Map();
     this.objectValueDecls = /* @__PURE__ */ new Map();
     this.objectNonValueDecls = /* @__PURE__ */ new Map();
-    this.ffiHeaders = [];
-    this.ffiLibraries = [];
   }
   /** Advances the cursor by one and returns the now-current token. */
   advance() {
@@ -13584,29 +12949,23 @@ var Parser = class {
       return params;
     }
     while (this.current().kind != TokenKind.Symbol_RightParen) {
-      const variadic = this.current().kind == TokenKind.Symbol_Ellipsis;
-      if (variadic)
-        this.advance();
+      if (this.current().kind == TokenKind.Symbol_Ellipsis) {
+        this.diagnostics.addError(Error2(this.filepath, "parser", this.getCurrentPosition(), "variadic parameters are not supported; declare a slice parameter such as `items: T[]` instead"));
+        return;
+      }
       const p = this.expect(TokenKind.Kind_Identifier, "identifier expected");
       if (!p || !this.expect(TokenKind.Symbol_Colon, ": symbol expected"))
         return;
       const t = this.parseTypeReference(typeParams);
       if (!t)
         return;
-      if (variadic)
-        t.slice = true;
       this.objectNonValueDecls.set(p.value, t.name.name);
       params.push({
         position: getTokenPosition(p),
         name: CreateIdentifier(p.value, getTokenPosition(p)),
-        type: t,
-        variadic: variadic || void 0
+        type: t
       });
       if (this.current().kind == TokenKind.Symbol_Comma) {
-        if (variadic) {
-          this.diagnostics.addError(Error2(this.filepath, "parser", getTokenPosition(p), "a variadic parameter must be the final parameter"));
-          return;
-        }
         this.advance();
         continue;
       }
@@ -13664,9 +13023,10 @@ var Parser = class {
     this.advance();
     const types = [];
     while (this.current().kind != TokenKind.Symbol_Greater && this.current().kind != TokenKind.Symbol_ShiftRight) {
-      const variadic = decl && this.current().kind == TokenKind.Symbol_Ellipsis;
-      if (variadic)
-        this.advance();
+      if (decl && this.current().kind == TokenKind.Symbol_Ellipsis) {
+        this.diagnostics.addError(Error2(this.filepath, "parser", this.getCurrentPosition(), "variadic type parameters are not supported"));
+        return;
+      }
       const tName = this.expect(TokenKind.Kind_Identifier, "type identifier expected");
       if (!tName) {
         return;
@@ -13684,19 +13044,9 @@ var Parser = class {
       }
       const sourceName = nameParts.join(".");
       const type = CreateType(sourceName, decl ? TypeValue.TypeGeneric : this.resolveTypeValue(sourceName), getTokenPosition(tName));
-      type.variadic = variadic || void 0;
       if (decl && this.current().kind == TokenKind.Symbol_Colon) {
-        this.advance();
-        type.interfaceBounds = [];
-        while (true) {
-          const bound = this.parseTypeReference();
-          if (!bound)
-            return;
-          type.interfaceBounds.push(bound);
-          if (this.current().kind != TokenKind.Symbol_Ampersand)
-            break;
-          this.advance();
-        }
+        this.diagnostics.addError(Error2(this.filepath, "parser", this.getCurrentPosition(), `type parameter bounds are not supported; declare \`${sourceName}\` without a constraint`));
+        return;
       }
       if (!decl && this.current().kind == TokenKind.Symbol_Less) {
         type.typeParameters = this.parseTypeParams(false);
@@ -13714,10 +13064,6 @@ var Parser = class {
       }
       types.push(type);
       if (this.current().kind == TokenKind.Symbol_Comma) {
-        if (variadic) {
-          this.diagnostics.addError(Error2(this.filepath, "parser", type.position, "a variadic type parameter must be the final type parameter"));
-          return;
-        }
         this.advance();
         continue;
       }
@@ -13730,10 +13076,6 @@ var Parser = class {
     }
     this.advance();
     if (decl) {
-      if (types.filter((type) => type.variadic).length > 1) {
-        this.diagnostics.addError(Error2(this.filepath, "parser", types.find((type) => type.variadic).position, "a declaration may have only one variadic type parameter"));
-        return;
-      }
       const seenTypeParameters = /* @__PURE__ */ new Set();
       const duplicateTypeParameter = types.find((type) => {
         if (seenTypeParameters.has(type.name.name)) {
@@ -13817,21 +13159,8 @@ var Parser = class {
     }
     if (this.current().kind == TokenKind.Symbol_Semicolon) {
       const semicolon = this.advance();
-      if (!this.filepath.endsWith(".ffi.delta")) {
-        this.diagnostics.addError(Error2(this.filepath, "parser", getTokenPosition(semicolon), "declaration-only Delta functions are only allowed in `.ffi.delta` files"));
-      }
-      return {
-        position: fnPos,
-        kind: "function_declaration",
-        name: CreateIdentifier(fnName.value, getTokenPosition(fnName)),
-        parameters: params,
-        typeParameters: typeparams,
-        returnTypes,
-        errorTypes,
-        body: { kind: "block_statement", position: fnPos, statements: [] },
-        receiver,
-        external: { abi: "delta", moduleName: this.ffiModuleName }
-      };
+      this.diagnostics.addError(Error2(this.filepath, "parser", getTokenPosition(semicolon), "a function declaration requires a body"));
+      return;
     }
     const blockContext = {
       fnContext: {
@@ -14634,7 +13963,6 @@ var Parser = class {
       case "int16":
         return TypeValue.Type_Int16;
       case "int32":
-      case "c.int":
         return TypeValue.Type_Int32;
       case "int64":
         return TypeValue.Type_Int64;
@@ -14647,10 +13975,8 @@ var Parser = class {
       case "uint64":
         return TypeValue.Type_UInt64;
       case "intsize":
-      case "c.ssize_t":
         return TypeValue.Type_IntSize;
       case "uintsize":
-      case "c.size_t":
         return TypeValue.Type_UIntSize;
       case "char":
         return TypeValue.Type_Char;
@@ -14720,18 +14046,6 @@ var Parser = class {
     const varType = this.parseTypeReference(typeParams);
     if (!varType)
       return;
-    if (this.current().kind == TokenKind.Symbol_Semicolon && modifier.value != "let" && file && this.filepath.endsWith(".ffi.delta")) {
-      this.advance();
-      return {
-        file: true,
-        kind: "variable_declaration_statement",
-        mutable: false,
-        name: CreateIdentifier(varNameIdent.value, getTokenPosition(varNameIdent)),
-        type: varType,
-        position: getTokenPosition(varNameIdent),
-        external: { abi: "delta", moduleName: this.ffiModuleName }
-      };
-    }
     if (this.current().kind == TokenKind.Symbol_Semicolon && modifier.value != "let") {
       this.diagnostics.addError(Error2(this.filepath, "parser", getTokenPosition(this.current()), "const declaration requires an initializer"));
       return;
@@ -14780,123 +14094,6 @@ var Parser = class {
       value,
       asResult
     };
-  }
-  parseInterfaceDeclaration() {
-    const keyword = this.advance();
-    const name = this.expect(TokenKind.Kind_Identifier, "interface name expected");
-    if (!name)
-      return;
-    if (!this.expect(TokenKind.Symbol_LeftBrace, "{ expected after interface name"))
-      return;
-    const methods = [];
-    const methodNames = /* @__PURE__ */ new Set();
-    while (this.current().kind != TokenKind.Symbol_RightBrace && this.current().kind != TokenKind.Kind_EOF) {
-      const documentation = this.takeDocumentationComments();
-      const fn = this.expect(TokenKind.Keyword_Function, "interface bodies may contain only function requirements");
-      if (!fn) {
-        this.skipLine();
-        continue;
-      }
-      if (this.current().kind == TokenKind.Symbol_LeftParen) {
-        this.diagnostics.addError(Error2(this.filepath, "parser", this.getCurrentPosition(), "interface method requirements cannot declare a receiver"));
-        this.synchronizeInterfaceMember();
-        continue;
-      }
-      const methodName = this.expect(TokenKind.Kind_Identifier, "interface method name expected");
-      if (!methodName) {
-        this.synchronizeInterfaceMember();
-        continue;
-      }
-      let typeParameters = [];
-      if (this.current().kind == TokenKind.Symbol_Less) {
-        const parsed = this.parseTypeParams(true);
-        if (!parsed) {
-          this.synchronizeInterfaceMember();
-          continue;
-        }
-        typeParameters = parsed;
-      }
-      const parameters = this.parseFuncParams(typeParameters);
-      if (!parameters) {
-        this.synchronizeInterfaceMember();
-        continue;
-      }
-      let returnTypes = [];
-      let errorTypes = [];
-      if (this.current().kind == TokenKind.Symbol_Colon) {
-        this.advance();
-        const parsed = this.parseFuncReturnTypes(typeParameters);
-        if (!parsed) {
-          this.synchronizeInterfaceMember();
-          continue;
-        }
-        returnTypes = parsed;
-      }
-      if (this.current().kind == TokenKind.Symbol_Pipe) {
-        this.advance();
-        const parsed = this.parseFuncErrorTypes();
-        if (!parsed) {
-          this.synchronizeInterfaceMember();
-          continue;
-        }
-        errorTypes = parsed;
-      }
-      if (this.current().kind == TokenKind.Symbol_LeftBrace) {
-        this.diagnostics.addError(Error2(this.filepath, "parser", this.getCurrentPosition(), "interface method requirements cannot have a body"));
-        this.skipBalancedBlock();
-      } else if (!this.expect(TokenKind.Symbol_Semicolon, "interface method requirement must end with ;")) {
-        this.synchronizeInterfaceMember();
-      }
-      if (methodNames.has(methodName.value)) {
-        this.diagnostics.addError(Error2(this.filepath, "parser", getTokenPosition(methodName), `duplicate interface method requirement \`${methodName.value}\``));
-        continue;
-      }
-      methodNames.add(methodName.value);
-      methods.push({
-        kind: "interface_method_requirement",
-        position: getTokenPosition(fn),
-        name: CreateIdentifier(methodName.value, getTokenPosition(methodName)),
-        typeParameters: typeParameters.length ? typeParameters : void 0,
-        parameters,
-        returnTypes,
-        errorTypes,
-        documentation
-      });
-    }
-    if (!this.expect(TokenKind.Symbol_RightBrace, "} expected after interface body"))
-      return;
-    if (this.current().kind == TokenKind.Symbol_Semicolon)
-      this.advance();
-    return {
-      kind: "interface_declaration",
-      position: getTokenPosition(keyword),
-      name: CreateIdentifier(name.value, getTokenPosition(name)),
-      methods,
-      external: this.filepath.endsWith(".ffi.delta") ? { abi: "delta", moduleName: this.ffiModuleName } : void 0
-    };
-  }
-  synchronizeInterfaceMember() {
-    while (this.current().kind != TokenKind.Kind_EOF && this.current().kind != TokenKind.Symbol_Semicolon && this.current().kind != TokenKind.Symbol_RightBrace) {
-      if (this.current().kind == TokenKind.Symbol_LeftBrace) {
-        this.skipBalancedBlock();
-        return;
-      }
-      this.advance();
-    }
-    if (this.current().kind == TokenKind.Symbol_Semicolon)
-      this.advance();
-  }
-  skipBalancedBlock() {
-    if (this.current().kind != TokenKind.Symbol_LeftBrace)
-      return;
-    let depth = 0;
-    do {
-      const token = this.advance();
-      if (token.kind == TokenKind.Symbol_LeftBrace)
-        depth++;
-      if (token.kind == TokenKind.Symbol_RightBrace)
-        depth--;
-    } while (depth > 0 && this.current().kind != TokenKind.Kind_EOF);
   }
   parseIfStatement(blockContext) {
     const keyword = this.advance();
@@ -15444,25 +14641,6 @@ var Parser = class {
       }
     }
     this.advance();
-    if (this.current().kind == TokenKind.Keyword_Implements) {
-      this.advance();
-      declaration.implementedInterfaces = [];
-      const seen = /* @__PURE__ */ new Set();
-      while (true) {
-        const implemented = this.parseTypeReference();
-        if (!implemented)
-          return;
-        if (seen.has(implemented.name.name)) {
-          this.diagnostics.addError(Error2(this.filepath, "parser", implemented.position, `type \`${declaration.name.name}\` lists interface \`${implemented.name.name}\` more than once`));
-        } else {
-          seen.add(implemented.name.name);
-          declaration.implementedInterfaces.push(implemented);
-        }
-        if (this.current().kind != TokenKind.Symbol_Comma)
-          break;
-        this.advance();
-      }
-    }
     if (!this.expect(TokenKind.Symbol_Semicolon, "; symbol expected")) {
       return;
     }
@@ -15727,274 +14905,16 @@ var Parser = class {
     this.diagnostics.addError(Error2(this.filepath, "parser", this.getCurrentPosition(), "invalid type kind specifier: " + declKind.value));
     return;
   }
-  /** Parses a named import or `import module [as alias] from "path";`. */
-  parseImportDeclaration() {
-    const keyword = this.advance();
-    let unsafe = false;
-    if (this.current().kind == TokenKind.Keyword_Unsafe) {
-      unsafe = true;
-      this.advance();
-    }
-    if (this.current().kind != TokenKind.Symbol_LeftBrace) {
-      const moduleName = this.expect(TokenKind.Kind_Identifier, "module identifier expected after import");
-      if (!moduleName)
-        return;
-      let alias;
-      if (this.current().kind == TokenKind.Keyword_As) {
-        this.advance();
-        alias = this.expect(TokenKind.Kind_Identifier, "module alias expected after as");
-        if (!alias)
-          return;
-      }
-      if (!this.expect(TokenKind.Keyword_From, "from expected after module import"))
-        return;
-      const modulePath2 = this.expect(TokenKind.Kind_StringLiteral, "module path string expected");
-      if (!modulePath2)
-        return;
-      if (!this.expect(TokenKind.Symbol_Semicolon, "; expected after import"))
-        return;
-      return {
-        kind: "import_declaration",
-        position: getTokenPosition(keyword),
-        pathPosition: getTokenPosition(modulePath2),
-        specifiers: [],
-        namespace: {
-          module: CreateIdentifier(moduleName.value, getTokenPosition(moduleName)),
-          alias: alias ? CreateIdentifier(alias.value, getTokenPosition(alias)) : void 0
-        },
-        path: modulePath2.value.slice(1, -1),
-        unsafe
-      };
-    }
-    if (!this.expect(TokenKind.Symbol_LeftBrace, "{ symbol expected after import")) {
-      return;
-    }
-    const specifiers = [];
-    while (this.current().kind != TokenKind.Symbol_RightBrace) {
-      const name = this.expect(TokenKind.Kind_Identifier, "imported identifier expected");
-      if (!name) {
-        return;
-      }
-      specifiers.push({
-        name: CreateIdentifier(name.value),
-        position: getTokenPosition(name)
-      });
-      if (this.current().kind == TokenKind.Symbol_Comma) {
-        this.advance();
-        continue;
-      }
-      if (this.current().kind != TokenKind.Symbol_RightBrace) {
-        this.diagnostics.addError(Error2(this.filepath, "parser", this.getCurrentPosition(), "comma or } expected in import list"));
-        return;
-      }
-    }
-    this.advance();
-    if (!this.expect(TokenKind.Keyword_From, "from expected after import list")) {
-      return;
-    }
-    const modulePath = this.expect(TokenKind.Kind_StringLiteral, "module path string expected");
-    if (!modulePath) {
-      return;
-    }
-    if (!this.expect(TokenKind.Symbol_Semicolon, "; expected after import")) {
-      return;
-    }
-    return {
-      kind: "import_declaration",
-      position: getTokenPosition(keyword),
-      pathPosition: getTokenPosition(modulePath),
-      specifiers,
-      path: modulePath.value.slice(1, -1),
-      unsafe
-    };
-  }
-  /** Parses header, ABI-module, and native-library metadata in an FFI interface file. */
-  parseFfiHeaderDeclaration() {
-    const ffiToken = this.advance();
-    if (!this.filepath.endsWith(".ffi.delta")) {
-      this.diagnostics.addError(Error2(this.filepath, "parser", getTokenPosition(ffiToken), "ffi header declarations are only allowed in `.ffi.delta` files"));
-    }
-    if (this.current().kind == TokenKind.Keyword_Module) {
-      this.advance();
-      const moduleName = this.expect(TokenKind.Kind_StringLiteral, "Delta ABI module name string expected after ffi module");
-      if (!moduleName)
-        return;
-      if (!this.expect(TokenKind.Symbol_Semicolon, "; expected after ffi module"))
-        return;
-      const value = moduleName.value.slice(1, -1);
-      if (!/^[A-Za-z0-9_]+(?:__[A-Za-z0-9_]+)*$/.test(value)) {
-        this.diagnostics.addError(Error2(this.filepath, "parser", getTokenPosition(moduleName), "ffi module must be a valid Delta ABI module name"));
-        return;
-      }
-      this.ffiModuleName = value;
-      return;
-    }
-    if (this.current().kind == TokenKind.Keyword_Static || this.current().kind == TokenKind.Keyword_Dynamic) {
-      const kind = this.advance();
-      const libraryPath = this.expect(TokenKind.Kind_StringLiteral, `library path string expected after ffi ${kind.value}`);
-      if (!libraryPath)
-        return;
-      if (!this.expect(TokenKind.Symbol_Semicolon, `; expected after ffi ${kind.value}`)) {
-        return;
-      }
-      const value = libraryPath.value.slice(1, -1);
-      if (!value.length) {
-        this.diagnostics.addError(Error2(this.filepath, "parser", getTokenPosition(libraryPath), "FFI library path cannot be empty"));
-        return;
-      }
-      this.ffiLibraries.push({
-        kind: kind.kind == TokenKind.Keyword_Static ? "static" : "dynamic",
-        path: value,
-        position: getTokenPosition(libraryPath)
-      });
-      return;
-    }
-    if (!this.expect(TokenKind.Keyword_Header, "header, module, static or dynamic expected after ffi"))
-      return;
-    const header = this.expect(TokenKind.Kind_StringLiteral, "C header string expected after ffi header");
-    if (!header)
-      return;
-    if (!this.expect(TokenKind.Symbol_Semicolon, "; expected after ffi header"))
-      return;
-    const spelling = header.value.slice(1, -1);
-    if (!/^<[^>]+>$/.test(spelling) && !/^"[^"]+"$/.test(spelling)) {
-      this.diagnostics.addError(Error2(this.filepath, "parser", getTokenPosition(header), 'ffi header must use C include spelling such as `<unistd.h>` or `"library.h"`'));
-      return;
-    }
-    if (!this.ffiHeaders.includes(spelling))
-      this.ffiHeaders.push(spelling);
-  }
-  /** Parses declaration-only functions from `extern { ... }`. */
-  parseExternBlock(exported) {
-    const externToken = this.advance();
-    if (!this.filepath.endsWith(".ffi.delta")) {
-      this.diagnostics.addError(Error2(this.filepath, "parser", getTokenPosition(externToken), "extern declarations are only allowed in `.ffi.delta` files"));
-    }
-    if (!this.expect(TokenKind.Symbol_LeftBrace, "{ expected after extern"))
-      return [];
-    const declarations = [];
-    while (this.current().kind != TokenKind.Symbol_RightBrace && this.current().kind != TokenKind.Kind_EOF) {
-      const documentation = this.takeDocumentationComments();
-      if (this.current().kind == TokenKind.Symbol_RightBrace)
-        break;
-      const fnToken = this.expect(TokenKind.Keyword_Function, "extern block may contain only function declarations");
-      if (!fnToken) {
-        this.skipLine();
-        continue;
-      }
-      const fnName = this.expect(TokenKind.Kind_Identifier, "function name expected");
-      if (!fnName) {
-        this.skipLine();
-        continue;
-      }
-      const parameters = this.parseFuncParams();
-      if (!parameters) {
-        this.skipLine();
-        continue;
-      }
-      let returnTypes = [];
-      if (this.current().kind == TokenKind.Symbol_Colon) {
-        this.advance();
-        const parsedReturns = this.parseFuncReturnTypes();
-        if (!parsedReturns) {
-          this.skipLine();
-          continue;
-        }
-        returnTypes = parsedReturns;
-      }
-      if (!this.expect(TokenKind.Symbol_Semicolon, "extern function declaration must end with ; and cannot have a body")) {
-        this.synchronizeTopLevel(this.pos);
-        continue;
-      }
-      declarations.push({
-        position: getTokenPosition(fnToken),
-        kind: "function_declaration",
-        name: CreateIdentifier(fnName.value, getTokenPosition(fnName)),
-        parameters,
-        returnTypes,
-        errorTypes: [],
-        body: {
-          kind: "block_statement",
-          position: getTokenPosition(fnToken),
-          statements: []
-        },
-        documentation,
-        exported,
-        external: { abi: "c", linkName: fnName.value }
-      });
-    }
-    this.expect(TokenKind.Symbol_RightBrace, "} expected after extern declarations");
-    return declarations;
-  }
   /**
    * Parses every top-level declaration until end-of-file. Only `function`
    * declarations are recognized today; any other leading token is an error.
    */
   parseDecls() {
     const decls = [];
-    let sawNonImportDeclaration = false;
-    let sawModuleDeclaration = false;
     while (this.current().kind != TokenKind.Kind_EOF) {
-      let documentation = this.takeDocumentationComments();
+      const documentation = this.takeDocumentationComments();
       if (this.current().kind == TokenKind.Kind_EOF) {
         break;
-      }
-      if (sawModuleDeclaration) {
-        this.diagnostics.addError(Error2(this.filepath, "parser", this.getCurrentPosition(), "export module must be the final non-comment declaration in the file"));
-      }
-      if (this.current().kind == TokenKind.Keyword_Import) {
-        const declarationStart = this.pos;
-        if (sawNonImportDeclaration) {
-          this.diagnostics.addError(Error2(this.filepath, "parser", this.getCurrentPosition(), "imports must precede other declarations"));
-        }
-        const declaration = this.parseImportDeclaration();
-        if (declaration) {
-          decls.push(declaration);
-        } else {
-          this.synchronizeTopLevel(declarationStart);
-        }
-        continue;
-      }
-      if (this.current().kind == TokenKind.Keyword_Ffi) {
-        sawNonImportDeclaration = true;
-        this.parseFfiHeaderDeclaration();
-        continue;
-      }
-      let exported = false;
-      if (this.current().kind == TokenKind.Keyword_Export) {
-        exported = true;
-        const exportToken = this.advance();
-        documentation = this.takeDocumentationComments() ?? documentation;
-        if (this.current().kind == TokenKind.Keyword_Module) {
-          const moduleToken = this.advance();
-          const name = this.expect(TokenKind.Kind_Identifier, "module identifier expected after export module");
-          if (!name) {
-            this.synchronizeTopLevel(this.pos - 2);
-            continue;
-          }
-          if (!this.expect(TokenKind.Symbol_Semicolon, "; expected after module name")) {
-            this.synchronizeTopLevel(this.pos - 3);
-            continue;
-          }
-          if (this.exportModule) {
-            this.diagnostics.addError(Error2(this.filepath, "parser", getTokenPosition(moduleToken), "a file may declare export module only once"));
-          } else {
-            this.exportModule = {
-              kind: "module_declaration",
-              position: getTokenPosition(exportToken),
-              name: CreateIdentifier(name.value, getTokenPosition(name)),
-              documentation
-            };
-          }
-          sawModuleDeclaration = true;
-          sawNonImportDeclaration = true;
-          continue;
-        }
-      }
-      sawNonImportDeclaration = true;
-      if (this.current().kind == TokenKind.Keyword_Extern) {
-        decls.push(...this.parseExternBlock(exported));
-        continue;
       }
       if (this.current().kind == TokenKind.Keyword_Type || this.current().kind == TokenKind.Keyword_Unique) {
         const declarationStart = this.pos;
@@ -16010,16 +14930,7 @@ var Parser = class {
           this.synchronizeTopLevel(declarationStart);
           continue;
         }
-        if (decl.kind != "import_declaration") {
-          decl.exported = exported;
-          decl.documentation = documentation;
-        }
-        if (decl.kind == "type_declaration" && this.filepath.endsWith(".ffi.delta")) {
-          decl.external = {
-            abi: "delta",
-            moduleName: this.ffiModuleName
-          };
-        }
+        decl.documentation = documentation;
         decls.push(decl);
         continue;
       }
@@ -16036,19 +14947,6 @@ var Parser = class {
           this.synchronizeTopLevel(declarationStart);
           continue;
         }
-        decl.exported = exported;
-        decl.documentation = documentation;
-        decls.push(decl);
-        continue;
-      }
-      if (this.current().kind == TokenKind.Keyword_Interface) {
-        const declarationStart = this.pos;
-        const decl = this.parseInterfaceDeclaration();
-        if (!decl) {
-          this.synchronizeTopLevel(declarationStart);
-          continue;
-        }
-        decl.exported = exported;
         decl.documentation = documentation;
         decls.push(decl);
         continue;
@@ -16060,12 +14958,11 @@ var Parser = class {
           this.synchronizeTopLevel(declarationStart);
           continue;
         }
-        decl.exported = exported;
         decl.documentation = documentation;
         decls.push(decl);
         continue;
       } else {
-        this.diagnostics.addError(Error2(this.filepath, "parser", this.getCurrentPosition(), exported ? "export must be followed by function, type or const" : "keyword function, type or const expected"));
+        this.diagnostics.addError(Error2(this.filepath, "parser", this.getCurrentPosition(), "keyword function, type or const expected"));
         this.skipLine();
       }
     }
@@ -16098,16 +14995,10 @@ var Parser = class {
       }
     }
     const startsDeclaration = (kind) => [
-      TokenKind.Keyword_Import,
-      TokenKind.Keyword_Export,
-      TokenKind.Keyword_Module,
       TokenKind.Keyword_Type,
       TokenKind.Keyword_Unique,
       TokenKind.Keyword_Const,
-      TokenKind.Keyword_Function,
-      TokenKind.Keyword_Ffi,
-      TokenKind.Keyword_Extern,
-      TokenKind.Keyword_Interface
+      TokenKind.Keyword_Function
     ].includes(kind);
     while (this.current().kind != TokenKind.Kind_EOF) {
       const token = this.current();
@@ -16150,20 +15041,7 @@ var Parser = class {
     }
     return {
       fileName: this.filepath,
-      declarations: decls,
-      exportModule: this.exportModule,
-      ffiHeaders: this.ffiHeaders.length ? this.ffiHeaders : void 0,
-      ffiModuleName: this.ffiModuleName,
-      ffiLibraries: this.ffiLibraries.length ? this.ffiLibraries : void 0
-    };
-  }
-  /**
-   * Discovers and parses every Delta file under a project root, producing one
-   * {@link Module} per file. (Not yet implemented — returns an empty project.)
-   */
-  parseProject(root, tokenizer) {
-    return {
-      modules: []
+      declarations: decls
     };
   }
 };
@@ -16557,308 +15435,6 @@ var Tokenizer = class {
   }
 };
 
-// dist/src/compiler/module_bindings.js
-function bindingRequiresUnsafe(binding) {
-  if (binding.kind == "symbol")
-    return binding.symbol.signature?.external?.abi == "c";
-  return [...binding.exports.values()].some(bindingRequiresUnsafe);
-}
-function renamed(binding, name) {
-  return binding.kind == "symbol" ? { ...binding, name } : { ...binding, name };
-}
-function rewriteType(type, names) {
-  if (!type)
-    return;
-  const rewritten = structuredClone(type);
-  const replacement = names.get(rewritten.name.name);
-  if (replacement && rewritten.value == TypeValue.TypeCustom) {
-    rewritten.name.name = replacement;
-  }
-  rewritten.typeParameters = rewritten.typeParameters?.map((argument) => rewriteType(argument, names));
-  rewritten.interfaceBounds = rewritten.interfaceBounds?.map((bound) => rewriteType(bound, names));
-  rewritten.fields = rewritten.fields?.map((field) => ({
-    name: field.name,
-    type: rewriteType(field.type, names)
-  }));
-  rewritten.unionVariants = rewritten.unionVariants?.map((variant) => rewriteType(variant, names));
-  return rewritten;
-}
-function rewriteSignature(signature, names) {
-  if (!signature)
-    return;
-  return {
-    ...signature,
-    parameters: signature.parameters.map((parameter) => ({
-      ...parameter,
-      type: rewriteType(parameter.type, names)
-    })),
-    returnTypes: signature.returnTypes.map((type) => rewriteType(type, names)),
-    errorTypes: signature.errorTypes.map((type) => rewriteType(type, names)),
-    typeParameters: signature.typeParameters?.map((type) => rewriteType(type, names)),
-    receiverType: rewriteType(signature.receiverType, names)
-  };
-}
-function namespaceTypeNames(prefix, exports2) {
-  const names = /* @__PURE__ */ new Map();
-  for (const [exportName, binding] of exports2) {
-    if (binding.kind != "symbol")
-      continue;
-    if (binding.symbol.kind == SymbolKind.SymbolInterfaceDecl) {
-      names.set(binding.sourceName, `${prefix}.${exportName}`);
-      continue;
-    }
-    if (!binding.symbol.type)
-      continue;
-    if (![
-      SymbolKind.SymbolTypeStructDecl,
-      SymbolKind.SymbolTypeEnumDecl,
-      SymbolKind.SymbolTypeUnionDecl,
-      SymbolKind.SymbolTypsAliasDecl
-    ].includes(binding.symbol.kind)) {
-      continue;
-    }
-    names.set(binding.sourceName, `${prefix}.${exportName}`);
-  }
-  return names;
-}
-function cloneSymbol(symbol, name, typeNames) {
-  const declaration = symbol.declaration?.kind == "interface_declaration" ? {
-    ...symbol.declaration,
-    name: { ...symbol.declaration.name, name },
-    methods: symbol.declaration.methods.map((method) => ({
-      ...method,
-      parameters: method.parameters.map((parameter) => ({
-        ...parameter,
-        type: rewriteType(parameter.type, typeNames)
-      })),
-      returnTypes: method.returnTypes.map((type) => rewriteType(type, typeNames)),
-      errorTypes: method.errorTypes.map((type) => rewriteType(type, typeNames)),
-      typeParameters: method.typeParameters?.map((type) => rewriteType(type, typeNames))
-    }))
-  } : symbol.declaration;
-  return {
-    ...symbol,
-    name,
-    declaration,
-    type: rewriteType(symbol.type, typeNames),
-    signature: rewriteSignature(symbol.signature, typeNames)
-  };
-}
-function copyImplementations(target, targetTypeName, binding, typeNames) {
-  for (const interfaceName of binding.scope.implementations.get(binding.sourceName) ?? []) {
-    target.addImplementation(targetTypeName, typeNames.get(interfaceName) ?? interfaceName);
-  }
-}
-function copyMethods(target, targetTypeName, binding, typeNames) {
-  const methods = binding.scope.methods.get(binding.sourceName);
-  if (!methods)
-    return;
-  for (const [methodName, signature] of methods) {
-    target.addMethod(targetTypeName, methodName, rewriteSignature(signature, typeNames));
-  }
-}
-function bindExport(target, localName, binding, importedSymbols, position2, diagnostic) {
-  if (target.symbols.has(localName)) {
-    diagnostic(position2, `imported name \`${localName}\` is declared more than once`);
-    return false;
-  }
-  if (binding.kind == "namespace") {
-    target.addSymbol({
-      name: localName,
-      kind: SymbolKind.SymbolModule,
-      assigned: true
-    });
-    const typeNames2 = namespaceTypeNames(localName, binding.exports);
-    for (const [memberName, member] of binding.exports) {
-      const qualifiedName = `${localName}.${memberName}`;
-      if (member.kind == "namespace") {
-        bindExport(target, qualifiedName, member, importedSymbols, position2, diagnostic);
-        continue;
-      }
-      const symbol = cloneSymbol(member.symbol, qualifiedName, typeNames2);
-      target.addSymbol(symbol);
-      importedSymbols.set(qualifiedName, {
-        moduleName: member.moduleName,
-        sourceName: member.sourceName,
-        linkName: member.symbol.signature?.external?.abi == "c" ? member.symbol.signature.external.linkName : void 0
-      });
-      copyMethods(target, qualifiedName, member, typeNames2);
-      copyImplementations(target, qualifiedName, member, typeNames2);
-    }
-    return true;
-  }
-  const typeNames = /* @__PURE__ */ new Map([[binding.sourceName, localName]]);
-  target.addSymbol(cloneSymbol(binding.symbol, localName, typeNames));
-  importedSymbols.set(localName, {
-    moduleName: binding.moduleName,
-    sourceName: binding.sourceName,
-    linkName: binding.symbol.signature?.external?.abi == "c" ? binding.symbol.signature.external.linkName : void 0
-  });
-  copyMethods(target, localName, binding, typeNames);
-  copyImplementations(target, localName, binding, typeNames);
-  return true;
-}
-function buildExportTable(ast, scope, moduleName, importedBindings) {
-  const exports2 = /* @__PURE__ */ new Map();
-  const exportAll = !!ast.exportModule;
-  for (const declaration of ast.declarations) {
-    if (declaration.kind == "import_declaration")
-      continue;
-    if (!exportAll && !declaration.exported)
-      continue;
-    const symbol = scope.symbols.get(declaration.name.name);
-    if (!symbol)
-      continue;
-    const externalModule = symbol.signature?.external?.abi == "delta" ? symbol.signature.external.moduleName : symbol.declaration?.kind == "variable_declaration_statement" || symbol.declaration?.kind == "type_declaration" || symbol.declaration?.kind == "interface_declaration" ? symbol.declaration.external?.moduleName : void 0;
-    exports2.set(declaration.name.name, {
-      kind: "symbol",
-      name: declaration.name.name,
-      sourceName: declaration.name.name,
-      moduleName: externalModule ?? moduleName,
-      symbol,
-      scope
-    });
-  }
-  if (exportAll) {
-    for (const [name, binding] of importedBindings) {
-      if (!exports2.has(name))
-        exports2.set(name, renamed(binding, name));
-    }
-  }
-  return exports2;
-}
-function namespaceBinding(name, declaredName, exports2) {
-  return { kind: "namespace", name, declaredName, exports: exports2 };
-}
-
-// dist/src/compiler/project_config.js
-var fs = __toESM(require("fs"), 1);
-var path = __toESM(require("path"), 1);
-var STANDARD_LIBRARY_ALIAS = "@std";
-var dependencyNamePattern = /^@[A-Za-z][A-Za-z0-9_-]*$/;
-var externalPackageNamePattern = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
-function readDeltaManifest(manifestPath) {
-  const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-  const kind = parsed.kind ?? "executable";
-  if (!["executable", "static", "dynamic"].includes(kind)) {
-    throw new Error("delta.json kind must be one of `executable`, `static`, or `dynamic`");
-  }
-  const dependencies = /* @__PURE__ */ new Map();
-  const external = /* @__PURE__ */ new Map();
-  if (parsed.dependencies !== void 0) {
-    if (!parsed.dependencies || typeof parsed.dependencies !== "object" || Array.isArray(parsed.dependencies)) {
-      throw new Error("delta.json dependencies must be an object");
-    }
-    for (const [name, target] of Object.entries(parsed.dependencies)) {
-      if (name === STANDARD_LIBRARY_ALIAS) {
-        throw new Error(`dependency \`${STANDARD_LIBRARY_ALIAS}\` is reserved for the standard library`);
-      }
-      if (!dependencyNamePattern.test(name)) {
-        throw new Error(`invalid dependency \`${name}\`: import dependencies must have the form \`@name\``);
-      }
-      if (typeof target !== "string" || target.trim().length === 0) {
-        throw new Error(`dependency \`${name}\` must map to a non-empty string`);
-      }
-      if (path.isAbsolute(target)) {
-        throw new Error(`dependency \`${name}\` must be relative to the project root`);
-      }
-      dependencies.set(name, target);
-    }
-  }
-  if (parsed.external !== void 0) {
-    if (!parsed.external || typeof parsed.external !== "object" || Array.isArray(parsed.external)) {
-      throw new Error("delta.json external must be an object");
-    }
-    for (const [name, specification] of Object.entries(parsed.external)) {
-      if (!externalPackageNamePattern.test(name)) {
-        throw new Error(`invalid external package name \`${name}\`: package names may contain letters, numbers, underscores, and hyphens`);
-      }
-      const separator = typeof specification == "string" ? specification.indexOf(":") : -1;
-      if (typeof specification !== "string" || separator <= 0 || separator == specification.length - 1) {
-        throw new Error(`external package \`${name}\` must have the form \`<version>:<archive-path>\``);
-      }
-      external.set(name, specification);
-    }
-  }
-  return {
-    name: typeof parsed.name === "string" ? parsed.name : void 0,
-    version: typeof parsed.version === "string" ? parsed.version : void 0,
-    entry: typeof parsed.entry === "string" ? parsed.entry : void 0,
-    kind,
-    dependencies,
-    external
-  };
-}
-function findNearestDeltaManifest(startDirectory) {
-  let directory = path.resolve(startDirectory);
-  while (true) {
-    const candidate = path.join(directory, "delta.json");
-    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile())
-      return candidate;
-    const parent = path.dirname(directory);
-    if (parent === directory)
-      return void 0;
-    directory = parent;
-  }
-}
-function resolveDeltaFile(filePath) {
-  if (filePath.endsWith(".delta"))
-    return filePath;
-  const sourcePath = `${filePath}.delta`;
-  if (fs.existsSync(sourcePath))
-    return sourcePath;
-  const interfacePath = `${filePath}.ffi.delta`;
-  return fs.existsSync(interfacePath) ? interfacePath : sourcePath;
-}
-function resolveImportSpecifier(importer, importPath, projectRoot, aliases) {
-  if (importPath === "std" || importPath.startsWith("std/")) {
-    return { kind: "standard", modulePath: importPath };
-  }
-  if (importPath === STANDARD_LIBRARY_ALIAS || importPath.startsWith(`${STANDARD_LIBRARY_ALIAS}/`)) {
-    const configuredRoot = process.env.DELTA_STD_LIB?.trim();
-    if (configuredRoot) {
-      const suffix2 = importPath.slice(STANDARD_LIBRARY_ALIAS.length).replace(/^\//, "");
-      const resolved2 = suffix2 ? path.resolve(configuredRoot, suffix2) : path.resolve(configuredRoot);
-      return { kind: "file", filePath: resolveDeltaFile(resolved2) };
-    }
-    return {
-      kind: "standard",
-      modulePath: `std${importPath.slice(STANDARD_LIBRARY_ALIAS.length)}`,
-      reason: "DELTA_STD_LIB is not set"
-    };
-  }
-  if (importPath.startsWith("./") || importPath.startsWith("../")) {
-    return {
-      kind: "file",
-      filePath: resolveDeltaFile(path.resolve(path.dirname(importer), importPath))
-    };
-  }
-  const separator = importPath.indexOf("/");
-  const alias = separator < 0 ? importPath : importPath.slice(0, separator);
-  const target = aliases.get(alias);
-  if (!target)
-    return { kind: "unknown" };
-  const suffix = separator < 0 ? "" : importPath.slice(separator + 1);
-  const resolved = suffix ? path.resolve(projectRoot, target, suffix) : path.resolve(projectRoot, target);
-  return { kind: "file", filePath: resolveDeltaFile(resolved) };
-}
-function aliasSpecifierForPath(targetPath, projectRoot, aliases) {
-  const normalizedTarget = path.resolve(targetPath);
-  const candidates = [];
-  for (const [alias, configuredTarget] of aliases) {
-    const aliasTarget = path.resolve(projectRoot, configuredTarget);
-    if (resolveDeltaFile(aliasTarget) === normalizedTarget) {
-      candidates.push(alias);
-      continue;
-    }
-    const relative3 = path.relative(aliasTarget, normalizedTarget);
-    if (!relative3 || relative3.startsWith("..") || path.isAbsolute(relative3))
-      continue;
-    candidates.push(`${alias}/${relative3.replaceAll(path.sep, "/").replace(/(?:\.ffi)?\.delta$/i, "")}`);
-  }
-  return candidates.sort((left, right) => left.length - right.length)[0];
-}
-
 // dist/src/compiler/pipeline.js
 function compileSource(source, fileName) {
   const diagnostics = new Diagnostics(fileName);
@@ -16867,140 +15443,6 @@ function compileSource(source, fileName) {
     return { diagnostics: diagnostics.errors };
   const globalScope = new AnalyzerCore(ast, diagnostics).analyze();
   return { ast, diagnostics: diagnostics.errors, globalScope };
-}
-var defaultSourceReader = (fileName) => {
-  try {
-    return fs2.readFileSync(fileName, "utf8");
-  } catch {
-    return void 0;
-  }
-};
-var defaultImportResolver = (importer, importPath) => {
-  const manifestPath = findNearestDeltaManifest(path2.dirname(importer));
-  if (!manifestPath) {
-    return resolveImportSpecifier(importer, importPath, path2.dirname(importer), /* @__PURE__ */ new Map());
-  }
-  try {
-    const manifest = readDeltaManifest(manifestPath);
-    return resolveImportSpecifier(importer, importPath, path2.dirname(manifestPath), manifest.dependencies);
-  } catch {
-    return { kind: "unknown" };
-  }
-};
-function importedDeclarations(ast) {
-  return ast.declarations.filter((declaration) => declaration.kind == "import_declaration");
-}
-function topLevelDeclaration(ast, name) {
-  return ast.declarations.find((declaration) => declaration.kind != "import_declaration" && declaration.name.name == name);
-}
-function compileModuleSource(source, fileName, readSource = defaultSourceReader, resolveImport = defaultImportResolver) {
-  const nodes = /* @__PURE__ */ new Map();
-  const visiting = /* @__PURE__ */ new Set();
-  const ordered = [];
-  const visit = (currentFile, currentSource) => {
-    const normalized = path2.resolve(currentFile);
-    if (nodes.has(normalized))
-      return nodes.get(normalized);
-    const text = currentSource ?? readSource(normalized);
-    if (text === void 0)
-      return void 0;
-    const diagnostics = new Diagnostics(normalized);
-    const ast = new Parser(normalized, diagnostics).parse(new Tokenizer(text).tokenize());
-    if (!ast)
-      return void 0;
-    const node = {
-      fileName: normalized,
-      ast,
-      diagnostics,
-      imports: importedDeclarations(ast),
-      importedSymbols: /* @__PURE__ */ new Map(),
-      importedBindings: /* @__PURE__ */ new Map(),
-      exports: /* @__PURE__ */ new Map()
-    };
-    nodes.set(normalized, node);
-    visiting.add(normalized);
-    for (const declaration of node.imports) {
-      const resolution = resolveImport(normalized, declaration.path);
-      if (resolution.kind === "standard") {
-        diagnostics.addError(Error2(normalized, "semantic", declaration.pathPosition, resolution.reason ? `cannot resolve standard library import \`${declaration.path}\`: ${resolution.reason}` : `unknown standard library module \`${declaration.path}\``));
-        continue;
-      }
-      if (resolution.kind === "unknown") {
-        diagnostics.addError(Error2(normalized, "semantic", declaration.pathPosition, `unknown import root \`${declaration.path}\``));
-        continue;
-      }
-      const dependencyPath = resolution.filePath;
-      declaration.resolvedPath = dependencyPath;
-      if (visiting.has(dependencyPath)) {
-        diagnostics.addError(Error2(normalized, "semantic", declaration.pathPosition, `import cycle detected through \`${declaration.path}\``));
-        continue;
-      }
-      if (!visit(dependencyPath)) {
-        diagnostics.addError(Error2(normalized, "semantic", declaration.pathPosition, `cannot find module \`${declaration.path}\``));
-      }
-    }
-    visiting.delete(normalized);
-    ordered.push(node);
-    return node;
-  };
-  const entry = visit(fileName, source);
-  if (!entry)
-    return { diagnostics: [] };
-  for (const node of ordered) {
-    const importedScope = new Scope();
-    const addImportDiagnostic = (position2, message) => node.diagnostics.addError(Error2(node.fileName, "semantic", position2, message));
-    for (const declaration of node.imports) {
-      if (!declaration.resolvedPath)
-        continue;
-      const dependency = nodes.get(path2.resolve(declaration.resolvedPath));
-      if (!dependency?.scope)
-        continue;
-      if (declaration.namespace) {
-        const declared = dependency.ast.exportModule;
-        if (!declared) {
-          addImportDiagnostic(declaration.namespace.module.position ?? declaration.position, `module namespace import requires \`export module ${declaration.namespace.module.name};\` in \`${declaration.path}\``);
-          continue;
-        }
-        if (declared.name.name != declaration.namespace.module.name) {
-          addImportDiagnostic(declaration.namespace.module.position ?? declaration.position, `imported module name \`${declaration.namespace.module.name}\` does not match declared module \`${declared.name.name}\``);
-          continue;
-        }
-        const localName = declaration.namespace.alias?.name ?? declaration.namespace.module.name;
-        const binding = namespaceBinding(localName, declared.name.name, dependency.exports);
-        if (bindingRequiresUnsafe(binding) && !declaration.unsafe) {
-          addImportDiagnostic(declaration.position, `extern C module \`${declaration.path}\` requires an unsafe import`);
-          continue;
-        }
-        if (bindExport(importedScope, localName, binding, node.importedSymbols, declaration.namespace.alias?.position ?? declaration.namespace.module.position ?? declaration.position, addImportDiagnostic)) {
-          node.importedBindings.set(localName, binding);
-        }
-        continue;
-      }
-      for (const specifier of declaration.specifiers) {
-        const binding = dependency.exports.get(specifier.name.name);
-        if (!binding) {
-          const declared = topLevelDeclaration(dependency.ast, specifier.name.name);
-          addImportDiagnostic(specifier.position, declared ? `\`${specifier.name.name}\` is not exported by \`${declaration.path}\`` : `\`${specifier.name.name}\` is not declared by \`${declaration.path}\``);
-          continue;
-        }
-        if (bindingRequiresUnsafe(binding) && !declaration.unsafe) {
-          addImportDiagnostic(specifier.position, `extern C symbol \`${specifier.name.name}\` requires an unsafe import`);
-          continue;
-        }
-        if (bindExport(importedScope, specifier.name.name, binding, node.importedSymbols, specifier.position, addImportDiagnostic)) {
-          node.importedBindings.set(specifier.name.name, binding);
-        }
-      }
-    }
-    node.scope = new AnalyzerCore(node.ast, node.diagnostics, importedScope).analyze();
-    const physicalName = node.fileName.replace(/\.delta$/i, "").replace(/[^A-Za-z0-9_]/g, "_");
-    node.exports = buildExportTable(node.ast, node.scope, node.ast.ffiModuleName ?? physicalName, node.importedBindings);
-  }
-  return {
-    ast: entry.ast,
-    diagnostics: entry.diagnostics.errors,
-    globalScope: entry.scope
-  };
 }
 
 // dist/src/lsp/source-index.js
@@ -17056,13 +15498,6 @@ var SourceIndex = class {
   tokens;
   root;
   structs = /* @__PURE__ */ new Map();
-  genericBounds = /* @__PURE__ */ new Map();
-  namespaces = /* @__PURE__ */ new Map();
-  imports = [];
-  ffiModuleNames = /* @__PURE__ */ new Set();
-  interfaceRanges = [];
-  exportModuleName;
-  moduleDeclaration;
   constructor(source, uri) {
     this.source = source;
     this.uri = uri;
@@ -17090,14 +15525,14 @@ var SourceIndex = class {
   }
   /**
    * Finds documentation before a declaration, including comments placed
-   * before `export`/`unique` modifiers or immediately after `export`.
+   * before a `unique` modifier.
    */
   documentationAt(index) {
     const direct = documentationBefore(this.tokens, index);
     if (direct)
       return direct;
     let cursor = previous(this.tokens, index);
-    while (cursor >= 0 && (this.tokens[cursor].kind === TokenKind.Keyword_Export || this.tokens[cursor].kind === TokenKind.Keyword_Unique)) {
+    while (cursor >= 0 && this.tokens[cursor].kind === TokenKind.Keyword_Unique) {
       const documentation = documentationBefore(this.tokens, cursor);
       if (documentation)
         return documentation;
@@ -17107,47 +15542,16 @@ var SourceIndex = class {
   }
   indexDeclarations() {
     for (let i = 0; i < this.tokens.length; i++) {
-      if (this.tokens[i].kind === TokenKind.Keyword_Ffi && this.tokens[next(this.tokens, i)]?.kind === TokenKind.Keyword_Module) {
-        const name = this.tokens[next(this.tokens, next(this.tokens, i))];
-        if (name?.kind === TokenKind.Kind_StringLiteral) {
-          this.ffiModuleNames.add(name.value.slice(1, -1));
-        }
-      }
-      if (this.tokens[i].kind === TokenKind.Keyword_Export && this.tokens[next(this.tokens, i)]?.kind === TokenKind.Keyword_Module) {
-        const name = this.tokens[next(this.tokens, next(this.tokens, i))];
-        if (name?.kind === TokenKind.Kind_Identifier) {
-          this.exportModuleName = name.value;
-          this.moduleDeclaration = {
-            name: name.value,
-            kind: "module",
-            signature: `export module ${name.value}`,
-            documentation: this.documentationAt(i),
-            exported: true,
-            uri: this.uri,
-            token: name,
-            scope: this.root
-          };
-        }
-      }
-    }
-    for (let i = 0; i < this.tokens.length; i++) {
       if (this.tokens[i].kind === TokenKind.Keyword_Type)
         this.indexType(i);
-      if (this.tokens[i].kind === TokenKind.Keyword_Interface)
-        this.indexInterface(i);
     }
     for (let i = 0; i < this.tokens.length; i++) {
       const token = this.tokens[i];
-      if (token.kind === TokenKind.Keyword_Function && !this.interfaceRanges.some((range) => range.open < i && i < range.close))
+      if (token.kind === TokenKind.Keyword_Function)
         this.indexFunction(i);
       if (token.kind === TokenKind.Keyword_Const || token.kind === TokenKind.Keyword_Let)
         this.indexVariable(i);
-      if (token.kind === TokenKind.Keyword_Import)
-        this.indexImport(i);
     }
-  }
-  isExported(index) {
-    return !!this.exportModuleName || this.tokens[previous(this.tokens, index)]?.kind === TokenKind.Keyword_Export;
   }
   text(start, end) {
     const first = this.tokens[start];
@@ -17202,40 +15606,7 @@ var SourceIndex = class {
     }
     return names;
   }
-  indexTypeParameterBounds(open, close) {
-    let parameterName;
-    let inBounds = false;
-    let nested = 0;
-    for (let i = open + 1; i < close; i++) {
-      const token = this.tokens[i];
-      if (token.kind === TokenKind.Symbol_Less)
-        nested++;
-      else if (token.kind === TokenKind.Symbol_Greater && nested > 0)
-        nested--;
-      if (nested > 0)
-        continue;
-      if (token.kind === TokenKind.Symbol_Comma) {
-        parameterName = void 0;
-        inBounds = false;
-        continue;
-      }
-      if (!parameterName && token.kind === TokenKind.Kind_Identifier) {
-        parameterName = token.value;
-        continue;
-      }
-      if (token.kind === TokenKind.Symbol_Colon) {
-        inBounds = true;
-        continue;
-      }
-      if (inBounds && parameterName && token.kind === TokenKind.Kind_Identifier) {
-        const bounds = this.genericBounds.get(parameterName) ?? [];
-        if (!bounds.includes(token.value))
-          bounds.push(token.value);
-        this.genericBounds.set(parameterName, bounds);
-      }
-    }
-  }
-  indexFunction(index, interfaceName, boundary) {
+  indexFunction(index) {
     let nameIndex = next(this.tokens, index);
     let receiverName;
     let receiverType;
@@ -17262,7 +15633,6 @@ var SourceIndex = class {
       if (closeTypes < 0)
         return;
       typeParameters = this.typeParameterNames(open, closeTypes);
-      this.indexTypeParameterBounds(open, closeTypes);
       open = next(this.tokens, closeTypes);
     }
     if (this.tokens[open]?.kind !== TokenKind.Symbol_LeftParen)
@@ -17311,33 +15681,25 @@ var SourceIndex = class {
       parameters.push(`${parameter.value}: ${type}`);
     }
     let terminator = close + 1;
-    const limit = boundary ?? this.tokens.length;
-    while (terminator < limit && ![TokenKind.Symbol_LeftBrace, TokenKind.Symbol_Semicolon].includes(this.tokens[terminator].kind)) {
+    while (terminator < this.tokens.length && ![TokenKind.Symbol_LeftBrace, TokenKind.Symbol_Semicolon].includes(this.tokens[terminator].kind)) {
       terminator++;
     }
     const bodyOpen = this.tokens[terminator]?.kind === TokenKind.Symbol_LeftBrace ? terminator : -1;
     const requirementEnd = this.tokens[terminator]?.kind === TokenKind.Symbol_Semicolon ? terminator : -1;
-    const previousIndex = previous(this.tokens, index);
-    const signatureStart = this.tokens[previousIndex]?.kind === TokenKind.Keyword_Export ? previousIndex : index;
+    const signatureStart = index;
     const symbol = {
       name: name.value,
-      kind: receiverType || interfaceName ? "method" : "function",
+      kind: receiverType ? "method" : "function",
       type: returnType,
       signature: bodyOpen >= 0 ? this.source.slice(this.tokens[signatureStart].start, this.tokens[bodyOpen].start).trim() : requirementEnd >= 0 ? this.source.slice(this.tokens[signatureStart].start, this.tokens[requirementEnd].end).trim() : `function ${name.value}${typeParameters?.length ? `<${typeParameters.join(", ")}>` : ""}(${parameters.join(", ")})${returnType ? `: ${returnType}` : ""}`,
       documentation: this.documentationAt(index),
       typeParameters,
       errorTypes,
-      exported: this.isExported(index),
       uri: this.uri,
       token: name,
       scope: this.root
     };
-    if (interfaceName) {
-      const interfaceInfo = this.structs.get(interfaceName);
-      if (interfaceInfo && !interfaceInfo.fields.some((member) => member.name === name.value)) {
-        interfaceInfo.fields.push(symbol);
-      }
-    } else if (receiverType) {
+    if (receiverType) {
       const receiverInfo = this.structs.get(this.baseTypeName(receiverType));
       if (receiverInfo && !receiverInfo.fields.some((member) => member.name === name.value)) {
         receiverInfo.fields.push(symbol);
@@ -17376,37 +15738,6 @@ var SourceIndex = class {
       }
     }
   }
-  indexInterface(index) {
-    const nameIndex = next(this.tokens, index);
-    const name = this.tokens[nameIndex];
-    if (!name || name.kind !== TokenKind.Kind_Identifier)
-      return;
-    const open = next(this.tokens, nameIndex);
-    if (this.tokens[open]?.kind !== TokenKind.Symbol_LeftBrace)
-      return;
-    const close = this.match(open, TokenKind.Symbol_LeftBrace, TokenKind.Symbol_RightBrace);
-    if (close < 0)
-      return;
-    this.interfaceRanges.push({ open, close });
-    const signatureStart = this.isExported(index) ? previous(this.tokens, index) : index;
-    this.add({
-      name: name.value,
-      kind: "interface",
-      type: name.value,
-      signature: this.source.slice(this.tokens[signatureStart].start, this.tokens[close].end).trim(),
-      documentation: this.documentationAt(index),
-      exported: this.isExported(index),
-      uri: this.uri,
-      token: name,
-      scope: this.root
-    });
-    this.structs.set(name.value, { fields: [] });
-    for (let i = open + 1; i < close; i++) {
-      if (this.tokens[i].kind === TokenKind.Keyword_Function) {
-        this.indexFunction(i, name.value, close);
-      }
-    }
-  }
   indexVariable(index) {
     const nameIndex = next(this.tokens, index);
     const name = this.tokens[nameIndex];
@@ -17420,7 +15751,6 @@ var SourceIndex = class {
       type,
       signature: `${this.tokens[index].value} ${name.value}${type ? `: ${type}` : ""}`,
       documentation: this.documentationAt(index),
-      exported: scope === this.root && this.isExported(index),
       uri: this.uri,
       token: name,
       scope
@@ -17476,7 +15806,7 @@ var SourceIndex = class {
       afterName = next(this.tokens, closeTypes);
     }
     const declarationEnd = this.tokens.findIndex((token, i) => i > cursor && token.kind === TokenKind.Symbol_Semicolon);
-    const signatureStart = this.isExported(index) ? previous(this.tokens, index) : index;
+    const signatureStart = index;
     const symbol = {
       name: name.value,
       kind: "type",
@@ -17484,7 +15814,6 @@ var SourceIndex = class {
       signature: declarationEnd >= 0 ? this.source.slice(this.tokens[signatureStart].start, this.tokens[declarationEnd].end) : void 0,
       documentation: this.documentationAt(index),
       typeParameters,
-      exported: this.isExported(index),
       uri: this.uri,
       token: name,
       scope: this.root
@@ -17525,83 +15854,6 @@ var SourceIndex = class {
       info.fields.push(fieldSymbol);
     }
   }
-  indexImport(index) {
-    const leftIndex = next(this.tokens, index);
-    const leftBrace = this.tokens[leftIndex];
-    if (leftBrace?.kind !== TokenKind.Symbol_LeftBrace) {
-      const moduleToken = leftBrace;
-      if (moduleToken?.kind !== TokenKind.Kind_Identifier)
-        return;
-      let cursor = next(this.tokens, leftIndex);
-      let localToken = moduleToken;
-      if (this.tokens[cursor]?.kind === TokenKind.Keyword_As) {
-        cursor = next(this.tokens, cursor);
-        const alias = this.tokens[cursor];
-        if (alias?.kind !== TokenKind.Kind_Identifier)
-          return;
-        localToken = alias;
-        cursor = next(this.tokens, cursor);
-      }
-      if (this.tokens[cursor]?.kind !== TokenKind.Keyword_From)
-        return;
-      const pathIndex2 = next(this.tokens, cursor);
-      const pathToken2 = this.tokens[pathIndex2];
-      if (pathToken2?.kind !== TokenKind.Kind_StringLiteral)
-        return;
-      const semicolonIndex2 = next(this.tokens, pathIndex2);
-      const importPath2 = pathToken2.value.replace(/^['"]|['"]$/g, "");
-      this.imports.push({
-        kind: "module",
-        path: importPath2,
-        names: [localToken.value],
-        moduleName: moduleToken.value,
-        localName: localToken.value,
-        end: this.tokens[semicolonIndex2]?.kind === TokenKind.Symbol_Semicolon ? this.tokens[semicolonIndex2].end : pathToken2.end
-      });
-      this.add({
-        name: localToken.value,
-        kind: "module",
-        namespaceKey: localToken.value,
-        importPath: importPath2,
-        uri: this.uri,
-        token: localToken,
-        scope: this.root,
-        exported: !!this.exportModuleName
-      });
-      return;
-    }
-    const rightIndex = this.match(leftIndex, TokenKind.Symbol_LeftBrace, TokenKind.Symbol_RightBrace);
-    if (rightIndex < 0)
-      return;
-    const fromIndex = next(this.tokens, rightIndex);
-    const pathIndex = next(this.tokens, fromIndex);
-    if (this.tokens[fromIndex]?.kind !== TokenKind.Keyword_From)
-      return;
-    const pathToken = this.tokens[pathIndex];
-    if (pathToken?.kind !== TokenKind.Kind_StringLiteral)
-      return;
-    const importPath = pathToken.value.replace(/^['"]|['"]$/g, "");
-    const semicolonIndex = next(this.tokens, pathIndex);
-    const names = this.tokens.slice(leftIndex + 1, rightIndex).filter((token) => token.kind === TokenKind.Kind_Identifier);
-    this.imports.push({
-      kind: "named",
-      path: importPath,
-      names: names.map((token) => token.value),
-      leftBrace,
-      rightBrace: this.tokens[rightIndex],
-      end: this.tokens[semicolonIndex]?.kind === TokenKind.Symbol_Semicolon ? this.tokens[semicolonIndex].end : pathToken.end
-    });
-    for (const token of names) {
-      this.add({
-        name: token.value,
-        kind: "variable",
-        importPath,
-        uri: this.uri,
-        token,
-        scope: this.root
-      });
-    }
-  }
   indexResultBindings() {
     for (let i = 0; i < this.tokens.length; i++) {
       if (this.tokens[i].kind !== TokenKind.Keyword_As)
@@ -17621,8 +15873,6 @@ var SourceIndex = class {
         statementStart--;
       }
       const statementTokens = this.tokens.slice(statementStart + 1, i);
-      if (statementTokens.some((token) => token.kind === TokenKind.Keyword_Import))
-        continue;
       if (statementTokens.some((token) => token.kind === TokenKind.Keyword_Check))
         continue;
       let sourceFunction;
@@ -17690,8 +15940,6 @@ var SourceIndex = class {
     const token = this.tokens[index];
     if (token.kind !== TokenKind.Kind_Identifier)
       return void 0;
-    if (this.moduleDeclaration?.token.start === token.start)
-      return this.moduleDeclaration;
     for (const info of this.structs.values()) {
       const declaredMember = info.fields.find((member) => member.token.start === token.start);
       if (declaredMember)
@@ -17779,9 +16027,6 @@ var SourceIndex = class {
     if (receiverIndex < 0)
       return void 0;
     const receiver = this.resolveToken(receiverIndex);
-    if (receiver?.kind === "module") {
-      return this.namespaces.get(receiver.namespaceKey ?? receiver.name)?.find((member) => member.name === this.tokens[memberIndex].value);
-    }
     const type = receiver?.type ?? receiver?.name;
     return type ? this.fieldsFor(type).find((field) => field.name === this.tokens[memberIndex].value) : void 0;
   }
@@ -17794,17 +16039,8 @@ var SourceIndex = class {
     return scopeFor(this.root, token.start).lookup(token.value);
   }
   fieldsFor(typeName) {
-    const namespace = this.namespaces.get(typeName);
-    if (namespace)
-      return namespace;
     const seen = /* @__PURE__ */ new Set();
     let type = this.baseTypeName(typeName);
-    const bounds = this.genericBounds.get(type);
-    if (bounds?.length) {
-      return [
-        ...new Map(bounds.flatMap((bound) => this.structs.get(bound)?.fields ?? []).map((member) => [member.name, member])).values()
-      ];
-    }
     while (!seen.has(type)) {
       seen.add(type);
       const info = this.structs.get(type);
@@ -17826,91 +16062,6 @@ var SourceIndex = class {
       type = indirection[1];
     return type.replace(/<.*>$/, "").replace(/\[.*$/, "").trim();
   }
-  exportedSymbols() {
-    return [...this.root.symbols.values()].filter((symbol) => !!this.exportModuleName || symbol.exported === true);
-  }
-  importedNames() {
-    return new Set(this.imports.flatMap((declaration) => declaration.names));
-  }
-  linkImports(resolve4, resolveModule) {
-    for (const declaration of this.imports) {
-      if (declaration.kind === "module") {
-        const localName = declaration.localName;
-        const external = resolveModule?.(declaration.path, declaration.moduleName);
-        if (!external)
-          continue;
-        const binding = this.root.symbols.get(localName);
-        if (binding && external.declaration) {
-          binding.signature = external.declaration.signature;
-          binding.documentation = external.declaration.documentation;
-          binding.uri = external.declaration.uri;
-          binding.token = external.declaration.token;
-        }
-        this.namespaces.set(localName, external.symbols.map((symbol) => ({
-          ...symbol,
-          namespaceKey: symbol.kind === "module" ? `${localName}.${symbol.name}` : symbol.namespaceKey,
-          scope: this.root,
-          importPath: declaration.path
-        })));
-        for (const symbol of external.symbols) {
-          if (symbol.kind !== "module")
-            continue;
-          const sourceKey = symbol.namespaceKey ?? symbol.name;
-          const members = external.namespaces.get(sourceKey);
-          if (members)
-            this.namespaces.set(`${localName}.${symbol.name}`, members);
-        }
-        for (const [name, struct] of external.structs) {
-          this.structs.set(`${localName}.${name}`, struct);
-        }
-        continue;
-      }
-      for (const name of declaration.names) {
-        const external = resolve4(declaration.path, name);
-        if (!external)
-          continue;
-        this.root.symbols.set(name, {
-          ...external.symbol,
-          name,
-          scope: this.root,
-          importPath: declaration.path
-        });
-        if (external.struct)
-          this.structs.set(name, external.struct);
-      }
-    }
-    this.indexResultBindings();
-  }
-  autoImportEdit(name, importPath, importKind = "named") {
-    if (this.root.symbols.has(name) || this.importedNames().has(name))
-      return void 0;
-    if (importKind === "module" && this.imports.some((declaration) => declaration.kind === "module" && declaration.path === importPath)) {
-      return void 0;
-    }
-    const insertion = this.imports.length ? this.imports[this.imports.length - 1].end : 0;
-    if (importKind === "module") {
-      return {
-        start: insertion,
-        end: insertion,
-        newText: `${insertion ? "\n" : ""}import ${name} from "${importPath}";
-`
-      };
-    }
-    const existing = this.imports.find((declaration) => declaration.kind === "named" && declaration.path === importPath);
-    if (existing?.rightBrace) {
-      return {
-        start: existing.rightBrace.start,
-        end: existing.rightBrace.start,
-        newText: `${existing.names.length ? ", " : ""}${name}`
-      };
-    }
-    return {
-      start: insertion,
-      end: insertion,
-      newText: `${insertion ? "\n" : ""}import { ${name} } from "${importPath}";
-`
-    };
-  }
   completions(offset2) {
     let index = this.tokens.findIndex((token) => token.start <= offset2 && offset2 < token.end);
     if (index >= 0 && this.tokens[index].kind === TokenKind.Kind_Identifier && this.tokens[index].start < offset2)
@@ -17919,7 +16070,7 @@ var SourceIndex = class {
       index = this.tokens.reduce((best, token, i) => token.end <= offset2 ? i : best, -1);
     if (this.tokens[index]?.kind === TokenKind.Symbol_Dot) {
       const receiver = this.resolveToken(previous(this.tokens, index));
-      return receiver ? this.fieldsFor(receiver.namespaceKey ?? receiver.type ?? receiver.name) : [];
+      return receiver ? this.fieldsFor(receiver.type ?? receiver.name) : [];
     }
     const visible = [];
     for (let scope = scopeFor(this.root, offset2); scope; scope = scope.parent)
@@ -17937,277 +16088,12 @@ var SourceIndex = class {
 };
 
 // dist/src/lsp/version.js
-var LSP_VERSION = "0.3.23";
-
-// dist/src/lsp/workspace-index.js
-var fs3 = __toESM(require("fs"), 1);
-var path3 = __toESM(require("path"), 1);
-var import_url = require("url");
-var ignoredDirectories = /* @__PURE__ */ new Set([".git", "build", "node_modules", "dist"]);
-function isWithin(root, fileName) {
-  const relative3 = path3.relative(root, fileName);
-  return relative3 === "" || !relative3.startsWith("..") && !path3.isAbsolute(relative3);
-}
-function configuredStandardLibraryRoot() {
-  const configured = process.env.DELTA_STD_LIB?.trim();
-  return configured ? path3.resolve(configured) : void 0;
-}
-var WorkspaceIndex = class {
-  roots;
-  files = /* @__PURE__ */ new Map();
-  manifests = /* @__PURE__ */ new Map();
-  standardLibraryRoot = configuredStandardLibraryRoot();
-  constructor(roots = []) {
-    this.roots = roots;
-    this.roots = roots.map((root) => path3.resolve(root));
-  }
-  setRoots(roots) {
-    this.roots = roots.map((root) => path3.resolve(root));
-    for (const fileName of this.files.keys()) {
-      const retained = this.roots.some((root) => isWithin(root, fileName)) || !!this.standardLibraryRoot && isWithin(this.standardLibraryRoot, fileName);
-      if (!retained)
-        this.files.delete(fileName);
-    }
-    for (const root of this.manifests.keys()) {
-      if (!this.roots.some((workspaceRoot) => isWithin(workspaceRoot, root))) {
-        this.manifests.delete(root);
-      }
-    }
-    this.linkAllImports();
-  }
-  scan() {
-    for (const root of this.roots)
-      this.scanDirectory(root);
-    if (this.standardLibraryRoot)
-      this.scanDirectory(this.standardLibraryRoot);
-    this.linkAllImports();
-  }
-  scanDirectory(directory) {
-    if (!fs3.existsSync(directory))
-      return;
-    for (const entry of fs3.readdirSync(directory, { withFileTypes: true })) {
-      if (entry.isDirectory() && ignoredDirectories.has(entry.name))
-        continue;
-      const fileName = path3.join(directory, entry.name);
-      if (entry.isDirectory())
-        this.scanDirectory(fileName);
-      else if (entry.isFile() && entry.name.endsWith(".delta"))
-        this.load(fileName);
-      else if (entry.isFile() && entry.name === "delta.json")
-        this.loadManifest(fileName);
-    }
-  }
-  loadManifest(fileName) {
-    const root = path3.dirname(path3.resolve(fileName));
-    try {
-      this.manifests.set(root, readDeltaManifest(fileName).dependencies);
-    } catch {
-      this.manifests.delete(root);
-    }
-  }
-  manifestFor(fileName) {
-    const manifestPath = findNearestDeltaManifest(path3.dirname(fileName));
-    if (!manifestPath)
-      return void 0;
-    const root = path3.dirname(manifestPath);
-    if (!this.manifests.has(root))
-      this.loadManifest(manifestPath);
-    const dependencies = this.manifests.get(root);
-    return dependencies ? { root, dependencies } : void 0;
-  }
-  load(fileName) {
-    const normalized = path3.resolve(fileName);
-    try {
-      const index = new SourceIndex(fs3.readFileSync(normalized, "utf8"), (0, import_url.pathToFileURL)(normalized).toString());
-      this.files.set(normalized, index);
-      return index;
-    } catch {
-      return void 0;
-    }
-  }
-  update(fileName, source) {
-    const normalized = path3.resolve(fileName);
-    const index = new SourceIndex(source, (0, import_url.pathToFileURL)(normalized).toString());
-    this.files.set(normalized, index);
-    this.linkAllImports();
-    return index;
-  }
-  refresh(fileName) {
-    if (path3.basename(fileName) === "delta.json")
-      this.loadManifest(fileName);
-    else
-      this.load(fileName);
-    this.linkAllImports();
-  }
-  /**
-   * Refreshes direct dependencies whose contents changed without a watcher
-   * notification. Generated interfaces and configured libraries may live
-   * outside watched workspace roots, so editor queries use this as a
-   * correctness fallback.
-   */
-  refreshImports(fileName, overlaySource) {
-    const normalized = path3.resolve(fileName);
-    const importer = this.files.get(normalized);
-    if (!importer)
-      return false;
-    let changed = false;
-    for (const declaration of importer.imports) {
-      const targetPath = this.resolvePath(normalized, declaration.path);
-      if (!targetPath)
-        continue;
-      let source = overlaySource?.(targetPath);
-      if (source === void 0) {
-        try {
-          source = fs3.readFileSync(targetPath, "utf8");
-        } catch {
-          continue;
-        }
-      }
-      const current = this.files.get(targetPath);
-      if (current?.source === source)
-        continue;
-      this.files.set(targetPath, new SourceIndex(source, (0, import_url.pathToFileURL)(targetPath).toString()));
-      changed = true;
-    }
-    if (changed)
-      this.linkAllImports();
-    return changed;
-  }
-  remove(fileName) {
-    const normalized = path3.resolve(fileName);
-    if (path3.basename(normalized) === "delta.json") {
-      this.manifests.delete(path3.dirname(normalized));
-    } else {
-      this.files.delete(normalized);
-    }
-    this.linkAllImports();
-  }
-  get(fileName) {
-    return this.files.get(path3.resolve(fileName));
-  }
-  readSource = (fileName) => {
-    const indexed = this.get(fileName);
-    if (indexed)
-      return indexed.source;
-    try {
-      return fs3.readFileSync(fileName, "utf8");
-    } catch {
-      return void 0;
-    }
-  };
-  resolveImport = (importer, importPath) => {
-    const manifest = this.manifestFor(importer);
-    return resolveImportSpecifier(importer, importPath, manifest?.root ?? path3.dirname(importer), manifest?.dependencies ?? /* @__PURE__ */ new Map());
-  };
-  resolvePath(importer, importPath) {
-    const resolution = this.resolveImport(importer, importPath);
-    return resolution.kind === "file" ? resolution.filePath : void 0;
-  }
-  external(importer, importPath, name) {
-    const targetPath = this.resolvePath(importer, importPath);
-    if (!targetPath)
-      return void 0;
-    const target = this.files.get(targetPath) ?? this.load(targetPath);
-    const symbol = target?.exportedSymbols().find((candidate) => candidate.name === name);
-    if (!target || !symbol)
-      return void 0;
-    return { symbol, struct: target.structs.get(symbol.name) };
-  }
-  externalModule(importer, importPath, moduleName) {
-    const targetPath = this.resolvePath(importer, importPath);
-    if (!targetPath)
-      return void 0;
-    const target = this.files.get(targetPath) ?? this.load(targetPath);
-    if (!target || target.exportModuleName !== moduleName)
-      return void 0;
-    return {
-      symbols: target.exportedSymbols(),
-      structs: target.structs,
-      namespaces: target.namespaces,
-      declaration: target.moduleDeclaration
-    };
-  }
-  linkAllImports() {
-    for (const [fileName, index] of this.files) {
-      index.linkImports((importPath, name) => this.external(fileName, importPath, name), (importPath, moduleName) => this.externalModule(fileName, importPath, moduleName));
-    }
-  }
-  implementationModule(fileName) {
-    const manifestPath = findNearestDeltaManifest(path3.dirname(fileName));
-    if (!manifestPath)
-      return void 0;
-    try {
-      const manifest = readDeltaManifest(manifestPath);
-      if (!manifest.entry || manifest.kind === "executable")
-        return void 0;
-      const projectRoot = path3.dirname(manifestPath);
-      const entryPath = path3.resolve(projectRoot, manifest.entry);
-      const relativeEntry = path3.relative(projectRoot, entryPath).replace(/\.delta$/i, "");
-      const abiName = relativeEntry.split(path3.sep).map((part) => part.replace(/[^A-Za-z0-9_]/g, "_")).join("__");
-      return {
-        abiName,
-        publicName: (this.files.get(entryPath) ?? this.load(entryPath))?.exportModuleName
-      };
-    } catch {
-      return void 0;
-    }
-  }
-  autoImports(fileName) {
-    const normalized = path3.resolve(fileName);
-    const current = this.files.get(normalized);
-    if (!current)
-      return [];
-    const implementationModule = this.implementationModule(normalized);
-    const visible = new Set(current.completions(current.source.length).map((symbol) => symbol.name));
-    const candidates = [];
-    for (const [candidatePath, candidateIndex] of this.files) {
-      if (candidatePath === normalized)
-        continue;
-      if (candidatePath.endsWith(".ffi.delta") && implementationModule && (candidateIndex.ffiModuleNames.has(implementationModule.abiName) || !!implementationModule.publicName && candidateIndex.exportModuleName === implementationModule.publicName)) {
-        continue;
-      }
-      if (candidateIndex.moduleDeclaration && !visible.has(candidateIndex.moduleDeclaration.name)) {
-        candidates.push({
-          symbol: candidateIndex.moduleDeclaration,
-          importPath: this.moduleSpecifier(normalized, candidatePath),
-          importKind: "module"
-        });
-      }
-      for (const symbol of candidateIndex.exportedSymbols()) {
-        if (visible.has(symbol.name))
-          continue;
-        candidates.push({
-          symbol,
-          importPath: this.moduleSpecifier(normalized, candidatePath),
-          importKind: "named"
-        });
-      }
-    }
-    return candidates;
-  }
-  moduleSpecifier(importer, target) {
-    if (this.standardLibraryRoot && isWithin(this.standardLibraryRoot, target)) {
-      const modulePath = path3.relative(this.standardLibraryRoot, target).replaceAll(path3.sep, "/").replace(/(?:\.ffi)?\.delta$/i, "");
-      return modulePath ? `@std/${modulePath}` : "@std";
-    }
-    const manifest = this.manifestFor(importer);
-    const alias = manifest ? aliasSpecifierForPath(target, manifest.root, manifest.dependencies) : void 0;
-    if (alias)
-      return alias;
-    let relative3 = path3.relative(path3.dirname(importer), target).replaceAll(path3.sep, "/");
-    relative3 = relative3.replace(/\.delta$/i, "");
-    return relative3.startsWith(".") ? relative3 : `./${relative3}`;
-  }
-};
+var LSP_VERSION = "0.3.26";
 
 // dist/src/lsp/server.js
 var documents = new import_node2.TextDocuments(TextDocument);
 var states = /* @__PURE__ */ new Map();
 var connection = (0, import_node.createConnection)(import_node.ProposedFeatures.all, process.stdin, process.stdout);
-var workspace = new WorkspaceIndex();
-var autoImportsEnabled = true;
-var workspaceRoots = [];
-var supportsWorkspaceFolderChanges = false;
 var keywords = [
   "function",
   "return",
@@ -18224,16 +16110,6 @@ var keywords = [
   "struct",
   "enum",
   "union",
-  "import",
-  "unsafe",
-  "export",
-  "extern",
-  "ffi",
-  "header",
-  "static",
-  "dynamic",
-  "module",
-  "from",
   "as",
   "check",
   "forward",
@@ -18277,14 +16153,13 @@ function documentPath(document) {
   if (!document.uri.startsWith("file:"))
     return void 0;
   try {
-    return (0, import_url2.fileURLToPath)(document.uri);
+    return (0, import_url.fileURLToPath)(document.uri);
   } catch {
     return void 0;
   }
 }
 function lspDiagnostics(document) {
-  const fileName = documentPath(document);
-  const result = fileName ? compileModuleSource(document.getText(), fileName, workspace.readSource, workspace.resolveImport) : compileSource(document.getText(), document.uri);
+  const result = compileSource(document.getText(), documentPath(document) ?? document.uri);
   return result.diagnostics.map((error) => ({
     severity: import_node.DiagnosticSeverity.Error,
     range: {
@@ -18296,18 +16171,11 @@ function lspDiagnostics(document) {
   }));
 }
 function update(document) {
-  const fileName = documentPath(document);
-  const index = fileName ? workspace.update(fileName, document.getText()) : new SourceIndex(document.getText(), document.uri);
+  const index = new SourceIndex(document.getText(), documentPath(document) ?? document.uri);
   states.set(document.uri, { index });
   connection.sendDiagnostics({ uri: document.uri, diagnostics: lspDiagnostics(document) });
 }
 function state(uri) {
-  if (uri.startsWith("file:")) {
-    try {
-      workspace.refreshImports((0, import_url2.fileURLToPath)(uri), (fileName) => documents.get((0, import_url2.pathToFileURL)(fileName).toString())?.getText());
-    } catch {
-    }
-  }
   return states.get(uri);
 }
 function completionKind(symbol) {
@@ -18320,55 +16188,24 @@ function completionKind(symbol) {
       return import_node.CompletionItemKind.Field;
     case "method":
       return import_node.CompletionItemKind.Method;
-    case "module":
-      return import_node.CompletionItemKind.Module;
     case "parameter":
       return import_node.CompletionItemKind.Variable;
     default:
       return import_node.CompletionItemKind.Variable;
   }
 }
-connection.onInitialize((params) => {
-  supportsWorkspaceFolderChanges = params.capabilities.workspace?.workspaceFolders === true;
-  workspaceRoots = params.workspaceFolders?.map((folder) => (0, import_url2.fileURLToPath)(folder.uri)) ?? (params.rootUri?.startsWith("file:") ? [(0, import_url2.fileURLToPath)(params.rootUri)] : []);
-  workspace.setRoots(workspaceRoots);
-  workspace.scan();
+connection.onInitialize(() => {
   return {
     capabilities: {
       textDocumentSync: import_node.TextDocumentSyncKind.Incremental,
       hoverProvider: true,
       definitionProvider: true,
-      completionProvider: { triggerCharacters: ["."] },
-      workspace: { workspaceFolders: { supported: true, changeNotifications: true } }
+      completionProvider: { triggerCharacters: ["."] }
     },
     serverInfo: { name: "delta-language-server", version: LSP_VERSION }
   };
 });
-connection.onInitialized(() => {
-  if (!supportsWorkspaceFolderChanges)
-    return;
-  connection.workspace.onDidChangeWorkspaceFolders((event) => {
-    const removed = new Set(event.removed.map((folder) => (0, import_url2.fileURLToPath)(folder.uri)));
-    workspaceRoots = workspaceRoots.filter((root) => !removed.has(root));
-    workspaceRoots.push(...event.added.map((folder) => (0, import_url2.fileURLToPath)(folder.uri)));
-    workspace.setRoots(workspaceRoots);
-    workspace.scan();
-  });
-});
-connection.onNotification(import_node.DidChangeConfigurationNotification.type, (params) => {
-  const configured = params?.settings?.delta?.autoImports?.enabled ?? params?.settings?.autoImports?.enabled;
-  autoImportsEnabled = configured !== false;
-});
-connection.onNotification(import_node.DidChangeWatchedFilesNotification.type, (params) => {
-  for (const change of params.changes) {
-    if (!change.uri.startsWith("file:"))
-      continue;
-    const fileName = (0, import_url2.fileURLToPath)(change.uri);
-    if (change.type === import_node.FileChangeType.Deleted)
-      workspace.remove(fileName);
-    else
-      workspace.refresh(fileName);
-  }
+connection.onNotification(import_node.DidChangeWatchedFilesNotification.type, () => {
   for (const document of documents.all())
     update(document);
 });
@@ -18376,9 +16213,6 @@ documents.onDidOpen((event) => update(event.document));
 documents.onDidChangeContent((event) => update(event.document));
 documents.onDidClose((event) => {
   states.delete(event.document.uri);
-  const fileName = documentPath(event.document);
-  if (fileName)
-    workspace.refresh(fileName);
   connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
 });
 connection.onHover((params) => {
@@ -18434,40 +16268,8 @@ connection.onCompletion((params) => {
   }));
   if (index.isMemberCompletion(offset(document, params.position)))
     return symbolItems;
-  const fileName = documentPath(document);
-  const visible = new Set(symbols.map((symbol) => symbol.name));
-  const autoImportItems = [];
-  if (autoImportsEnabled && fileName) {
-    for (const candidate of workspace.autoImports(fileName)) {
-      if (visible.has(candidate.symbol.name))
-        continue;
-      const edit = index.autoImportEdit(candidate.symbol.name, candidate.importPath, candidate.importKind);
-      if (!edit)
-        continue;
-      autoImportItems.push({
-        label: candidate.symbol.name,
-        kind: completionKind(candidate.symbol),
-        detail: `${candidate.symbol.signature ?? candidate.symbol.type ?? candidate.symbol.kind} \u2014 auto import from ${candidate.importPath}`,
-        documentation: {
-          kind: import_node.MarkupKind.Markdown,
-          value: symbolMarkdown(candidate.symbol)
-        },
-        sortText: `9_${candidate.symbol.name}_${candidate.importPath}`,
-        additionalTextEdits: [
-          {
-            range: {
-              start: position(document, edit.start),
-              end: position(document, edit.end)
-            },
-            newText: edit.newText
-          }
-        ]
-      });
-    }
-  }
   return [
     ...symbolItems,
-    ...autoImportItems,
     ...keywords.map((label) => ({ label, kind: import_node.CompletionItemKind.Keyword })),
     ...primitives.map((label) => ({ label, kind: import_node.CompletionItemKind.TypeParameter }))
   ];

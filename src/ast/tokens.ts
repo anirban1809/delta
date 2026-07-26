@@ -51,10 +51,6 @@ export enum TokenKind {
     Keyword_As = "Keyword_As",
     Keyword_Forward = "Keyword_Forward",
     Keyword_Check = "Keyword_Check",
-    Keyword_Import = "Keyword_Import",
-    Keyword_Export = "Keyword_Export",
-    Keyword_Module = "Keyword_Module",
-    Keyword_From = "Keyword_From",
     Keyword_Edit = "Keyword_Edit",
     Keyword_New = "Keyword_New",
     Keyword_Clone = "Keyword_Clone",
@@ -64,14 +60,6 @@ export enum TokenKind {
     Keyword_Struct = "Keyword_Struct",
     Keyword_Enum = "Keyword_Enum",
     Keyword_Union = "Keyword_Union",
-    Keyword_Extern = "Keyword_Extern",
-    Keyword_Ffi = "Keyword_Ffi",
-    Keyword_Header = "Keyword_Header",
-    Keyword_Unsafe = "Keyword_Unsafe",
-    Keyword_Static = "Keyword_Static",
-    Keyword_Dynamic = "Keyword_Dynamic",
-    Keyword_Interface = "Keyword_Interface",
-    Keyword_Implements = "Keyword_Implements",
 
     //symbols
     Symbol_LeftParen = "Symbol_LeftParen",
@@ -183,14 +171,6 @@ export function string(kind: TokenKind): string {
             return "forward";
         case TokenKind.Keyword_Check:
             return "check";
-        case TokenKind.Keyword_Import:
-            return "import";
-        case TokenKind.Keyword_Export:
-            return "export";
-        case TokenKind.Keyword_Module:
-            return "module";
-        case TokenKind.Keyword_From:
-            return "from";
         case TokenKind.Keyword_Edit:
             return "edit";
         case TokenKind.Keyword_New:
@@ -209,22 +189,6 @@ export function string(kind: TokenKind): string {
             return "union";
         case TokenKind.Keyword_Enum:
             return "enum";
-        case TokenKind.Keyword_Extern:
-            return "extern";
-        case TokenKind.Keyword_Ffi:
-            return "ffi";
-        case TokenKind.Keyword_Header:
-            return "header";
-        case TokenKind.Keyword_Unsafe:
-            return "unsafe";
-        case TokenKind.Keyword_Static:
-            return "static";
-        case TokenKind.Keyword_Dynamic:
-            return "dynamic";
-        case TokenKind.Keyword_Interface:
-            return "interface";
-        case TokenKind.Keyword_Implements:
-            return "implements";
 
         case TokenKind.Symbol_LeftParen:
             return "(";
@@ -363,14 +327,6 @@ export function getTokenKind(s: string): TokenKind {
             return TokenKind.Keyword_Forward;
         case "check":
             return TokenKind.Keyword_Check;
-        case "import":
-            return TokenKind.Keyword_Import;
-        case "export":
-            return TokenKind.Keyword_Export;
-        case "module":
-            return TokenKind.Keyword_Module;
-        case "from":
-            return TokenKind.Keyword_From;
         case "edit":
             return TokenKind.Keyword_Edit;
         case "new":
@@ -389,22 +345,6 @@ export function getTokenKind(s: string): TokenKind {
             return TokenKind.Keyword_Union;
         case "enum":
             return TokenKind.Keyword_Enum;
-        case "extern":
-            return TokenKind.Keyword_Extern;
-        case "ffi":
-            return TokenKind.Keyword_Ffi;
-        case "header":
-            return TokenKind.Keyword_Header;
-        case "unsafe":
-            return TokenKind.Keyword_Unsafe;
-        case "static":
-            return TokenKind.Keyword_Static;
-        case "dynamic":
-            return TokenKind.Keyword_Dynamic;
-        case "interface":
-            return TokenKind.Keyword_Interface;
-        case "implements":
-            return TokenKind.Keyword_Implements;
 
         case "true":
         case "false":

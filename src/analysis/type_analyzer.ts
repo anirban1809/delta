@@ -60,7 +60,6 @@ export class TypeAnalyzer {
             case "int16":
                 return TypeValue.Type_Int16;
             case "int32":
-            case "c.int":
                 return TypeValue.Type_Int32;
             case "int64":
                 return TypeValue.Type_Int64;
@@ -73,10 +72,8 @@ export class TypeAnalyzer {
             case "uint64":
                 return TypeValue.Type_UInt64;
             case "intsize":
-            case "c.ssize_t":
                 return TypeValue.Type_IntSize;
             case "uintsize":
-            case "c.size_t":
                 return TypeValue.Type_UIntSize;
             case "char":
                 return TypeValue.Type_Char;
@@ -94,37 +91,6 @@ export class TypeAnalyzer {
         }
 
         return TypeValue.TypeCustom;
-    }
-
-    /** Whether this is one of the deliberately small C FFI type constructors. */
-    isCType(t: Type): boolean {
-        return t.name.name.startsWith("c.");
-    }
-
-    /** Validates the C ABI types supported by the initial handwritten FFI surface. */
-    isValidCType(t: Type, nested = false): boolean {
-        const parameters = t.typeParameters ?? [];
-        switch (t.name.name) {
-            case "c.int":
-            case "c.size_t":
-            case "c.ssize_t":
-                return parameters.length == 0;
-            case "c.void":
-                return nested && parameters.length == 0;
-            case "c.const":
-                return parameters.length == 1 && this.isValidCType(parameters[0]!, true);
-            case "c.ptr":
-                return parameters.length == 1 && this.isValidCType(parameters[0]!, true);
-            default:
-                return false;
-        }
-    }
-
-    /** The buffer type accepted by the first POSIX interoperability milestone. */
-    isCConstVoidPointer(t: Type | undefined): boolean {
-        const pointee = t?.name.name == "c.ptr" ? t.typeParameters?.[0] : undefined;
-        const inner = pointee?.name.name == "c.const" ? pointee.typeParameters?.[0] : undefined;
-        return inner?.name.name == "c.void";
     }
 
     /** Returns whether a type resolves to one of Delta's built-in primitives. */

@@ -1,6 +1,0 @@
-function consume<...T: Missing>(...values: T): void {
-}
-
-function main(): uint8 {
-    return uint8(0);
-}

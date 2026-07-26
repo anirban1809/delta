@@ -2,7 +2,7 @@
 
 A statically-typed, AOT-compiled systems programming language with TypeScript-like syntax. Delta lowers to inspectable C through Clang, and pairs ownership-based memory safety with a channel-style error model — no exceptions, no `Result<T, E>` wrappers, no hidden control flow.
 
-> **Status:** pre-1.0, actively moving. The compiler runs the full pipeline end to end — a `.delta` file or project becomes a native executable, static library, or shared library. Records, receiver methods, generics, interfaces, ownership/borrow checking, the error channel, modules, C interop, packaging, and an LSP server all work today. See [Current status](#current-status).
+> **Status:** pre-1.0, actively moving. The compiler runs the full pipeline end to end — a `.delta` file or project becomes a native executable, static library, or shared library. Records, receiver methods, generics, ownership/borrow checking, the error channel, modules, C interop, packaging, and an LSP server all work today. See [Current status](#current-status).
 
 ---
 
@@ -10,13 +10,12 @@ A statically-typed, AOT-compiled systems programming language with TypeScript-li
 
 | Area           | Delta's choice                                                                                                    |
 | -------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Surface syntax | TypeScript-like (`function`, `const`, `let`, `interface`, `switch`)                                               |
+| Surface syntax | TypeScript-like (`function`, `const`, `let`, `type`, `switch`)                                                    |
 | Compilation    | AOT; lowers to C17, compiled and linked with `clang`                                                              |
 | Types          | `type struct` records, `type enum` (i32-backed), `type union` (named payload variants), aliases                   |
 | Memory         | Three ownership tiers inferred structurally; `move` / `clone`; `&T` and `edit &T` borrows; `owned<T>` indirection |
 | Errors         | `Success \| ErrorType` returns, `as result` binding, `check` block, `forward` propagation                         |
-| Interfaces     | Nominal `implements`, verified at compile time, monomorphized to direct C calls — no vtables                      |
-| Generics       | Monomorphized type parameters, interface bounds (`<W: Writer>`), variadic type packs (`<...Args>`)                |
+| Generics       | Monomorphized type parameters, inferred or explicit type arguments; no constraints and no variadic packs          |
 | Mutability     | Single axis — `const` vs `let`; borrow capability follows the binding                                             |
 | Modules        | `import`/`export`, `export module` namespaces, `delta.json` manifest with path aliases                            |
 | C interop      | `extern "c"`, `delta bindgen` over real headers, generated `.ffi.delta` interfaces                                |
@@ -33,42 +32,39 @@ type struct ioerror = {
     code: int32
 };
 
-interface writer {
-    function write(text: string): void | ioerror;
-}
-
 type struct counting_writer = {
-    writes: int32
-} implements writer;
+    writes: int32,
+    limit: int32
+};
 
 function (w: edit &counting_writer) write(text: string): void | ioerror {
+    if (w.writes == w.limit) {
+        return error as { code: 28 };
+    }
     w.writes = w.writes + 1;
     return;
 }
 
-function write_twice<W: writer>(w: edit &W, text: string): void | ioerror {
-    w.write(text) as first;
-    forward first;
-
-    w.write(text) as second;
-    forward second;
-    return;
-}
-
 function main(): uint8 {
-    let sink = counting_writer { writes: 0 };
-    write_twice(sink, "delta") as result;
-    check result {
+    let sink = counting_writer { writes: 0, limit: 2 };
+
+    sink.write("delta") as first;
+    check first {
         return 1;
     }
+
+    sink.write("lang") as second;
+    check second {
+        return 1;
+    }
+
     return uint8(sink.writes);
 }
 ```
 
 Key things on display:
 
-- **Interfaces are compile-time constraints.** `write_twice` states the behavior it needs (`W: writer`) instead of naming a concrete type. There is no interface value and no dynamic dispatch: the call compiles to a direct `delta__counting_writer_write(...)` inside a monomorphized `write_twice__counting_writer`.
-- **Behavior attaches through receiver functions.** `function (w: edit &counting_writer) write(...)` declares its own receiver capability; the interface requirement does not.
+- **Behavior attaches through receiver functions.** `function (w: edit &counting_writer) write(...)` declares its own receiver capability, and `sink.write(...)` auto-forms the required borrow. There is no dynamic dispatch: the call compiles to a direct `delta__counting_writer_write(...)`.
 - **Errors travel on a dedicated channel.** `| ioerror` sits after the success type. A fallible call must be bound with `as result`, then either discharged in a `check` block or propagated with `forward`.
 - **Mutation is explicit.** `edit &` is the only way to write through a borrow, and a `const` binding cannot supply one.
 
@@ -121,8 +117,7 @@ Working today, each covered by its own suite under [`test-source/tests/`](test-s
 - **Records and behavior** — `type struct`/`enum`/`union`, spread/intersection composition, receiver methods with capability dispatch.
 - **Ownership** — structural copyable/cloneable/unique tiers, `move`, `clone`, drop flags, `unique type` with `dispose`, `&T` / `edit &T` borrows with exclusivity checks, `owned<T>` heap indirection (older `heap<T>` spelling still accepted).
 - **Errors** — `Success | ErrorType`, `as result`, `check`, `forward`, exhaustive handling checks.
-- **Generics** — monomorphized functions and records, inference, interface bounds, variadic type packs.
-- **Interfaces** — declared conformance, conformance diagnostics, bounded generic dispatch, per-specialization receiver-capability checks, erasure to direct C calls.
+- **Generics** — monomorphized functions and records, inference, explicit type arguments.
 - **Arrays and slices** — fixed-size arrays, slices, indexing.
 - **Modules** — multi-file graphs, selective and namespace imports, `export module`, manifest path aliases, and `@std/...` resolution against the directory named by the `DELTA_STD_LIB` environment variable.
 - **C interop and packaging** — `extern "c"`, `delta bindgen` over C headers, generated `.ffi.delta` interfaces, static and dynamic library projects, `delta package` / `delta install`.
@@ -130,26 +125,26 @@ Working today, each covered by its own suite under [`test-source/tests/`](test-s
 
 Not yet implemented:
 
-- Dynamic dispatch (`dynamic Writer` interface objects, vtables, boxing) — deliberately deferred; see [`docs/plans/interfaces.md`](docs/plans/interfaces.md) §16.
-- Generic type parameters on receiver methods (no inference or substitution yet), which also blocks interface bounds on receiver functions.
+- Any form of behavioral contract — interfaces, traits, protocols, constrained type parameters, vtables, dynamic dispatch. A generic type parameter is unconstrained; a function that needs specific behavior names a concrete type.
+- Variadic parameters and variadic type parameters. A function taking a variable number of values declares a slice parameter (`items: T[]`); raw C variadics remain available only through `extern "c"` and imported headers.
+- Generic type parameters on receiver methods (no inference or substitution yet).
 - Exporting generic functions through prebuilt packages (no generic ABI story yet).
 - A standard library. No `std` modules ship with the compiler yet; `@std/...` imports resolve against whatever directory `DELTA_STD_LIB` points at. Collections, I/O, and allocator plans are drafts.
 - The raw-pointer FFI story — `rawptr<T>` and the `unsafe` boundary are designed in [`docs/plans/interoperability-with-c.md`](docs/plans/interoperability-with-c.md) but not built; today's C interop goes through `extern "c"` and `delta bindgen`.
 - Refinement types, `distinct` newtypes, `has states`, and units — see [`docs/plans/expressive-type-layer.md`](docs/plans/expressive-type-layer.md).
 - The separate ownership/lifetime and error-state pipeline passes, plus the AST optimizer.
 
-A feature-by-feature checkpoint lives in [`docs/compiler-status.md`](docs/compiler-status.md), but be aware that it predates the current compiler and still describes an earlier Go implementation. Parts of `docs/main-spec.md` are likewise behind — it still describes interfaces as _structural_ constraints spelled `extends`, whereas what shipped is nominal `implements` per [`docs/plans/interfaces.md`](docs/plans/interfaces.md). Where a plan document and the older spec text disagree, the plan and the test corpus are current.
+A feature-by-feature checkpoint lives in [`docs/compiler-status.md`](docs/compiler-status.md), but be aware that it predates the current compiler and still describes an earlier Go implementation. Parts of `docs/main-spec.md` and `docs/spec-sections/` are likewise behind, and several plan documents describe features that were never kept — notably [`docs/plans/interfaces.md`](docs/plans/interfaces.md), whose interfaces and variadic type packs were built and then removed from the language. Where documents disagree, the test corpus under [`test-source/tests/`](test-source/tests/) is current.
 
 ### Roadmap
 
-| Milestone                                                                     | Where it is specified                                                                                                          | Status                                       |
-| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- |
-| v0.5 — multi-file projects, records, receiver methods, ownership, error model | [`docs/compiler-goal-v0.5.md`](docs/compiler-goal-v0.5.md)                                                                     | largely landed                               |
-| Interfaces with static dispatch                                               | [`docs/plans/interfaces.md`](docs/plans/interfaces.md)                                                                         | implemented; docs and LSP polish outstanding |
-| Standard library — collections, I/O, memory                                   | [`std-collections`](docs/plans/std-collections.md), [`std-io`](docs/plans/std-io.md), [`std-memory`](docs/plans/std-memory.md) | draft                                        |
-| Expressive type layer                                                         | [`docs/plans/expressive-type-layer.md`](docs/plans/expressive-type-layer.md)                                                   | draft / experimental                         |
-| Rule-based analyzer architecture, AST optimizer                               | [`compiler-rule-architecture`](docs/plans/compiler-rule-architecture.md), [`ast-optimizer`](docs/plans/ast-optimizer.md)       | proposed                                     |
-| v1.0 — self-hosting bootstrap                                                 | [`docs/compiler-goal-self-hosting.md`](docs/compiler-goal-self-hosting.md)                                                     | target                                       |
+| Milestone                                                                     | Where it is specified                                                                                                          | Status               |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------- |
+| v0.5 — multi-file projects, records, receiver methods, ownership, error model | [`docs/compiler-goal-v0.5.md`](docs/compiler-goal-v0.5.md)                                                                     | largely landed       |
+| Standard library — collections, I/O, memory                                   | [`std-collections`](docs/plans/std-collections.md), [`std-io`](docs/plans/std-io.md), [`std-memory`](docs/plans/std-memory.md) | draft                |
+| Expressive type layer                                                         | [`docs/plans/expressive-type-layer.md`](docs/plans/expressive-type-layer.md)                                                   | draft / experimental |
+| Rule-based analyzer architecture, AST optimizer                               | [`compiler-rule-architecture`](docs/plans/compiler-rule-architecture.md), [`ast-optimizer`](docs/plans/ast-optimizer.md)       | proposed             |
+| v1.0 — self-hosting bootstrap                                                 | [`docs/compiler-goal-self-hosting.md`](docs/compiler-goal-self-hosting.md)                                                     | target               |
 
 ---
 
